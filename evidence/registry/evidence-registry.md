@@ -2,7 +2,7 @@
 
 Status: Week 1 rolling evidence baseline. Maps every Week 1 locked item from the 最小实现计划书 line 222 to an evidence row. `evidence-registry.json` is the validation source; this Markdown file is display-only.
 
-Rows for W1D1 and W1D2 items reference already-produced artifacts. EV-007 and EV-008 reference implemented W1D3/W1D4 geometry-topology artifacts and remain `unverified` because business thresholds are still pending. EV-009 through EV-011 remain W1D5 planned evidence rows.
+Rows for W1D1 and W1D2 items reference already-produced artifacts. EV-007 and EV-008 reference implemented W1D3/W1D4 geometry-topology artifacts and remain `unverified` because business thresholds are still pending. EV-009 and EV-010 remain W1D5 planned implementation rows. EV-011 is an executable Data-owned roll-up artifact and remains `unverified` until child rows and business confirmations close.
 
 ## Evidence Table
 
@@ -18,7 +18,7 @@ Rows for W1D1 and W1D2 items reference already-produced artifacts. EV-007 and EV
 | `EV-008` | Topology | topology_graph | measurement.schema.json: openings[].wallIndex, drainagePoints, pipeEnclosures; fixture-placement.schema.json: targetDrainagePoint, orientation.rotationZ, footprint | `npm run validate:w1d4` validates serializable topology JSON, opening ownership, FixturePlacement/Product/Drain references, rotated footprint containment, and drain distance/status output | `lib/topology.js`, `contracts/topology/w1d4-topology-golden.json`, `contracts/topology/w1d4-failure-examples.json`, `scripts/check-w1d4-topology.js` | Topology | W1D4 | unverified | `THR-TOPO-001`, `THR-TOPO-002`, `THR-TOPO-003`, `THR-TOPO-004`, `THR-TOPO-005` | Shared drains are not failed without an explicit rule; threshold-dependent alignment remains `unverified` |
 | `EV-009` | Empty-room 3D | 3d_model | measurement.schema.json: heights (roomHeight, wallHeight, groundElevation, netHeight, doorOpeningHeight); boundary; openings | W1D5 scene JSON and screenshot/report reproduce empty-room 3D from W1D3/W1D4 outputs; every primitive has stable ID, source, evidence ID, and status | `contracts/3d/scene.json` (planned), screenshot/report (planned) | 3D | W1D5 | pending_implementation | `THR-3D-001`, `THR-3D-002`, `THR-3D-003`, `THR-3D-004`, `THR-3D-005`, `THR-3D-006`, `THR-3D-007` | Use only `roomHeight`, `wallHeight`, `groundElevation`, `netHeight`, and `doorOpeningHeight`; defaults remain provisional/unverified |
 | `EV-010` | Automatic annotation | annotation_output | stable annotation IDs, source fields, dimension annotations, point annotations, evidence references, status | W1D5 annotation JSON validates label coverage, source/evidence references, and status markers for dimensions and points | `contracts/annotation/annotation.json` (planned), screenshot/report (planned) | Annotation | W1D5 | pending_implementation | `THR-ANN-001`, `THR-ANN-002`, `THR-ANN-003`, `THR-ANN-004`, `THR-ANN-005`, `THR-ANN-006`, `THR-ANN-007` | Customer-facing vocabulary and confidence thresholds remain `pending_business_confirmation` |
-| `EV-011` | Week 1 final roll-up | rollup_table | All evidence rows EV-001 through EV-010 plus EV-012 and EV-013 | W1D5 roll-up links all 13 rows to day, artifact, status, and blocker without claiming real-case validation or business-threshold confirmation | `evidence/registry/week1-rollup.json` (planned) | Data | W1D5 | pending_implementation | — | Roll-up must preserve `unverified` and `pending_business_confirmation` markers until confirmations close |
+| `EV-011` | Week 1 final roll-up | rollup_table | All evidence rows EV-001 through EV-013 | `npm run validate` checks `week1-rollup.json` against all 13 registry rows for day, owner, artifact, status, contract fields, and status summary | `evidence/registry/week1-rollup.json` | Data | W1D5 | unverified | — | Roll-up artifact exists; it remains unverified until child rows and business confirmations close |
 | `EV-012` | Real sample scope REAL-001 | real_sample | REAL-001, measurement.*, authorization | Business authorization must be received before any real sample artifact is accepted or validated | `evidence/real-sample-scope.md` | Data | W1D2 | pending_business_confirmation | — | Scoped as simple rectangular bathroom; no real source file is confirmed or included |
 | `EV-013` | Real sample scope REAL-002 | real_sample | REAL-002, measurement.*, authorization | Business authorization must be received before any real sample artifact is accepted or validated | `evidence/real-sample-scope.md` | Data | W1D2 | pending_business_confirmation | — | Scoped as bathroom with door and window; no real source file is confirmed or included |
 
@@ -27,15 +27,16 @@ Rows for W1D1 and W1D2 items reference already-produced artifacts. EV-007 and EV
 | Status | Count |
 |---|---|
 | confirmed | 3 |
-| unverified | 4 (EV-001, EV-006, EV-007, EV-008) |
+| unverified | 5 (EV-001, EV-006, EV-007, EV-008, EV-011) |
 | pending_review | 1 (EV-002) |
-| pending_implementation | 3 (EV-009 through EV-011) |
+| pending_implementation | 2 (EV-009, EV-010) |
 | pending_business_confirmation | 2 (EV-012, EV-013) |
 
 ## Coverage
 
 - **13 evidence rows**: 11 locked-item rows plus two explicit real sample scope rows.
 - Rows EV-007 and EV-008 document implemented synthetic geometry/topology evidence but are not business-confirmed.
-- Rows EV-009 through EV-011 document W1D5 planned evidence shape and do not create implementation.
+- Rows EV-009 and EV-010 document W1D5 planned implementation evidence shape and do not create implementation.
+- Row EV-011 provides the Data-owned executable Week 1 roll-up and does not claim child evidence is business-confirmed.
 - Every row references specific contract fields and a concrete expected artifact.
 - Threshold-dependent rows reference threshold registry IDs.

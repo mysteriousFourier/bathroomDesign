@@ -32,6 +32,7 @@ const SYNTHETIC_PRODUCT_DIR = path.join(EVIDENCE_DIR, 'samples', 'products');
 const SYNTHETIC_PLACEMENT_DIR = path.join(EVIDENCE_DIR, 'samples', 'placements');
 const EVIDENCE_INVALID_DIR = path.join(EVIDENCE_DIR, 'invalid');
 const THRESHOLD_REGISTRY_PATH = path.join(EVIDENCE_REGISTRY_DIR, 'threshold-registry.json');
+const WEEK1_ROLLUP_PATH = path.join(EVIDENCE_REGISTRY_DIR, 'week1-rollup.json');
 const EXECUTABLE_THRESHOLD_SPECS = Object.freeze({
   'THR-GEOM-001': { unit: 'mm', status: 'confirmed', thresholdType: 'calculation_tolerance' },
   'THR-IMPL-001': { unit: 'mm', status: 'provisional_implementation', thresholdType: 'provisional_implementation' },
@@ -318,6 +319,75 @@ function validateEvidencePolicy(registry, thresholdRegistry) {
     if (row.status === 'confirmed' && /pending_business_confirmation/.test(text)) {
       errors.push(`${row.evidenceId}: W1D1/W1D2 row with pending_business_confirmation content must not be confirmed`);
     }
+  }
+
+  return errors;
+}
+
+function validateWeek1RollupConsistency(registry, rollup) {
+  const errors = [];
+
+  if (registry._error) {
+    return [registry._error];
+  }
+  if (rollup._error) {
+    return [rollup._error];
+  }
+  if (!Array.isArray(registry.rows) || !Array.isArray(rollup.rows)) {
+    return ['registry rows and rollup rows must both be arrays'];
+  }
+
+  const registryById = new Map(registry.rows.map(row => [row.evidenceId, row]));
+  const rollupById = new Map(rollup.rows.map(row => [row.evidenceId, row]));
+
+  for (const row of registry.rows) {
+    const rollupRow = rollupById.get(row.evidenceId);
+    if (!rollupRow) {
+      errors.push(`missing rollup row for ${row.evidenceId}`);
+      continue;
+    }
+
+    for (const field of ['day', 'owner', 'status']) {
+      if (rollupRow[field] !== row[field]) {
+        errors.push(`${row.evidenceId}: rollup ${field} ${rollupRow[field]} does not match registry ${row[field]}`);
+      }
+    }
+
+    if (rollupRow.artifact !== row.expectedArtifact) {
+      errors.push(`${row.evidenceId}: rollup artifact does not match registry expectedArtifact`);
+    }
+
+    const registryFields = JSON.stringify(row.contractFields);
+    const rollupFields = JSON.stringify(rollupRow.contractFields);
+    if (rollupFields !== registryFields) {
+      errors.push(`${row.evidenceId}: rollup contractFields do not match registry`);
+    }
+  }
+
+  for (const row of rollup.rows) {
+    if (!registryById.has(row.evidenceId)) {
+      errors.push(`rollup contains unknown evidenceId ${row.evidenceId}`);
+    }
+  }
+
+  const expectedStatuses = {
+    confirmed: registry.rows.filter(row => row.status === 'confirmed').length,
+    unverified: registry.rows.filter(row => row.status === 'unverified').length,
+    pendingReview: registry.rows.filter(row => row.status === 'pending_review').length,
+    pendingImplementation: registry.rows.filter(row => row.status === 'pending_implementation').length,
+    pendingBusinessConfirmation: registry.rows.filter(row => row.status === 'pending_business_confirmation').length,
+  };
+  for (const [field, expected] of Object.entries(expectedStatuses)) {
+    if (rollup.summary[field] !== expected) {
+      errors.push(`summary.${field} expected ${expected}, got ${rollup.summary[field]}`);
+    }
+  }
+
+  const unverifiedItems = registry.rows
+    .filter(row => row.status !== 'confirmed')
+    .map(row => row.evidenceId);
+  if (JSON.stringify(rollup.summary.unverifiedItems) !== JSON.stringify(unverifiedItems)) {
+    errors.push('summary.unverifiedItems must list every non-confirmed evidenceId in registry order');
   }
 
   return errors;
@@ -885,10 +955,12 @@ function main() {
 
   const evidenceRegistry = loadJSON(path.join(EVIDENCE_REGISTRY_DIR, 'evidence-registry.json'));
   const thresholdRegistry = loadJSON(path.join(EVIDENCE_REGISTRY_DIR, 'threshold-registry.json'));
+  const week1Rollup = loadJSON(WEEK1_ROLLUP_PATH);
 
   const registryChecks = [
     ['evidence-registry.json', evidenceRegistry, schemas['evidence-registry.schema.json']?.compiled],
     ['threshold-registry.json', thresholdRegistry, schemas['threshold-registry.schema.json']?.compiled],
+    ['week1-rollup.json', week1Rollup, schemas['week1-rollup.schema.json']?.compiled],
   ];
 
   for (const [fname, data, compiled] of registryChecks) {
@@ -934,6 +1006,16 @@ function main() {
       failures.push({ file: 'threshold-config-negative-cases', type: 'threshold-config-negative-failed', errors: thresholdConfigNegativeErrors });
     } else {
       log('PASS', 'threshold config negative cases: Invalid executable configurations are rejected');
+      totalPassed++;
+    }
+
+    const rollupErrors = validateWeek1RollupConsistency(evidenceRegistry, week1Rollup);
+    if (rollupErrors.length > 0) {
+      log('FAIL', `week1-rollup.json: ${rollupErrors.join('; ')}`);
+      totalFailed++;
+      failures.push({ file: 'week1-rollup.json', type: 'week1-rollup-consistency-failed', errors: rollupErrors });
+    } else {
+      log('PASS', 'week1-rollup.json: Roll-up mirrors evidence registry rows and status summary');
       totalPassed++;
     }
   }

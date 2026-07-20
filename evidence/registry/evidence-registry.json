@@ -142,13 +142,13 @@
       "evidenceId": "EV-011",
       "lockedItem": "Week 1 final roll-up",
       "sourceType": "rollup_table",
-      "contractFields": ["EV-001", "EV-002", "EV-003", "EV-004", "EV-005", "EV-006", "EV-007", "EV-008", "EV-009", "EV-010", "EV-012", "EV-013"],
-      "acceptanceMethod": "W1D5 roll-up links all 13 evidence rows to day, artifact, status, and blocker without declaring real-case validation or business-threshold confirmation.",
-      "expectedArtifact": "evidence/registry/week1-rollup.json planned",
+      "contractFields": ["EV-001", "EV-002", "EV-003", "EV-004", "EV-005", "EV-006", "EV-007", "EV-008", "EV-009", "EV-010", "EV-011", "EV-012", "EV-013"],
+      "acceptanceMethod": "npm run validate checks week1-rollup.json against all 13 evidence rows for day, owner, artifact, status, contract fields, and status summary without declaring real-case validation or business-threshold confirmation.",
+      "expectedArtifact": "evidence/registry/week1-rollup.json",
       "owner": "Data",
       "day": "W1D5",
-      "status": "pending_implementation",
-      "notes": "Roll-up must preserve unverified and pending_business_confirmation markers for EV-001, EV-006, EV-007, EV-008, EV-012, and EV-013 until review/confirmation closes."
+      "status": "unverified",
+      "notes": "Roll-up artifact exists and preserves unverified, pending_review, pending_implementation, and pending_business_confirmation markers. It remains unverified until child rows and business confirmations close."
     },
     {
       "schemaVersion": "1.1.0",

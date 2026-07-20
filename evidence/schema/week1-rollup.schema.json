@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Week 1 Evidence Roll-up",
+  "description": "Data-owned Week 1 roll-up that maps every evidence registry row to day, artifact, status, blocker, and validation command without declaring business-threshold confirmation.",
+  "type": "object",
+  "version": "1.0.0",
+  "required": ["schemaVersion", "generatedFrom", "scope", "validationCommands", "rows", "summary"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "generatedFrom": {
+      "type": "string",
+      "const": "evidence/registry/evidence-registry.json"
+    },
+    "scope": {
+      "type": "string",
+      "const": "Week 1 synthetic/generated evidence only; no real source files, site media, addresses, or reference DWG."
+    },
+    "validationCommands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["command", "expectedExitCode", "purpose"],
+        "properties": {
+          "command": { "type": "string" },
+          "expectedExitCode": { "type": "integer" },
+          "purpose": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "items": {
+        "type": "object",
+        "required": ["evidenceId", "day", "owner", "status", "artifact", "contractFields", "blocker", "validationState"],
+        "properties": {
+          "evidenceId": {
+            "type": "string",
+            "pattern": "^EV-[0-9]{3}$"
+          },
+          "day": {
+            "type": "string",
+            "enum": ["W1D1", "W1D2", "W1D3", "W1D4", "W1D5"]
+          },
+          "owner": {
+            "type": "string",
+            "enum": ["Data", "Orchestrator", "Geometry", "Topology", "3D", "Annotation"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["confirmed", "unverified", "pending_business_confirmation", "pending_implementation", "pending_review"]
+          },
+          "artifact": {
+            "type": "string"
+          },
+          "contractFields": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          },
+          "thresholdRefs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^THR-[A-Z0-9]+-[0-9]{3}$"
+            },
+            "uniqueItems": true
+          },
+          "blocker": {
+            "type": "string"
+          },
+          "validationState": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["totalRows", "confirmed", "unverified", "pendingReview", "pendingImplementation", "pendingBusinessConfirmation", "unverifiedItems"],
+      "properties": {
+        "totalRows": { "type": "integer", "const": 13 },
+        "confirmed": { "type": "integer" },
+        "unverified": { "type": "integer" },
+        "pendingReview": { "type": "integer" },
+        "pendingImplementation": { "type": "integer" },
+        "pendingBusinessConfirmation": { "type": "integer" },
+        "unverifiedItems": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

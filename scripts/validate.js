@@ -31,8 +31,16 @@ const GOLDEN_DIR = path.join(EVIDENCE_DIR, 'samples', 'golden');
 const SYNTHETIC_PRODUCT_DIR = path.join(EVIDENCE_DIR, 'samples', 'products');
 const SYNTHETIC_PLACEMENT_DIR = path.join(EVIDENCE_DIR, 'samples', 'placements');
 const EVIDENCE_INVALID_DIR = path.join(EVIDENCE_DIR, 'invalid');
-const COORDINATE_TOLERANCE_MM = 1;
-const NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM = 20;
+const THRESHOLD_REGISTRY_PATH = path.join(EVIDENCE_REGISTRY_DIR, 'threshold-registry.json');
+const DEFAULT_COORDINATE_TOLERANCE_MM = 1;
+const DEFAULT_GOLDEN_PERIMETER_TOLERANCE_MM = 0.01;
+const DEFAULT_GOLDEN_AREA_TOLERANCE_MM2 = 0.01;
+const DEFAULT_NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM = 20;
+
+let COORDINATE_TOLERANCE_MM = DEFAULT_COORDINATE_TOLERANCE_MM;
+let GOLDEN_PERIMETER_TOLERANCE_MM = DEFAULT_GOLDEN_PERIMETER_TOLERANCE_MM;
+let GOLDEN_AREA_TOLERANCE_MM2 = DEFAULT_GOLDEN_AREA_TOLERANCE_MM2;
+let NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM = DEFAULT_NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM;
 
 // Schema to example mapping (prefix match)
 const SCHEMA_EXAMPLE_MAP = {
@@ -62,6 +70,30 @@ function loadJSON(filepath) {
     return { _error: `Cannot parse JSON: ${e.message}` };
   }
 }
+
+function cloneJSON(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function loadThresholdConfig() {
+  const registry = loadJSON(THRESHOLD_REGISTRY_PATH);
+  if (registry._error || !Array.isArray(registry.rows)) return;
+
+  const byId = new Map(registry.rows.map(row => [row.thresholdId, row]));
+  const numericThreshold = (thresholdId, expectedUnit) => {
+    const row = byId.get(thresholdId);
+    if (!row || typeof row.value !== 'number' || row.unit !== expectedUnit) return null;
+    if (!['confirmed', 'provisional_implementation'].includes(row.status)) return null;
+    return row.value;
+  };
+
+  COORDINATE_TOLERANCE_MM = numericThreshold('THR-GEOM-001', 'mm') ?? DEFAULT_COORDINATE_TOLERANCE_MM;
+  GOLDEN_PERIMETER_TOLERANCE_MM = numericThreshold('THR-IMPL-001', 'mm') ?? DEFAULT_GOLDEN_PERIMETER_TOLERANCE_MM;
+  NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM = numericThreshold('THR-IMPL-002', 'mm') ?? DEFAULT_NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM;
+  GOLDEN_AREA_TOLERANCE_MM2 = numericThreshold('THR-IMPL-003', 'mm2') ?? DEFAULT_GOLDEN_AREA_TOLERANCE_MM2;
+}
+
+loadThresholdConfig();
 
 function getExampleFiles(dir, prefix) {
   if (!fs.existsSync(dir)) return [];
@@ -154,23 +186,53 @@ function pointInPolygon(point, polygon) {
   return inside;
 }
 
+function rotatePoint(point, degrees) {
+  const radians = (degrees * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return {
+    x: point.x * cos - point.y * sin,
+    y: point.x * sin + point.y * cos,
+  };
+}
+
+function toAbsoluteFootprintPoint(placement, relativePoint) {
+  const rotated = rotatePoint(relativePoint, placement.orientation?.rotationZ || 0);
+  return {
+    x: placement.position.x + rotated.x,
+    y: placement.position.y + rotated.y,
+  };
+}
+
 function rectangularFootprintVertices(placement) {
   const halfWidth = placement.footprint.width / 2;
   const halfDepth = placement.footprint.depth / 2;
   return [
-    { x: placement.position.x - halfWidth, y: placement.position.y - halfDepth },
-    { x: placement.position.x + halfWidth, y: placement.position.y - halfDepth },
-    { x: placement.position.x + halfWidth, y: placement.position.y + halfDepth },
-    { x: placement.position.x - halfWidth, y: placement.position.y + halfDepth },
-  ];
+    { x: -halfWidth, y: -halfDepth },
+    { x: halfWidth, y: -halfDepth },
+    { x: halfWidth, y: halfDepth },
+    { x: -halfWidth, y: halfDepth },
+  ].map(point => toAbsoluteFootprintPoint(placement, point));
+}
+
+function circularFootprintVertices(placement) {
+  const radius = placement.footprint.width / 2;
+  const segmentCount = 16;
+  return Array.from({ length: segmentCount }, (_, index) => {
+    const radians = (index / segmentCount) * Math.PI * 2;
+    return {
+      x: placement.position.x + radius * Math.cos(radians),
+      y: placement.position.y + radius * Math.sin(radians),
+    };
+  });
 }
 
 function footprintVertices(placement) {
+  if (placement.footprint.type === 'circular') {
+    return circularFootprintVertices(placement);
+  }
   if (placement.footprint.type === 'polygonal') {
-    return placement.footprint.vertices.map(vertex => ({
-      x: placement.position.x + vertex.x,
-      y: placement.position.y + vertex.y,
-    }));
+    return placement.footprint.vertices.map(vertex => toAbsoluteFootprintPoint(placement, vertex));
   }
   return rectangularFootprintVertices(placement);
 }
@@ -236,10 +298,10 @@ function validateGoldenConsistency(measurement, golden) {
   if (measurement.walls.length !== geometry.wallCount) {
     errors.push(`wallCount expected ${geometry.wallCount}, got ${measurement.walls.length}`);
   }
-  if (Math.abs(Math.abs(area) - geometry.areaMm2) > 0.01) {
+  if (Math.abs(Math.abs(area) - geometry.areaMm2) > GOLDEN_AREA_TOLERANCE_MM2) {
     errors.push(`areaMm2 expected ${geometry.areaMm2}, got ${Math.abs(area)}`);
   }
-  if (Math.abs(perimeter - geometry.perimeterMm) > 0.01) {
+  if (Math.abs(perimeter - geometry.perimeterMm) > GOLDEN_PERIMETER_TOLERANCE_MM) {
     errors.push(`perimeterMm expected ${geometry.perimeterMm}, got ${perimeter}`);
   }
   if ((measurement.openings || []).length !== topology.openingCount) {
@@ -400,6 +462,108 @@ function validateGoldenFixtureExpectations(golden, measurement, schemas) {
 
     errors.push(...validateFixturePlacementSemantics(measurement, product, placement));
   }
+
+  return errors;
+}
+
+function validateSemanticNegativeCases(schemas) {
+  const errors = [];
+  const measurementSchema = schemas['measurement.schema.json']?.compiled;
+  const productSchema = schemas['product.schema.json']?.compiled;
+  const placementSchema = schemas['fixture-placement.schema.json']?.compiled;
+  const measurement = loadJSON(path.join(SYNTHETIC_DIR, 'measurement-synthetic-005-full-featured.json'));
+  const product = loadJSON(path.join(SYNTHETIC_PRODUCT_DIR, 'product-synthetic-005-toilet.json'));
+  const placement = loadJSON(path.join(SYNTHETIC_PLACEMENT_DIR, 'fixture-placement-synthetic-005-toilet.json'));
+
+  if (measurement._error || product._error || placement._error) {
+    return ['semantic negative fixture source cannot be loaded'];
+  }
+  if (!measurementSchema(measurement) || !productSchema(product) || !placementSchema(placement)) {
+    return ['semantic negative fixture source must pass schema validation before mutation'];
+  }
+
+  const measurementCases = [
+    {
+      name: 'roomHeight greater than wallHeight',
+      mutate: data => { data.heights.wallHeight = data.heights.roomHeight - 1; },
+      expected: 'wallHeight',
+    },
+    {
+      name: 'wall segment does not match boundary edge',
+      mutate: data => { data.walls[0].endPoint.x -= COORDINATE_TOLERANCE_MM + 1; },
+      expected: 'does not match boundary edge',
+    },
+    {
+      name: 'opening position is off owning wall',
+      mutate: data => { data.openings[0].position.y += COORDINATE_TOLERANCE_MM + 1; },
+      expected: 'position is not on wall',
+    },
+    {
+      name: 'opening width exceeds wall length',
+      mutate: data => { data.openings[0].width = 4000; },
+      expected: 'width exceeds wall',
+    },
+    {
+      name: 'drainage point is outside room boundary',
+      mutate: data => { data.drainagePoints[0].position.x = 4000; },
+      expected: 'is outside room boundary',
+    },
+    {
+      name: 'pipe enclosure vertex is outside room boundary',
+      mutate: data => { data.pipeEnclosures[0].boundary[0].x = 3200; },
+      expected: 'pipe enclosure',
+    },
+  ];
+
+  measurementCases.forEach(testCase => {
+    const data = cloneJSON(measurement);
+    testCase.mutate(data);
+    const semanticErrors = validateMeasurementSemantics(data, 'FIXTURE-005');
+    if (!semanticErrors.some(error => error.includes(testCase.expected))) {
+      errors.push(`${testCase.name}: expected semantic failure containing "${testCase.expected}", got ${semanticErrors.join('; ') || 'none'}`);
+    }
+  });
+
+  const placementCases = [
+    {
+      name: 'placement productId mismatch',
+      mutate: data => { data.productId = 'PLACEHOLDER-sink'; },
+      expected: 'productId',
+    },
+    {
+      name: 'floor-mounted fixture has nonzero z',
+      mutate: data => { data.position.z = 50; },
+      expected: 'must have z=0',
+    },
+    {
+      name: 'required drain reference is missing',
+      mutate: data => { data.targetDrainagePoint = '55555555-5555-4555-8555-999999999999'; },
+      expected: 'targetDrainagePoint is missing',
+    },
+    {
+      name: 'fixture footprint exceeds room boundary',
+      mutate: data => { data.position.x = 100; },
+      expected: 'footprint vertex',
+    },
+    {
+      name: 'rotated rectangular footprint exceeds room boundary',
+      mutate: data => {
+        data.position = { x: 1500, y: 1200, z: 0 };
+        data.orientation.rotationZ = 90;
+        data.footprint = { type: 'rectangular', width: 2600, depth: 300 };
+      },
+      expected: 'footprint vertex',
+    },
+  ];
+
+  placementCases.forEach(testCase => {
+    const data = cloneJSON(placement);
+    testCase.mutate(data);
+    const semanticErrors = validateFixturePlacementSemantics(measurement, product, data);
+    if (!semanticErrors.some(error => error.includes(testCase.expected))) {
+      errors.push(`${testCase.name}: expected semantic failure containing "${testCase.expected}", got ${semanticErrors.join('; ') || 'none'}`);
+    }
+  });
 
   return errors;
 }
@@ -750,6 +914,16 @@ function main() {
       log('PASS', `${fname}: Correctly fails validation/policy`);
       totalPassed++;
     }
+  }
+
+  const semanticNegativeErrors = validateSemanticNegativeCases(schemas);
+  if (semanticNegativeErrors.length > 0) {
+    log('FAIL', `semantic negative cases: ${semanticNegativeErrors.join('; ')}`);
+    totalFailed++;
+    failures.push({ file: 'semantic-negative-cases', type: 'semantic-negative-failed', errors: semanticNegativeErrors });
+  } else {
+    log('PASS', 'semantic negative cases: Correctly fail semantic validation');
+    totalPassed++;
   }
 
   // 7. Summary

@@ -86,14 +86,14 @@
       "evidenceId": "EV-007",
       "lockedItem": "2D geometry",
       "sourceType": "geometry_output",
-      "contractFields": ["measurement.boundary", "measurement.walls", "wall.type", "counterclockwise winding"],
-      "acceptanceMethod": "W1D3 geometry outputs validate against measurement schema and golden geometry.",
-      "expectedArtifact": "contracts/geometry/ planned",
+      "contractFields": ["measurement.boundary", "measurement.walls", "measurement.heights.*", "optional openings", "optional drainagePoints", "optional pipeEnclosures", "counterclockwise winding"],
+      "acceptanceMethod": "npm run validate:w1d3 validates deterministic 2D recovery against golden output and failure samples; missing required heights.* fails, while absent openings/drainagePoints/pipeEnclosures is legal.",
+      "expectedArtifact": "lib/recovery2d.js; contracts/geometry/w1d3-recovery-golden.json; contracts/geometry/w1d3-failure-examples.json; scripts/check-w1d3-geometry.js",
       "owner": "Geometry",
       "day": "W1D3",
-      "status": "pending_implementation",
+      "status": "unverified",
       "thresholdRefs": ["THR-GEOM-001", "THR-GEOM-002", "THR-GEOM-003", "THR-GEOM-004", "THR-GEOM-005", "THR-GEOM-006", "THR-GEOM-007", "THR-GEOM-008"],
-      "notes": "Only confirmed calculation tolerances may produce confirmed geometry evidence."
+      "notes": "Deterministic synthetic recovery is implemented without binding a model provider. Business thresholds THR-GEOM-005..008 remain pending_business_confirmation, so evidence is unverified."
     },
     {
       "schemaVersion": "1.1.0",
@@ -101,41 +101,41 @@
       "lockedItem": "Topology",
       "sourceType": "topology_graph",
       "contractFields": ["openings[].wallIndex", "drainagePoints", "pipeEnclosures", "fixture-placement.targetDrainagePoint", "fixture-placement.orientation.rotationZ", "fixture-placement.footprint"],
-      "acceptanceMethod": "W1D4 topology graph validates containment and references, including rotationZ-applied fixture footprints.",
-      "expectedArtifact": "contracts/topology/ planned",
+      "acceptanceMethod": "npm run validate:w1d4 validates serializable topology JSON, opening ownership, FixturePlacement/Product/Drain references, rotationZ-applied footprint containment, and drain distance/status output.",
+      "expectedArtifact": "lib/topology.js; contracts/topology/w1d4-topology-golden.json; contracts/topology/w1d4-failure-examples.json; scripts/check-w1d4-topology.js",
       "owner": "Topology",
       "day": "W1D4",
-      "status": "pending_implementation",
+      "status": "unverified",
       "thresholdRefs": ["THR-TOPO-001", "THR-TOPO-002", "THR-TOPO-003", "THR-TOPO-004", "THR-TOPO-005"],
-      "notes": "Business thresholds remain unverified until confirmed. D4 coverage must include fixture footprint containment with orientation.rotationZ for rectangular, circular, and polygonal footprints."
+      "notes": "D4 input includes FixturePlacement plus product and drain references. Rectangular, circular, and polygonal footprint containment are covered. Shared drains are not failed without an explicit rule; drain alignment reports distance/status while THR-TOPO thresholds remain pending_business_confirmation."
     },
     {
       "schemaVersion": "1.1.0",
       "evidenceId": "EV-009",
       "lockedItem": "Empty-room 3D",
       "sourceType": "3d_model",
-      "contractFields": ["heights.roomHeight", "heights.wallHeight", "boundary", "openings"],
-      "acceptanceMethod": "W1D5 empty-room model validates against confirmed dimensions and review artifact.",
-      "expectedArtifact": "contracts/3d/ planned",
+      "contractFields": ["heights.roomHeight", "heights.wallHeight", "heights.groundElevation", "heights.netHeight", "heights.doorOpeningHeight", "boundary", "openings"],
+      "acceptanceMethod": "W1D5 scene JSON and screenshot/report reproduce empty-room 3D from W1D3/W1D4 outputs; every primitive carries stable ID, source field, evidence ID, and status.",
+      "expectedArtifact": "contracts/3d/scene.json planned; screenshot/report planned",
       "owner": "3D",
       "day": "W1D5",
       "status": "pending_implementation",
       "thresholdRefs": ["THR-3D-001", "THR-3D-002", "THR-3D-003", "THR-3D-004", "THR-3D-005", "THR-3D-006", "THR-3D-007"],
-      "notes": "Default height values are pending_business_confirmation and cannot confirm acceptance."
+      "notes": "Use roomHeight, wallHeight, groundElevation, netHeight, and doorOpeningHeight only. Default dimensions and camera/view choices remain provisional or unverified while business thresholds are pending."
     },
     {
       "schemaVersion": "1.1.0",
       "evidenceId": "EV-010",
       "lockedItem": "Automatic annotation",
       "sourceType": "annotation_output",
-      "contractFields": ["labels", "dimension annotations", "evidence references"],
-      "acceptanceMethod": "W1D5 annotation outputs validate label coverage and evidence references.",
-      "expectedArtifact": "contracts/annotation/ planned",
+      "contractFields": ["stable annotation IDs", "source fields", "dimension annotations", "point annotations", "evidence references", "status"],
+      "acceptanceMethod": "W1D5 annotation JSON validates label coverage, source/evidence references, and status markers for dimensions and points.",
+      "expectedArtifact": "contracts/annotation/annotation.json planned; screenshot/report planned",
       "owner": "Annotation",
       "day": "W1D5",
       "status": "pending_implementation",
       "thresholdRefs": ["THR-ANN-001", "THR-ANN-002", "THR-ANN-003", "THR-ANN-004", "THR-ANN-005", "THR-ANN-006", "THR-ANN-007"],
-      "notes": "Customer-facing vocabulary is pending_business_confirmation."
+      "notes": "Customer-facing vocabulary and confidence thresholds are pending_business_confirmation; annotation rows may only be provisional or unverified until confirmed."
     },
     {
       "schemaVersion": "1.1.0",
@@ -143,12 +143,12 @@
       "lockedItem": "Week 1 final roll-up",
       "sourceType": "rollup_table",
       "contractFields": ["EV-001", "EV-002", "EV-003", "EV-004", "EV-005", "EV-006", "EV-007", "EV-008", "EV-009", "EV-010", "EV-012", "EV-013"],
-      "acceptanceMethod": "W1D5 roll-up links every locked item to status, artifact, and blocker.",
+      "acceptanceMethod": "W1D5 roll-up links all 13 evidence rows to day, artifact, status, and blocker without declaring real-case validation or business-threshold confirmation.",
       "expectedArtifact": "evidence/registry/week1-rollup.json planned",
       "owner": "Data",
       "day": "W1D5",
       "status": "pending_implementation",
-      "notes": "Roll-up must preserve unverified markers for pending business confirmations."
+      "notes": "Roll-up must preserve unverified and pending_business_confirmation markers for EV-001, EV-006, EV-007, EV-008, EV-012, and EV-013 until review/confirmation closes."
     },
     {
       "schemaVersion": "1.1.0",

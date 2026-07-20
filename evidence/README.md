@@ -2,6 +2,8 @@
 
 W1D2 deliverable: sample registration, executable synthetic test fixtures, threshold configuration, evidence registry, and real-sample scope baseline. JSON files are the validation source; Markdown files are display summaries only.
 
+Current mapping note: EV-007 and EV-008 describe implemented W1D3/W1D4 geometry-topology artifacts and remain `unverified` only because business thresholds are still pending. EV-009 through EV-011 remain W1D5 planned outputs and must use `roomHeight`, `wallHeight`, `groundElevation`, `netHeight`, and `doorOpeningHeight`; do not reintroduce `floorHeight`.
+
 ## Directory
 
 | Path | Content |
@@ -35,10 +37,13 @@ W1D2 deliverable: sample registration, executable synthetic test fixtures, thres
 - [x] No real customer cases, site media, addresses, or reference DWG files are used
 - [x] No business threshold value is fabricated
 - [x] All contract field references trace back to W1D1 schemas
+- [x] W1D3 evidence wording treats `openings`, `drainagePoints`, and `pipeEnclosures` as optional collections; malformed/out-of-bounds/reference-invalid data is failure scope
+- [x] W1D4 evidence wording includes `FixturePlacement`, product references, drain references, and rotated rectangular/circular/polygonal footprints
+- [x] W1D5 evidence wording requires scene JSON, annotation JSON, screenshot/report, stable IDs, source fields, evidence IDs, and status markers
 
 ## Blocking Condition
 
-Business acceptance cannot be confirmed from `pending_business_confirmation` thresholds. W1D3–W1D5 must preserve `unverified` markers until the business decision is confirmed.
+Business acceptance cannot be confirmed from `pending_business_confirmation` thresholds. W1D3-W1D4 implementation evidence remains `unverified`, and W1D5 planned outputs must preserve `unverified` or `provisional` markers until the business decision is confirmed.
 
 ## Predecessors
 

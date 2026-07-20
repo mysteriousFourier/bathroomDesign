@@ -10,18 +10,48 @@
     },
     {
       "caseId": "W1D3-FAIL-002",
+      "description": "Walls no longer map 1:1 to boundary edges.",
+      "expectedCode": "wall_boundary_count_mismatch"
+    },
+    {
+      "caseId": "W1D3-FAIL-003",
+      "description": "Boundary polygon edges cross each other.",
+      "expectedCode": "self_intersecting_boundary"
+    },
+    {
+      "caseId": "W1D3-FAIL-004",
       "description": "Opening center no longer lies on its owning wall.",
       "expectedCode": "opening_off_wall"
     },
     {
-      "caseId": "W1D3-FAIL-003",
+      "caseId": "W1D3-FAIL-005",
+      "description": "Opening width and position overlap a wall corner.",
+      "expectedCode": "opening_width_exceeds_wall"
+    },
+    {
+      "caseId": "W1D3-FAIL-006",
+      "description": "Two openings overlap on the same wall.",
+      "expectedCode": "opening_overlap"
+    },
+    {
+      "caseId": "W1D3-FAIL-007",
       "description": "Drain point is outside the room boundary.",
       "expectedCode": "drain_outside_room"
     },
     {
-      "caseId": "W1D3-FAIL-004",
+      "caseId": "W1D3-FAIL-008",
+      "description": "Drain record is present but has no recoverable coordinate.",
+      "expectedCode": "drain_missing_position"
+    },
+    {
+      "caseId": "W1D3-FAIL-009",
       "description": "Pipe enclosure vertex penetrates outside the boundary.",
       "expectedCode": "pipe_enclosure_outside_room"
+    },
+    {
+      "caseId": "W1D3-FAIL-010",
+      "description": "Pipe enclosure record is present but lacks a polygon boundary.",
+      "expectedCode": "pipe_enclosure_missing_boundary"
     }
   ]
 }

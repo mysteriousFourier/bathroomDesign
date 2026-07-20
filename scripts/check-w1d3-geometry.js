@@ -35,6 +35,27 @@ function runGolden() {
   assertEqual(recover2D(measurement), expected, 'W1D3 full-featured recovery golden');
 }
 
+function assertSyntheticGeometry(fixtureId, filename) {
+  const measurement = loadJSON(path.join(SYNTHETIC_DIR, filename));
+  const expected = loadJSON(path.join(ROOT, 'evidence', 'samples', 'golden', filename.replace('.json', '.golden.json')));
+  const result = recover2D(measurement);
+  const actual = {
+    boundaryVertexCount: result.geometry.boundaryVertexCount,
+    wallCount: result.geometry.wallCount,
+    winding: result.geometry.winding,
+    areaMm2: result.geometry.areaMm2,
+    perimeterMm: Number(result.geometry.perimeterMm.toFixed(2)),
+    coordinateToleranceMm: expected.expectedGeometry.coordinateToleranceMm,
+    angularToleranceDeg: expected.expectedGeometry.angularToleranceDeg,
+  };
+  assertEqual(actual, expected.expectedGeometry, `W1D3 ${fixtureId} geometry`);
+  if (result.status !== 'passed') {
+    console.error(`FAIL W1D3 ${fixtureId}: expected passed, got ${result.status}`);
+    console.error(stable(result.violations));
+    process.exitCode = 1;
+  }
+}
+
 function runOptionalInputsCase() {
   const measurement = loadJSON(path.join(SYNTHETIC_DIR, 'measurement-synthetic-001-rectangle-empty.json'));
   const result = recover2D(measurement);
@@ -62,26 +83,68 @@ function executableFailureCases() {
     },
     {
       caseId: 'W1D3-FAIL-002',
+      description: 'Walls no longer map 1:1 to boundary edges.',
+      expectedCode: 'wall_boundary_count_mismatch',
+      patch: data => { data.walls.pop(); },
+    },
+    {
+      caseId: 'W1D3-FAIL-003',
+      description: 'Boundary polygon edges cross each other.',
+      expectedCode: 'self_intersecting_boundary',
+      patch: data => { data.boundary = [data.boundary[0], data.boundary[2], data.boundary[1], data.boundary[3]]; },
+    },
+    {
+      caseId: 'W1D3-FAIL-004',
       description: 'Opening center no longer lies on its owning wall.',
       expectedCode: 'opening_off_wall',
       patch: data => { data.openings[0].position.y = 50; },
     },
     {
-      caseId: 'W1D3-FAIL-003',
+      caseId: 'W1D3-FAIL-005',
+      description: 'Opening width and position overlap a wall corner.',
+      expectedCode: 'opening_width_exceeds_wall',
+      patch: data => { data.openings[0].position.x = 100; data.openings[0].width = 900; },
+    },
+    {
+      caseId: 'W1D3-FAIL-006',
+      description: 'Two openings overlap on the same wall.',
+      expectedCode: 'opening_overlap',
+      patch: data => {
+        data.openings[1] = cloneJSON(data.openings[0]);
+        data.openings[1].openingId = '55555555-5555-4555-8555-000000000006';
+        data.openings[1].position.x = 1000;
+      },
+    },
+    {
+      caseId: 'W1D3-FAIL-007',
       description: 'Drain point is outside the room boundary.',
       expectedCode: 'drain_outside_room',
       patch: data => { data.drainagePoints[0].position.x = 3200; },
     },
     {
-      caseId: 'W1D3-FAIL-004',
+      caseId: 'W1D3-FAIL-008',
+      description: 'Drain record is present but has no recoverable coordinate.',
+      expectedCode: 'drain_missing_position',
+      patch: data => { delete data.drainagePoints[0].position; },
+    },
+    {
+      caseId: 'W1D3-FAIL-009',
       description: 'Pipe enclosure vertex penetrates outside the boundary.',
       expectedCode: 'pipe_enclosure_outside_room',
       patch: data => { data.pipeEnclosures[0].boundary[0].x = 3200; },
+    },
+    {
+      caseId: 'W1D3-FAIL-010',
+      description: 'Pipe enclosure record is present but lacks a polygon boundary.',
+      expectedCode: 'pipe_enclosure_missing_boundary',
+      patch: data => { delete data.pipeEnclosures[0].boundary; },
     },
   ];
 }
 
 runGolden();
+assertSyntheticGeometry('legal rectangle', 'measurement-synthetic-001-rectangle-empty.json');
+assertSyntheticGeometry('legal near-rectangle', 'measurement-synthetic-002-near-rectangle.json');
 runOptionalInputsCase();
 
 const source = loadJSON(path.join(SYNTHETIC_DIR, 'measurement-synthetic-005-full-featured.json'));

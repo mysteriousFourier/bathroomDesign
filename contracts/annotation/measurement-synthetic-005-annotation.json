@@ -1,0 +1,134 @@
+{
+  "annotationVersion": "1.0.0",
+  "roomId": "55555555-5555-4555-8555-555555555555",
+  "generatedFrom": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json",
+  "sceneRef": "contracts/3d/empty-room-scene.json",
+  "units": "mm",
+  "evidenceId": "EV-010",
+  "status": "unverified",
+  "vocabularyStatus": "pending_business_confirmation",
+  "confidencePolicy": {
+    "thresholdRefs": [
+      "THR-ANN-003",
+      "THR-ANN-006"
+    ],
+    "status": "unverified",
+    "note": "No confirmed confidence or customer-facing vocabulary threshold is available in W1."
+  },
+  "annotations": [
+    {
+      "id": "ann-room-area-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/boundary",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "dimension",
+      "label": "room area",
+      "value": 7200000,
+      "unit": "mm^2",
+      "targetPrimitiveId": "scene-floor-001"
+    },
+    {
+      "id": "ann-room-height-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/heights/roomHeight",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "height",
+      "label": "roomHeight",
+      "value": 2400,
+      "unit": "mm",
+      "targetPrimitiveId": "scene-dimensions-001"
+    },
+    {
+      "id": "ann-wall-height-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/heights/wallHeight",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "height",
+      "label": "wallHeight",
+      "value": 2800,
+      "unit": "mm",
+      "targetPrimitiveId": "scene-dimensions-001"
+    },
+    {
+      "id": "ann-wall-length-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/walls/0",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "dimension",
+      "label": "wall 1 length",
+      "value": 3000,
+      "unit": "mm",
+      "targetPrimitiveId": "scene-wall-001"
+    },
+    {
+      "id": "ann-wall-length-002",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/walls/1",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "dimension",
+      "label": "wall 2 length",
+      "value": 2400,
+      "unit": "mm",
+      "targetPrimitiveId": "scene-wall-002"
+    },
+    {
+      "id": "ann-wall-length-003",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/walls/2",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "dimension",
+      "label": "wall 3 length",
+      "value": 3000,
+      "unit": "mm",
+      "targetPrimitiveId": "scene-wall-003"
+    },
+    {
+      "id": "ann-wall-length-004",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/walls/3",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "dimension",
+      "label": "wall 4 length",
+      "value": 2400,
+      "unit": "mm",
+      "targetPrimitiveId": "scene-wall-004"
+    },
+    {
+      "id": "ann-opening-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/openings/0",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "openingLabel",
+      "label": "door 900x2100",
+      "value": {
+        "width": 900,
+        "height": 2100
+      },
+      "unit": "mm",
+      "targetPrimitiveId": "scene-opening-001"
+    },
+    {
+      "id": "ann-opening-002",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/openings/1",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "openingLabel",
+      "label": "window 1200x1200",
+      "value": {
+        "width": 1200,
+        "height": 1200
+      },
+      "unit": "mm",
+      "targetPrimitiveId": "scene-opening-002"
+    },
+    {
+      "id": "ann-drain-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/drainagePoints/0",
+      "evidenceId": "EV-010",
+      "status": "provisional",
+      "type": "entityLabel",
+      "label": "toilet_drain",
+      "targetPrimitiveId": "scene-drain-001"
+    }
+  ]
+}

@@ -32,6 +32,14 @@ const SYNTHETIC_PRODUCT_DIR = path.join(EVIDENCE_DIR, 'samples', 'products');
 const SYNTHETIC_PLACEMENT_DIR = path.join(EVIDENCE_DIR, 'samples', 'placements');
 const EVIDENCE_INVALID_DIR = path.join(EVIDENCE_DIR, 'invalid');
 const THRESHOLD_REGISTRY_PATH = path.join(EVIDENCE_REGISTRY_DIR, 'threshold-registry.json');
+const W1D5_SCENE_PATH = path.join(__dirname, '..', 'contracts', '3d', 'empty-room-scene.json');
+const W1D5_ANNOTATION_PATH = path.join(__dirname, '..', 'contracts', 'annotation', 'measurement-synthetic-005-annotation.json');
+const W1D5_REPORT_PATH = path.join(__dirname, '..', 'reports', 'w1d5-empty-room-report.md');
+const W1D5_DESKTOP_SCREENSHOT_PATH = path.join(__dirname, '..', 'reports', 'screenshots', 'w1d5-empty-room-desktop.svg');
+const W1D5_MOBILE_SCREENSHOT_PATH = path.join(__dirname, '..', 'reports', 'screenshots', 'w1d5-empty-room-mobile.svg');
+const W1D5_DESKTOP_BROWSER_SCREENSHOT_PATH = path.join(__dirname, '..', 'reports', 'screenshots', 'w1d5-empty-room-desktop.png');
+const W1D5_MOBILE_BROWSER_SCREENSHOT_PATH = path.join(__dirname, '..', 'reports', 'screenshots', 'w1d5-empty-room-mobile.png');
+const W1D5_ROLLUP_PATH = path.join(EVIDENCE_REGISTRY_DIR, 'week1-rollup.json');
 const EXECUTABLE_THRESHOLD_SPECS = Object.freeze({
   'THR-GEOM-001': { unit: 'mm', status: 'confirmed', thresholdType: 'calculation_tolerance' },
   'THR-IMPL-001': { unit: 'mm', status: 'provisional_implementation', thresholdType: 'provisional_implementation' },
@@ -277,6 +285,162 @@ function footprintVertices(placement) {
     return placement.footprint.vertices.map(vertex => toAbsoluteFootprintPoint(placement, vertex));
   }
   return rectangularFootprintVertices(placement);
+}
+
+function readText(filepath) {
+  try {
+    return fs.readFileSync(filepath, 'utf-8');
+  } catch (error) {
+    return null;
+  }
+}
+
+function containsObjectKey(value, forbiddenKey) {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(item => containsObjectKey(item, forbiddenKey));
+  return Object.keys(value).some(key => key === forbiddenKey || containsObjectKey(value[key], forbiddenKey));
+}
+
+function validateTraceableItems(items, allowedEvidenceIds, label) {
+  const errors = [];
+  const ids = new Set();
+  const allowedStatuses = new Set(['unverified', 'provisional']);
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return [`${label} must be a non-empty array`];
+  }
+
+  for (const item of items) {
+    if (!item || typeof item !== 'object') {
+      errors.push(`${label} entry must be an object`);
+      continue;
+    }
+    if (typeof item.id !== 'string' || item.id.length === 0) {
+      errors.push(`${label} entry is missing stable id`);
+    } else if (ids.has(item.id)) {
+      errors.push(`${label} duplicate id ${item.id}`);
+    } else {
+      ids.add(item.id);
+    }
+    if (typeof item.source !== 'string' || item.source.length === 0) {
+      errors.push(`${label} ${item.id || '<missing>'} is missing source`);
+    }
+    if (!allowedEvidenceIds.has(item.evidenceId)) {
+      errors.push(`${label} ${item.id || '<missing>'} has invalid evidenceId ${item.evidenceId}`);
+    }
+    if (!allowedStatuses.has(item.status)) {
+      errors.push(`${label} ${item.id || '<missing>'} status must be unverified/provisional, got ${item.status}`);
+    }
+  }
+
+  return errors;
+}
+
+function samePolygon(a, b) {
+  return Array.isArray(a) && Array.isArray(b) && a.length === b.length
+    && a.every((point, index) => point.x === b[index].x && point.y === b[index].y);
+}
+
+function validateW1D5Artifacts(evidenceRegistry) {
+  const errors = [];
+  const measurement = loadJSON(path.join(SYNTHETIC_DIR, 'measurement-synthetic-005-full-featured.json'));
+  const scene = loadJSON(W1D5_SCENE_PATH);
+  const annotation = loadJSON(W1D5_ANNOTATION_PATH);
+  const rollup = loadJSON(W1D5_ROLLUP_PATH);
+  const textArtifacts = [
+    ['w1d5 report', W1D5_REPORT_PATH],
+    ['desktop screenshot', W1D5_DESKTOP_SCREENSHOT_PATH],
+    ['mobile screenshot', W1D5_MOBILE_SCREENSHOT_PATH],
+  ];
+  const binaryArtifacts = [
+    ['desktop browser screenshot', W1D5_DESKTOP_BROWSER_SCREENSHOT_PATH],
+    ['mobile browser screenshot', W1D5_MOBILE_BROWSER_SCREENSHOT_PATH],
+  ];
+
+  for (const [label, filepath] of textArtifacts) {
+    const content = readText(filepath);
+    if (content == null) errors.push(`${label} artifact is missing`);
+  }
+  for (const [label, filepath] of binaryArtifacts) {
+    if (!fs.existsSync(filepath) || fs.statSync(filepath).size === 0) {
+      errors.push(`${label} artifact is missing or empty`);
+    }
+  }
+
+  if (measurement._error) errors.push(`W1D5 source measurement cannot be loaded: ${measurement._error}`);
+  if (scene._error) errors.push(`W1D5 scene cannot be loaded: ${scene._error}`);
+  if (annotation._error) errors.push(`W1D5 annotation cannot be loaded: ${annotation._error}`);
+  if (rollup._error) errors.push(`W1D5 rollup cannot be loaded: ${rollup._error}`);
+  if (errors.length > 0) return errors;
+
+  if (containsObjectKey(scene, 'floorHeight') || containsObjectKey(annotation, 'floorHeight')) {
+    errors.push('W1D5 artifacts must not contain the banned height key');
+  }
+
+  const dimensionKeys = ['roomHeight', 'wallHeight', 'groundElevation', 'netHeight', 'doorOpeningHeight'];
+  for (const key of ['roomHeight', 'wallHeight', 'groundElevation']) {
+    if (scene.dimensions?.[key] !== measurement.heights[key]) {
+      errors.push(`scene dimensions ${key} must match source measurement`);
+    }
+  }
+  if (!dimensionKeys.every(key => Object.prototype.hasOwnProperty.call(scene.dimensions || {}, key))) {
+    errors.push('scene dimensions must expose roomHeight/wallHeight/groundElevation/netHeight/doorOpeningHeight');
+  }
+  if (scene.dimensions.netHeight > scene.dimensions.roomHeight) {
+    errors.push('scene netHeight must not exceed roomHeight');
+  }
+  if (scene.dimensions.wallHeight < scene.dimensions.roomHeight) {
+    errors.push('scene wallHeight must not be lower than roomHeight');
+  }
+
+  const floor = (scene.primitives || []).find(item => item.type === 'floor');
+  if (!floor || !samePolygon(floor.polygon, measurement.boundary)) {
+    errors.push('scene floor polygon must match source boundary exactly');
+  }
+
+  const materialIds = new Set((scene.materials || []).map(item => item.id));
+  for (const primitive of scene.primitives || []) {
+    if (primitive.material && !materialIds.has(primitive.material)) {
+      errors.push(`primitive ${primitive.id} references missing material ${primitive.material}`);
+    }
+    if (primitive.type === 'wall' && primitive.height !== measurement.heights.wallHeight) {
+      errors.push(`wall primitive ${primitive.id} must use heights.wallHeight`);
+    }
+  }
+
+  errors.push(...validateTraceableItems([scene.dimensions], new Set(['EV-009']), 'W1D5 dimensions'));
+  errors.push(...validateTraceableItems(scene.materials, new Set(['EV-009']), 'W1D5 materials'));
+  errors.push(...validateTraceableItems(scene.primitives, new Set(['EV-009']), 'W1D5 primitives'));
+  errors.push(...validateTraceableItems(annotation.annotations, new Set(['EV-010']), 'W1D5 annotations'));
+
+  const primitiveIds = new Set([scene.dimensions.id, ...(scene.primitives || []).map(item => item.id)]);
+  for (const item of annotation.annotations || []) {
+    if (!primitiveIds.has(item.targetPrimitiveId)) {
+      errors.push(`annotation ${item.id} references missing targetPrimitiveId ${item.targetPrimitiveId}`);
+    }
+  }
+  if (annotation.status !== 'unverified') {
+    errors.push(`annotation root status must remain unverified, got ${annotation.status}`);
+  }
+  if (annotation.vocabularyStatus !== 'pending_business_confirmation') {
+    errors.push('annotation vocabularyStatus must remain pending_business_confirmation');
+  }
+
+  const registryIds = new Set((evidenceRegistry.rows || []).map(row => row.evidenceId));
+  const rollupIds = new Set((rollup.rows || []).map(row => row.evidenceId));
+  for (const evidenceId of registryIds) {
+    if (!rollupIds.has(evidenceId)) {
+      errors.push(`week1 rollup missing ${evidenceId}`);
+    }
+  }
+  if (rollup.rows?.length !== evidenceRegistry.rows?.length) {
+    errors.push('week1 rollup row count must match evidence registry row count');
+  }
+  if (rollup.status !== 'unverified') {
+    errors.push(`week1 rollup status must remain unverified, got ${rollup.status}`);
+  }
+
+  return errors;
 }
 
 function isNearRectangle(measurement) {
@@ -1089,7 +1253,20 @@ function main() {
     totalPassed++;
   }
 
-  // 7. Summary
+  // 7. Validate W1D5 empty-room 3D, annotation, screenshots, report, and roll-up artifacts.
+  console.log('\n--- Validating W1D5 3D and Annotation Artifacts ---\n');
+
+  const w1d5Errors = validateW1D5Artifacts(evidenceRegistry);
+  if (w1d5Errors.length > 0) {
+    log('FAIL', `W1D5 artifacts: ${w1d5Errors.join('; ')}`);
+    totalFailed++;
+    failures.push({ file: 'W1D5 artifacts', type: 'w1d5-artifacts-failed', errors: w1d5Errors });
+  } else {
+    log('PASS', 'W1D5 artifacts: Scene, annotations, screenshots, report, and roll-up pass traceability checks');
+    totalPassed++;
+  }
+
+  // 8. Summary
   console.log('\n=== Validation Summary ===');
   console.log(`  Passed: ${totalPassed}`);
   console.log(`  Failed: ${totalFailed}`);

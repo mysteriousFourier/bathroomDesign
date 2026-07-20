@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>W1D5 Empty-Room 3D Viewer</title>
+  <style>
+    :root {
+      --ink: #273238;
+      --muted: #5f676b;
+      --line: #c7ced0;
+      --floor: #d8d1c5;
+      --wall: #c8d2d7;
+      --opening: #5f7790;
+      --marker: #b05b46;
+      --panel: #f7f5ef;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: #ece8de;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow-x: hidden;
+    }
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      min-height: 100vh;
+      min-width: 0;
+    }
+    #viewport {
+      min-height: 100vh;
+      position: relative;
+      background: linear-gradient(180deg, #f8f6f0, #e1ded4);
+      min-width: 0;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    aside {
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+      padding: 20px;
+      overflow: auto;
+      min-width: 0;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+    .meta, .row, li {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 26px;
+      margin: 8px 0 18px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--ink);
+      background: #fffaf0;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .section {
+      margin-top: 22px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 7px 0;
+    }
+    .row strong { color: var(--ink); font-weight: 650; justify-self: end; text-align: right; }
+    button {
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    button:hover, button:focus-visible { border-color: var(--opening); outline: none; }
+    .toolbar {
+      position: absolute;
+      left: 18px;
+      top: 18px;
+      display: flex;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid rgba(39, 50, 56, .12);
+      border-radius: 8px;
+      background: rgba(247, 245, 239, .9);
+      backdrop-filter: blur(12px);
+    }
+    @media (max-width: 820px) {
+      main { grid-template-columns: 1fr; grid-template-rows: 62vh auto; }
+      #viewport { min-height: 62vh; }
+      aside { border-left: 0; border-top: 1px solid var(--line); overflow-x: hidden; }
+      .row {
+        display: block;
+        padding: 6px 0;
+      }
+      .row strong {
+        display: block;
+        margin-top: 2px;
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section id="viewport" aria-label="3D empty room viewer">
+      <div class="toolbar" aria-label="viewer controls">
+        <button id="reset" title="Reset camera" aria-label="Reset camera">↺</button>
+      </div>
+    </section>
+    <aside>
+      <h1>W1D5 Empty-Room 3D</h1>
+      <div class="meta">Source: evidence/samples/synthetic/measurement-synthetic-005-full-featured.json</div>
+      <div class="status">EV-009 / EV-010 · unverified</div>
+      <div id="dimensions"></div>
+      <div class="section">
+        <strong>Trace</strong>
+        <ul id="trace"></ul>
+      </div>
+      <div class="section meta">Rotate, pan, and zoom are handled by OrbitControls. Unconfirmed defaults and vocabulary remain provisional or unverified.</div>
+    </aside>
+  </main>
+
+  <script>
+    (async function initCanvasFallback() {
+      const viewport = document.querySelector('#viewport');
+      const canvas = document.createElement('canvas');
+      canvas.id = 'fallback-canvas';
+      const context = canvas.getContext('2d');
+      viewport.appendChild(canvas);
+      const sceneData = await fetch('../contracts/3d/empty-room-scene.json').then(response => response.json());
+      let yaw = -0.72;
+      let pitch = 0.58;
+      let zoom = 0.105;
+      let panX = 0;
+      let panY = 20;
+      let mode = 'rotate';
+      let last = null;
+
+      const resize = () => {
+        canvas.width = viewport.clientWidth * Math.min(window.devicePixelRatio, 2);
+        canvas.height = viewport.clientHeight * Math.min(window.devicePixelRatio, 2);
+        canvas.style.width = `${viewport.clientWidth}px`;
+        canvas.style.height = `${viewport.clientHeight}px`;
+        context.setTransform(Math.min(window.devicePixelRatio, 2), 0, 0, Math.min(window.devicePixelRatio, 2), 0, 0);
+        draw();
+      };
+
+      function project(point) {
+        const centered = { x: point.x - 1500, y: point.y - 1200, z: point.z || 0 };
+        const cosY = Math.cos(yaw);
+        const sinY = Math.sin(yaw);
+        const cosP = Math.cos(pitch);
+        const sinP = Math.sin(pitch);
+        const x1 = centered.x * cosY - centered.y * sinY;
+        const y1 = centered.x * sinY + centered.y * cosY;
+        const z1 = centered.z;
+        return {
+          x: viewport.clientWidth / 2 + x1 * zoom + panX,
+          y: viewport.clientHeight / 2 + (y1 * cosP - z1 * sinP) * zoom + panY,
+        };
+      }
+
+      function polygon(points, fill, stroke) {
+        context.beginPath();
+        points.forEach((point, index) => {
+          const projected = project(point);
+          if (index === 0) context.moveTo(projected.x, projected.y);
+          else context.lineTo(projected.x, projected.y);
+        });
+        context.closePath();
+        context.fillStyle = fill;
+        context.strokeStyle = stroke;
+        context.lineWidth = 1.5;
+        context.fill();
+        context.stroke();
+      }
+
+      function wall(primitive) {
+        const a = primitive.start;
+        const b = primitive.end;
+        polygon([
+          { x: a.x, y: a.y, z: 0 },
+          { x: b.x, y: b.y, z: 0 },
+          { x: b.x, y: b.y, z: primitive.height },
+          { x: a.x, y: a.y, z: primitive.height },
+        ], 'rgba(200, 210, 215, .78)', '#6d7d84');
+      }
+
+      function draw() {
+        context.clearRect(0, 0, viewport.clientWidth, viewport.clientHeight);
+        context.fillStyle = '#f8f6f0';
+        context.fillRect(0, 0, viewport.clientWidth, viewport.clientHeight);
+        const floor = sceneData.primitives.find(item => item.type === 'floor');
+        polygon(floor.polygon.map(point => ({ ...point, z: 0 })), '#d8d1c5', '#273238');
+        sceneData.primitives.filter(item => item.type === 'wall').forEach(wall);
+        sceneData.primitives.filter(item => item.type === 'opening').forEach(item => {
+          const projected = project({ x: item.center.x, y: item.center.y, z: item.height / 2 });
+          context.fillStyle = '#5f7790';
+          context.fillRect(projected.x - 18, projected.y - 18, 36, 36);
+        });
+        sceneData.primitives.filter(item => item.type === 'floorMarker').forEach(item => {
+          const projected = project(item.center);
+          context.beginPath();
+          context.arc(projected.x, projected.y, 8, 0, Math.PI * 2);
+          context.fillStyle = '#b05b46';
+          context.fill();
+        });
+      }
+
+      canvas.addEventListener('pointerdown', event => {
+        mode = event.shiftKey ? 'pan' : 'rotate';
+        last = { x: event.clientX, y: event.clientY };
+        canvas.setPointerCapture(event.pointerId);
+      });
+      canvas.addEventListener('pointermove', event => {
+        if (!last) return;
+        const dx = event.clientX - last.x;
+        const dy = event.clientY - last.y;
+        if (mode === 'pan') {
+          panX += dx;
+          panY += dy;
+        } else {
+          yaw += dx * 0.006;
+          pitch = Math.max(0.15, Math.min(1.2, pitch + dy * 0.004));
+        }
+        last = { x: event.clientX, y: event.clientY };
+        draw();
+      });
+      canvas.addEventListener('pointerup', () => { last = null; });
+      canvas.addEventListener('wheel', event => {
+        event.preventDefault();
+        zoom = Math.max(0.035, Math.min(0.22, zoom * (event.deltaY > 0 ? 0.9 : 1.1)));
+        draw();
+      }, { passive: false });
+
+      document.querySelector('#dimensions').innerHTML = ['roomHeight', 'wallHeight', 'groundElevation', 'netHeight', 'doorOpeningHeightStatus'].map(key => (
+        `<div class="row"><span>${key}</span><strong>${sceneData.dimensions[key]}</strong></div>`
+      )).join('');
+      document.querySelector('#trace').innerHTML = sceneData.primitives.map(item => (
+        `<li><strong>${item.id}</strong> · ${item.evidenceId} · ${item.status}</li>`
+      )).join('');
+      document.querySelector('#reset').addEventListener('click', () => {
+        yaw = -0.72;
+        pitch = 0.58;
+        zoom = 0.105;
+        panX = 0;
+        panY = 20;
+        draw();
+      });
+      window.addEventListener('resize', resize);
+      resize();
+    }());
+  </script>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/controls/OrbitControls.js';
+
+    const viewport = document.querySelector('#viewport');
+    const sceneData = await fetch('../contracts/3d/empty-room-scene.json').then(response => response.json());
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf8f6f0);
+
+    const camera = new THREE.PerspectiveCamera(45, viewport.clientWidth / viewport.clientHeight, 1, 20000);
+    camera.position.set(4200, -5200, 3600);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+    document.querySelector('#fallback-canvas')?.remove();
+    viewport.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(1500, 1200, 800);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xb8b0a5, 2));
+    const light = new THREE.DirectionalLight(0xffffff, 1.8);
+    light.position.set(3000, -3000, 5000);
+    scene.add(light);
+
+    const materials = new Map(sceneData.materials.map(item => [
+      item.id,
+      new THREE.MeshStandardMaterial({
+        color: item.color,
+        roughness: 0.7,
+        metalness: 0,
+        transparent: item.id.includes('opening'),
+        opacity: item.id.includes('opening') ? 0.72 : 1,
+      }),
+    ]));
+
+    function wallMesh(primitive) {
+      const length = Math.hypot(primitive.end.x - primitive.start.x, primitive.end.y - primitive.start.y);
+      const geometry = new THREE.BoxGeometry(length, primitive.thickness, primitive.height);
+      const mesh = new THREE.Mesh(geometry, materials.get(primitive.material));
+      const angle = Math.atan2(primitive.end.y - primitive.start.y, primitive.end.x - primitive.start.x);
+      mesh.position.set((primitive.start.x + primitive.end.x) / 2, (primitive.start.y + primitive.end.y) / 2, primitive.height / 2);
+      mesh.rotation.z = angle;
+      mesh.name = primitive.id;
+      return mesh;
+    }
+
+    function floorMesh(primitive) {
+      const shape = new THREE.Shape();
+      primitive.polygon.forEach((point, index) => {
+        if (index === 0) shape.moveTo(point.x, point.y);
+        else shape.lineTo(point.x, point.y);
+      });
+      shape.closePath();
+      const geometry = new THREE.ShapeGeometry(shape);
+      const mesh = new THREE.Mesh(geometry, materials.get(primitive.material));
+      mesh.name = primitive.id;
+      return mesh;
+    }
+
+    function openingMesh(primitive) {
+      const geometry = new THREE.BoxGeometry(primitive.width, 30, primitive.height);
+      const mesh = new THREE.Mesh(geometry, materials.get(primitive.material));
+      mesh.position.set(primitive.center.x, primitive.center.y, (primitive.sillHeight || 0) + primitive.height / 2);
+      const wall = sceneData.primitives.find(item => item.type === 'wall' && item.wallIndex === primitive.wallIndex);
+      mesh.rotation.z = Math.atan2(wall.end.y - wall.start.y, wall.end.x - wall.start.x);
+      mesh.name = primitive.id;
+      return mesh;
+    }
+
+    function markerMesh(primitive) {
+      const geometry = new THREE.CylinderGeometry(primitive.diameter ? primitive.diameter / 2 : 60, primitive.diameter ? primitive.diameter / 2 : 60, 24, 32);
+      const mesh = new THREE.Mesh(geometry, materials.get(primitive.material));
+      mesh.rotation.x = Math.PI / 2;
+      mesh.position.set(primitive.center.x, primitive.center.y, 12);
+      mesh.name = primitive.id;
+      return mesh;
+    }
+
+    for (const primitive of sceneData.primitives) {
+      if (primitive.type === 'floor' || primitive.type === 'ceilingPlane') scene.add(floorMesh(primitive));
+      if (primitive.type === 'wall') scene.add(wallMesh(primitive));
+      if (primitive.type === 'opening') scene.add(openingMesh(primitive));
+      if (primitive.type === 'floorMarker') scene.add(markerMesh(primitive));
+    }
+
+    document.querySelector('#dimensions').innerHTML = ['roomHeight', 'wallHeight', 'groundElevation', 'netHeight', 'doorOpeningHeightStatus'].map(key => (
+      `<div class="row"><span>${key}</span><strong>${sceneData.dimensions[key]}</strong></div>`
+    )).join('');
+    document.querySelector('#trace').innerHTML = sceneData.primitives.map(item => (
+      `<li><strong>${item.id}</strong> · ${item.evidenceId} · ${item.status}</li>`
+    )).join('');
+
+    document.querySelector('#reset').addEventListener('click', () => {
+      camera.position.set(4200, -5200, 3600);
+      controls.target.set(1500, 1200, 800);
+      controls.update();
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = viewport.clientWidth / viewport.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+    });
+
+    function render() {
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(render);
+    }
+    render();
+  </script>
+</body>
+</html>

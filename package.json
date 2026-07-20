@@ -4,6 +4,7 @@
   "description": "Bathroom design data contracts — JSON Schema validation",
   "private": true,
   "scripts": {
+    "build:w1d5": "node scripts/generate-w1d5-artifacts.js",
     "validate": "node scripts/validate.js"
   },
   "dependencies": {

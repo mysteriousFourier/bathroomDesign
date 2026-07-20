@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedFrom": "evidence/registry/evidence-registry.json",
+  "evidenceId": "EV-011",
+  "status": "unverified",
+  "rows": [
+    {
+      "evidenceId": "EV-001",
+      "lockedItem": "Data dictionary",
+      "day": "W1D1",
+      "owner": "Data",
+      "status": "unverified",
+      "expectedArtifact": "CONTRACT-BASELINE.md; schemas/*.schema.json",
+      "openConfirmation": true,
+      "notes": "Frozen technical fields are present. Product library IDs and customer-facing labels remain pending_business_confirmation, so the row is not confirmed."
+    },
+    {
+      "evidenceId": "EV-002",
+      "lockedItem": "Backend contract",
+      "day": "W1D1",
+      "owner": "Data",
+      "status": "pending_review",
+      "expectedArtifact": "contracts/COORDINATE-SYSTEM.md; contracts/SCHEMA-VERSIONING.md",
+      "openConfirmation": true,
+      "notes": "W1D1 backend contract remains unverified until unit, global Y-axis, semantic validation, and annotation baseline corrections are reviewed."
+    },
+    {
+      "evidenceId": "EV-003",
+      "lockedItem": "Scheduling baseline",
+      "day": "W1D1",
+      "owner": "Data",
+      "status": "confirmed",
+      "expectedArtifact": "W1 daily plan and issue chain",
+      "openConfirmation": false,
+      "notes": "Confirmed scheduling scope only."
+    },
+    {
+      "evidenceId": "EV-004",
+      "lockedItem": "Evidence table structure",
+      "day": "W1D2",
+      "owner": "Data",
+      "status": "confirmed",
+      "expectedArtifact": "evidence/registry/evidence-registry.json",
+      "openConfirmation": false,
+      "notes": "Markdown is display-only; JSON is the validation source."
+    },
+    {
+      "evidenceId": "EV-005",
+      "lockedItem": "Synthetic sample baseline",
+      "day": "W1D2",
+      "owner": "Data",
+      "status": "confirmed",
+      "expectedArtifact": "evidence/samples/synthetic/*.json; evidence/samples/golden/*.json",
+      "openConfirmation": false,
+      "notes": "Only the synthetic fixture baseline is confirmed. Real sample authorization remains separate in EV-012 and EV-013."
+    },
+    {
+      "evidenceId": "EV-006",
+      "lockedItem": "Threshold baseline",
+      "day": "W1D2",
+      "owner": "Data",
+      "status": "unverified",
+      "expectedArtifact": "evidence/registry/threshold-registry.json",
+      "openConfirmation": true,
+      "notes": "Confirmed calculation tolerances, provisional implementation thresholds, and pending business thresholds are separated. Pending business thresholds can only produce unverified evidence."
+    },
+    {
+      "evidenceId": "EV-007",
+      "lockedItem": "2D geometry",
+      "day": "W1D3",
+      "owner": "Geometry",
+      "status": "pending_implementation",
+      "expectedArtifact": "contracts/geometry/ planned",
+      "openConfirmation": true,
+      "notes": "Only confirmed calculation tolerances may produce confirmed geometry evidence."
+    },
+    {
+      "evidenceId": "EV-008",
+      "lockedItem": "Topology",
+      "day": "W1D4",
+      "owner": "Topology",
+      "status": "pending_implementation",
+      "expectedArtifact": "contracts/topology/ planned",
+      "openConfirmation": true,
+      "notes": "Business thresholds remain unverified until confirmed. D4 coverage must include fixture footprint containment with orientation.rotationZ for rectangular, circular, and polygonal footprints."
+    },
+    {
+      "evidenceId": "EV-009",
+      "lockedItem": "Empty-room 3D",
+      "day": "W1D5",
+      "owner": "3D",
+      "status": "unverified",
+      "expectedArtifact": "contracts/3d/empty-room-scene.json; reports/screenshots/w1d5-empty-room-desktop.svg; reports/screenshots/w1d5-empty-room-mobile.svg; reports/screenshots/w1d5-empty-room-desktop.png; reports/screenshots/w1d5-empty-room-mobile.png; reports/w1d5-empty-room-report.md; viewer/w1d5-empty-room-viewer.html",
+      "openConfirmation": true,
+      "notes": "Scene primitives carry stable id, source, evidenceId, and status. 3D business thresholds remain pending_business_confirmation, so acceptance stays unverified."
+    },
+    {
+      "evidenceId": "EV-010",
+      "lockedItem": "Automatic annotation",
+      "day": "W1D5",
+      "owner": "Annotation",
+      "status": "unverified",
+      "expectedArtifact": "contracts/annotation/measurement-synthetic-005-annotation.json",
+      "openConfirmation": true,
+      "notes": "Every annotation carries stable id, source, evidenceId, and status. Customer-facing vocabulary and confidence thresholds remain pending_business_confirmation."
+    },
+    {
+      "evidenceId": "EV-011",
+      "lockedItem": "Week 1 final roll-up",
+      "day": "W1D5",
+      "owner": "Data",
+      "status": "unverified",
+      "expectedArtifact": "evidence/registry/week1-rollup.json",
+      "openConfirmation": true,
+      "notes": "Roll-up preserves pending_review, pending_implementation, unverified, and pending_business_confirmation markers."
+    },
+    {
+      "evidenceId": "EV-012",
+      "lockedItem": "Real sample scope REAL-001",
+      "day": "W1D2",
+      "owner": "Data",
+      "status": "pending_business_confirmation",
+      "expectedArtifact": "evidence/real-sample-scope.md",
+      "openConfirmation": true,
+      "notes": "REAL-001 is scoped as a simple rectangular bathroom, but no real source file is confirmed or included."
+    },
+    {
+      "evidenceId": "EV-013",
+      "lockedItem": "Real sample scope REAL-002",
+      "day": "W1D2",
+      "owner": "Data",
+      "status": "pending_business_confirmation",
+      "expectedArtifact": "evidence/real-sample-scope.md",
+      "openConfirmation": true,
+      "notes": "REAL-002 is scoped as a bathroom with door and window, but no real source file is confirmed or included."
+    }
+  ]
+}

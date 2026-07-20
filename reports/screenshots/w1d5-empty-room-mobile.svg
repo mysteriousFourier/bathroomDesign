@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844" role="img" aria-label="W1D5 mobile 3D review artifact">
+  <rect width="100%" height="100%" fill="#f7f5ef"/>
+  <text x="42" y="16" fill="#273238" font-family="Arial, sans-serif" font-size="18" font-weight="700">W1D5 mobile 3D review artifact</text>
+  <text x="42" y="38" fill="#5f676b" font-family="Arial, sans-serif" font-size="11">EV-009/EV-010 · status: unverified/provisional · source: evidence/samples/synthetic/measurement-synthetic-005-full-featured.json</text>
+  <polygon points="42.0,802.0 348.0,802.0 348.0,557.2 42.0,557.2" fill="#d8d1c5" stroke="#273238" stroke-width="3"/>
+  <rect x="77.7" y="793.0" width="91.8" height="18" fill="#5f7790"><title>scene-opening-001 unverified</title></rect>
+    <rect x="133.8" y="551.2" width="122.4" height="12" fill="#5f7790"><title>scene-opening-002 unverified</title></rect>
+  <circle cx="195.0" cy="679.6" r="8" fill="#b05b46"><title>scene-drain-001 provisional</title></circle>
+  <text x="42" y="820" fill="#5f676b" font-family="Arial, sans-serif" font-size="11">roomHeight 2400mm · wallHeight 2800mm · groundElevation 0mm</text>
+</svg>

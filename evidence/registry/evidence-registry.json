@@ -114,28 +114,28 @@
       "evidenceId": "EV-009",
       "lockedItem": "Empty-room 3D",
       "sourceType": "3d_model",
-      "contractFields": ["heights.roomHeight", "heights.wallHeight", "boundary", "openings"],
-      "acceptanceMethod": "W1D5 empty-room model validates against confirmed dimensions and review artifact.",
-      "expectedArtifact": "contracts/3d/ planned",
+      "contractFields": ["heights.roomHeight", "heights.wallHeight", "heights.groundElevation", "heights.netHeight", "heights.doorOpeningHeight", "boundary", "openings"],
+      "acceptanceMethod": "npm run build:w1d5 generates deterministic scene JSON, screenshot SVG artifacts, and report; npm run validate checks W1D5 traceability and height-field policy.",
+      "expectedArtifact": "contracts/3d/empty-room-scene.json; reports/screenshots/w1d5-empty-room-desktop.svg; reports/screenshots/w1d5-empty-room-mobile.svg; reports/screenshots/w1d5-empty-room-desktop.png; reports/screenshots/w1d5-empty-room-mobile.png; reports/w1d5-empty-room-report.md; viewer/w1d5-empty-room-viewer.html",
       "owner": "3D",
       "day": "W1D5",
-      "status": "pending_implementation",
+      "status": "unverified",
       "thresholdRefs": ["THR-3D-001", "THR-3D-002", "THR-3D-003", "THR-3D-004", "THR-3D-005", "THR-3D-006", "THR-3D-007"],
-      "notes": "Default height values are pending_business_confirmation and cannot confirm acceptance."
+      "notes": "Scene primitives carry stable id, source, evidenceId, and status. 3D business thresholds remain pending_business_confirmation, so acceptance stays unverified."
     },
     {
       "schemaVersion": "1.1.0",
       "evidenceId": "EV-010",
       "lockedItem": "Automatic annotation",
       "sourceType": "annotation_output",
-      "contractFields": ["labels", "dimension annotations", "evidence references"],
-      "acceptanceMethod": "W1D5 annotation outputs validate label coverage and evidence references.",
-      "expectedArtifact": "contracts/annotation/ planned",
+      "contractFields": ["labels", "dimension annotations", "evidence references", "status"],
+      "acceptanceMethod": "npm run build:w1d5 generates annotation JSON; npm run validate checks annotation targetPrimitiveId references and traceability fields.",
+      "expectedArtifact": "contracts/annotation/measurement-synthetic-005-annotation.json",
       "owner": "Annotation",
       "day": "W1D5",
-      "status": "pending_implementation",
+      "status": "unverified",
       "thresholdRefs": ["THR-ANN-001", "THR-ANN-002", "THR-ANN-003", "THR-ANN-004", "THR-ANN-005", "THR-ANN-006", "THR-ANN-007"],
-      "notes": "Customer-facing vocabulary is pending_business_confirmation."
+      "notes": "Every annotation carries stable id, source, evidenceId, and status. Customer-facing vocabulary and confidence thresholds remain pending_business_confirmation."
     },
     {
       "schemaVersion": "1.1.0",
@@ -143,12 +143,12 @@
       "lockedItem": "Week 1 final roll-up",
       "sourceType": "rollup_table",
       "contractFields": ["EV-001", "EV-002", "EV-003", "EV-004", "EV-005", "EV-006", "EV-007", "EV-008", "EV-009", "EV-010", "EV-012", "EV-013"],
-      "acceptanceMethod": "W1D5 roll-up links every locked item to status, artifact, and blocker.",
-      "expectedArtifact": "evidence/registry/week1-rollup.json planned",
+      "acceptanceMethod": "npm run build:w1d5 regenerates week1-rollup.json from evidence-registry.json; npm run validate checks row coverage.",
+      "expectedArtifact": "evidence/registry/week1-rollup.json",
       "owner": "Data",
       "day": "W1D5",
-      "status": "pending_implementation",
-      "notes": "Roll-up must preserve unverified markers for pending business confirmations."
+      "status": "unverified",
+      "notes": "Roll-up preserves pending_review, pending_implementation, unverified, and pending_business_confirmation markers."
     },
     {
       "schemaVersion": "1.1.0",

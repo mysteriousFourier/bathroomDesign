@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Evidence Registry",
+  "description": "Evidence rows for every Week 1 locked item from 最小实现计划书 line 222. Each row maps a locked item to day, artifact, owner, and acceptance evidence.",
+  "type": "object",
+  "version": "1.0.0",
+  "required": ["schemaVersion", "rows"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "$ref": "evidence-table.schema.json"
+      }
+    }
+  }
+}

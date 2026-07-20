@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://opc-bathroom/schemas/evidence-table.schema.json",
+  "title": "Evidence Table Schema",
+  "description": "Evidence table structure: maps each Week 1 locked item to an evidence row with source type, contractor-related field, acceptance method, expected artifact, owner, and status.",
+  "type": "object",
+  "version": "1.0.0",
+  "required": ["schemaVersion", "evidenceId", "lockedItem", "sourceType", "contractFields", "acceptanceMethod", "expectedArtifact", "owner", "status"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Schema semantic version.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "evidenceId": {
+      "type": "string",
+      "description": "Stable UUID for this evidence row. Used for traceability across days.",
+      "format": "uuid"
+    },
+    "lockedItem": {
+      "type": "string",
+      "description": "The Week 1 locked item this row proves, as defined in 最小实现计划书 line 222."
+    },
+    "sourceType": {
+      "type": "string",
+      "enum": [
+        "contract_document",
+        "schema_validation",
+        "contract_test",
+        "synthetic_fixture",
+        "real_sample",
+        "geometry_output",
+        "topology_graph",
+        "3d_model",
+        "screenshot_report",
+        "annotation_output",
+        "rollup_table"
+      ],
+      "description": "Type of evidence source."
+    },
+    "contractFields": {
+      "type": "array",
+      "description": "One or more contract fields or schema paths this evidence validates.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "acceptanceMethod": {
+      "type": "string",
+      "description": "How this evidence is verified: validation command, visual inspection, test exit code, etc."
+    },
+    "expectedArtifact": {
+      "type": "string",
+      "description": "Concrete output that proves the locked item: file path, test name, screenshot, report."
+    },
+    "owner": {
+      "type": "string",
+      "enum": ["Data", "Orchestrator", "Geometry", "Topology", "3D", "Annotation"],
+      "description": "Agent role responsible for producing this evidence."
+    },
+    "day": {
+      "type": "string",
+      "enum": ["W1D1", "W1D2", "W1D3", "W1D4", "W1D5"],
+      "description": "Planned day when this evidence is produced."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["confirmed", "pending_business_confirmation", "pending_implementation", "pending_review"],
+      "description": "Current status of this evidence row."
+    },
+    "thresholdRef": {
+      "type": "string",
+      "description": "Reference to a threshold in threshold-registry.json, if this evidence depends on a numeric threshold.",
+      "format": "uuid"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes, blockers, or clarification about the evidence."
+    }
+  },
+  "additionalProperties": false
+}

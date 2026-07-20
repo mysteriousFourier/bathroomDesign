@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidenceId": "EV-007",
+  "sourceMeasurement": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json",
+  "cases": [
+    {
+      "caseId": "W1D3-FAIL-001",
+      "description": "Required height is missing; recovery only reads heights.*.",
+      "expectedCode": "missing_required_height"
+    },
+    {
+      "caseId": "W1D3-FAIL-002",
+      "description": "Opening center no longer lies on its owning wall.",
+      "expectedCode": "opening_off_wall"
+    },
+    {
+      "caseId": "W1D3-FAIL-003",
+      "description": "Drain point is outside the room boundary.",
+      "expectedCode": "drain_outside_room"
+    },
+    {
+      "caseId": "W1D3-FAIL-004",
+      "description": "Pipe enclosure vertex penetrates outside the boundary.",
+      "expectedCode": "pipe_enclosure_outside_room"
+    }
+  ]
+}

@@ -1,0 +1,189 @@
+{
+  "schemaVersion": "1.0.0",
+  "topologyId": "TOPO-55555555-5555-4555-8555-555555555555",
+  "roomId": "55555555-5555-4555-8555-555555555555",
+  "source": {
+    "measurementRoomId": "55555555-5555-4555-8555-555555555555",
+    "fixturePlacementCount": 1,
+    "productCount": 1,
+    "evidenceIds": [
+      "EV-007",
+      "EV-008"
+    ]
+  },
+  "nodes": {
+    "room": {
+      "id": "room-55555555-5555-4555-8555-555555555555",
+      "boundaryVertexCount": 4,
+      "status": "confirmed"
+    },
+    "walls": [
+      {
+        "id": "wall-0",
+        "wallIndex": 0,
+        "startPoint": {
+          "x": 0,
+          "y": 0
+        },
+        "endPoint": {
+          "x": 3000,
+          "y": 0
+        },
+        "type": "exterior",
+        "status": "confirmed"
+      },
+      {
+        "id": "wall-1",
+        "wallIndex": 1,
+        "startPoint": {
+          "x": 3000,
+          "y": 0
+        },
+        "endPoint": {
+          "x": 3000,
+          "y": 2400
+        },
+        "type": "exterior",
+        "status": "confirmed"
+      },
+      {
+        "id": "wall-2",
+        "wallIndex": 2,
+        "startPoint": {
+          "x": 3000,
+          "y": 2400
+        },
+        "endPoint": {
+          "x": 0,
+          "y": 2400
+        },
+        "type": "exterior",
+        "status": "confirmed"
+      },
+      {
+        "id": "wall-3",
+        "wallIndex": 3,
+        "startPoint": {
+          "x": 0,
+          "y": 2400
+        },
+        "endPoint": {
+          "x": 0,
+          "y": 0
+        },
+        "type": "exterior",
+        "status": "confirmed"
+      }
+    ],
+    "openings": [
+      {
+        "id": "opening-55555555-5555-4555-8555-000000000001",
+        "openingId": "55555555-5555-4555-8555-000000000001",
+        "wallIndex": 0,
+        "ownerWallId": "wall-0",
+        "type": "door",
+        "status": "confirmed"
+      },
+      {
+        "id": "opening-55555555-5555-4555-8555-000000000002",
+        "openingId": "55555555-5555-4555-8555-000000000002",
+        "wallIndex": 2,
+        "ownerWallId": "wall-2",
+        "type": "window",
+        "status": "confirmed"
+      }
+    ],
+    "drains": [
+      {
+        "id": "drain-55555555-5555-4555-8555-000000000003",
+        "drainId": "55555555-5555-4555-8555-000000000003",
+        "type": "toilet_drain",
+        "position": {
+          "x": 1500,
+          "y": 1200
+        },
+        "status": "confirmed"
+      }
+    ],
+    "pipeEnclosures": [
+      {
+        "id": "pipe-55555555-5555-4555-8555-000000000004",
+        "enclosureId": "55555555-5555-4555-8555-000000000004",
+        "status": "confirmed"
+      }
+    ],
+    "fixtures": [
+      {
+        "id": "fixture-55555555-5555-4555-8555-000000000006",
+        "placementId": "55555555-5555-4555-8555-000000000006",
+        "productId": "PLACEHOLDER-toilet",
+        "targetDrainagePoint": "55555555-5555-4555-8555-000000000003",
+        "footprintType": "rectangular",
+        "footprintVertices": [
+          {
+            "x": 1300,
+            "y": 850
+          },
+          {
+            "x": 1700,
+            "y": 850
+          },
+          {
+            "x": 1700,
+            "y": 1550
+          },
+          {
+            "x": 1300,
+            "y": 1550
+          }
+        ],
+        "drainAlignment": {
+          "targetDrainagePoint": "55555555-5555-4555-8555-000000000003",
+          "distanceMm": 0,
+          "status": "unverified",
+          "reason": "THR-TOPO-003 is pending_business_confirmation; distance is reported but not accepted"
+        },
+        "status": "unverified"
+      }
+    ]
+  },
+  "relations": {
+    "wallClosure": {
+      "wallCount": 4,
+      "boundaryEdgeCount": 4,
+      "status": "confirmed"
+    },
+    "openingOwnership": [
+      {
+        "openingId": "55555555-5555-4555-8555-000000000001",
+        "wallIndex": 0,
+        "ownerWallId": "wall-0",
+        "status": "confirmed"
+      },
+      {
+        "openingId": "55555555-5555-4555-8555-000000000002",
+        "wallIndex": 2,
+        "ownerWallId": "wall-2",
+        "status": "confirmed"
+      }
+    ],
+    "fixtureContainment": [
+      {
+        "placementId": "55555555-5555-4555-8555-000000000006",
+        "footprintType": "rectangular",
+        "status": "confirmed"
+      }
+    ],
+    "drainAlignment": [
+      {
+        "placementId": "55555555-5555-4555-8555-000000000006",
+        "targetDrainagePoint": "55555555-5555-4555-8555-000000000003",
+        "distanceMm": 0,
+        "status": "unverified",
+        "reason": "THR-TOPO-003 is pending_business_confirmation; distance is reported but not accepted"
+      }
+    ]
+  },
+  "status": "unverified",
+  "violations": []
+}

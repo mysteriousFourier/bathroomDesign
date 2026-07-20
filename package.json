@@ -4,7 +4,10 @@
   "description": "Bathroom design data contracts — JSON Schema validation",
   "private": true,
   "scripts": {
-    "validate": "node scripts/validate.js"
+    "validate": "node scripts/validate.js && node scripts/check-w1d3-geometry.js && node scripts/check-w1d4-topology.js",
+    "validate:contracts": "node scripts/validate.js",
+    "validate:w1d3": "node scripts/check-w1d3-geometry.js",
+    "validate:w1d4": "node scripts/check-w1d4-topology.js"
   },
   "dependencies": {
     "ajv": "^8.17.1",

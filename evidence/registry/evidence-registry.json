@@ -87,13 +87,13 @@
       "lockedItem": "2D geometry",
       "sourceType": "geometry_output",
       "contractFields": ["measurement.boundary", "measurement.walls", "wall.type", "counterclockwise winding"],
-      "acceptanceMethod": "W1D3 geometry outputs validate against measurement schema and golden geometry.",
-      "expectedArtifact": "contracts/geometry/ planned",
+      "acceptanceMethod": "npm run validate:w1d3 validates deterministic 2D recovery against golden output and failure samples.",
+      "expectedArtifact": "lib/recovery2d.js; contracts/geometry/w1d3-recovery-golden.json; contracts/geometry/w1d3-failure-examples.json; scripts/check-w1d3-geometry.js",
       "owner": "Geometry",
       "day": "W1D3",
-      "status": "pending_implementation",
+      "status": "unverified",
       "thresholdRefs": ["THR-GEOM-001", "THR-GEOM-002", "THR-GEOM-003", "THR-GEOM-004", "THR-GEOM-005", "THR-GEOM-006", "THR-GEOM-007", "THR-GEOM-008"],
-      "notes": "Only confirmed calculation tolerances may produce confirmed geometry evidence."
+      "notes": "Deterministic synthetic recovery is implemented with seed 2205 and mm coordinates. Business thresholds THR-GEOM-005..008 remain pending_business_confirmation, so evidence is unverified."
     },
     {
       "schemaVersion": "1.1.0",
@@ -101,13 +101,13 @@
       "lockedItem": "Topology",
       "sourceType": "topology_graph",
       "contractFields": ["openings[].wallIndex", "drainagePoints", "pipeEnclosures", "fixture-placement.targetDrainagePoint", "fixture-placement.orientation.rotationZ", "fixture-placement.footprint"],
-      "acceptanceMethod": "W1D4 topology graph validates containment and references, including rotationZ-applied fixture footprints.",
-      "expectedArtifact": "contracts/topology/ planned",
+      "acceptanceMethod": "npm run validate:w1d4 validates serializable topology JSON, opening ownership, fixture containment, and drain references.",
+      "expectedArtifact": "lib/topology.js; contracts/topology/w1d4-topology-golden.json; contracts/topology/w1d4-failure-examples.json; scripts/check-w1d4-topology.js",
       "owner": "Topology",
       "day": "W1D4",
-      "status": "pending_implementation",
+      "status": "unverified",
       "thresholdRefs": ["THR-TOPO-001", "THR-TOPO-002", "THR-TOPO-003", "THR-TOPO-004", "THR-TOPO-005"],
-      "notes": "Business thresholds remain unverified until confirmed. D4 coverage must include fixture footprint containment with orientation.rotationZ for rectangular, circular, and polygonal footprints."
+      "notes": "D4 input includes FixturePlacement plus product and drain references. Rectangular, circular, and polygonal footprint containment are covered. Drain alignment reports distance/status only while THR-TOPO-003 remains pending_business_confirmation."
     },
     {
       "schemaVersion": "1.1.0",

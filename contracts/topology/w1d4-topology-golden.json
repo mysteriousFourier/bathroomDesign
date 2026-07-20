@@ -182,7 +182,8 @@
         "status": "unverified",
         "reason": "THR-TOPO-003 is pending_business_confirmation; distance is reported but not accepted"
       }
-    ]
+    ],
+    "sharedDrainage": []
   },
   "status": "unverified",
   "violations": []

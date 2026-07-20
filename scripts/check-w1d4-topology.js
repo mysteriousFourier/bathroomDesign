@@ -46,14 +46,34 @@ for (const example of failureSpec.cases) {
   const testMeasurement = cloneJSON(measurement);
   const testPlacement = cloneJSON(placement);
   const testProduct = cloneJSON(product);
+  const testPlacements = [testPlacement];
+
+  function syncWallsToBoundary() {
+    testMeasurement.walls = testMeasurement.boundary.map((point, index) => ({
+      startPoint: point,
+      endPoint: testMeasurement.boundary[(index + 1) % testMeasurement.boundary.length],
+      type: 'exterior',
+      thickness: 120,
+    }));
+  }
 
   if (example.caseId === 'W1D4-FAIL-001') {
-    testMeasurement.openings[0].wallIndex = 9;
+    testMeasurement.walls[1].startPoint = { x: 2990, y: 10 };
   } else if (example.caseId === 'W1D4-FAIL-002') {
-    testPlacement.position.x = 100;
+    testMeasurement.boundary = [
+      { x: 0, y: 0 },
+      { x: 3000, y: 2400 },
+      { x: 3000, y: 0 },
+      { x: 0, y: 2400 },
+    ];
+    syncWallsToBoundary();
   } else if (example.caseId === 'W1D4-FAIL-003') {
-    testPlacement.targetDrainagePoint = '55555555-5555-4555-8555-999999999999';
+    testMeasurement.openings[0].wallIndex = 9;
   } else if (example.caseId === 'W1D4-FAIL-004') {
+    testPlacement.position.x = 100;
+  } else if (example.caseId === 'W1D4-FAIL-005') {
+    testPlacement.targetDrainagePoint = '55555555-5555-4555-8555-999999999999';
+  } else if (example.caseId === 'W1D4-FAIL-006') {
     testPlacement.footprint = {
       type: 'polygonal',
       width: 500,
@@ -65,17 +85,32 @@ for (const example of failureSpec.cases) {
         { x: -250, y: 250 },
       ],
     };
-  } else if (example.caseId === 'W1D4-FAIL-005') {
+  } else if (example.caseId === 'W1D4-FAIL-007') {
     testPlacement.footprint = {
       type: 'circular',
       width: 800,
       depth: 800,
     };
     testPlacement.position.x = 150;
+  } else if (example.caseId === 'W1D4-FAIL-008') {
+    testPlacement.position.x = 1510;
+  } else if (example.caseId === 'W1D4-FAIL-009') {
+    const sharedPlacement = cloneJSON(testPlacement);
+    sharedPlacement.placementId = '55555555-5555-4555-8555-000000000007';
+    sharedPlacement.position.x = 1600;
+    testPlacements.push(sharedPlacement);
   }
 
-  const result = buildTopology(testMeasurement, [testPlacement], [testProduct]);
-  if (!result.violations.some(violation => violation.code === example.expectedCode)) {
+  const result = buildTopology(testMeasurement, testPlacements, [testProduct]);
+  if (example.expectedRelation) {
+    const relation = result.relations[example.expectedRelation];
+    if (!Array.isArray(relation) || relation.length === 0) {
+      console.error(`FAIL ${example.caseId}: expected relation ${example.expectedRelation}`);
+      process.exitCode = 1;
+    } else {
+      console.log(`PASS ${example.caseId}: ${example.expectedRelation}`);
+    }
+  } else if (!result.violations.some(violation => violation.code === example.expectedCode)) {
     console.error(`FAIL ${example.caseId}: expected ${example.expectedCode}, got ${result.violations.map(item => item.code).join(', ') || 'none'}`);
     process.exitCode = 1;
   } else {

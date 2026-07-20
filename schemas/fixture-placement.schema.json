@@ -72,6 +72,8 @@
       "properties": {
         "rotationZ": {
           "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 360,
           "description": "Rotation around Z axis in degrees. Positive = counterclockwise when viewed from above. Range: [0, 360)."
         },
         "facing": {

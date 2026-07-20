@@ -32,15 +32,12 @@ const SYNTHETIC_PRODUCT_DIR = path.join(EVIDENCE_DIR, 'samples', 'products');
 const SYNTHETIC_PLACEMENT_DIR = path.join(EVIDENCE_DIR, 'samples', 'placements');
 const EVIDENCE_INVALID_DIR = path.join(EVIDENCE_DIR, 'invalid');
 const THRESHOLD_REGISTRY_PATH = path.join(EVIDENCE_REGISTRY_DIR, 'threshold-registry.json');
-const DEFAULT_COORDINATE_TOLERANCE_MM = 1;
-const DEFAULT_GOLDEN_PERIMETER_TOLERANCE_MM = 0.01;
-const DEFAULT_GOLDEN_AREA_TOLERANCE_MM2 = 0.01;
-const DEFAULT_NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM = 20;
-
-let COORDINATE_TOLERANCE_MM = DEFAULT_COORDINATE_TOLERANCE_MM;
-let GOLDEN_PERIMETER_TOLERANCE_MM = DEFAULT_GOLDEN_PERIMETER_TOLERANCE_MM;
-let GOLDEN_AREA_TOLERANCE_MM2 = DEFAULT_GOLDEN_AREA_TOLERANCE_MM2;
-let NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM = DEFAULT_NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM;
+const EXECUTABLE_THRESHOLD_SPECS = Object.freeze({
+  'THR-GEOM-001': { unit: 'mm', status: 'confirmed', thresholdType: 'calculation_tolerance' },
+  'THR-IMPL-001': { unit: 'mm', status: 'provisional_implementation', thresholdType: 'provisional_implementation' },
+  'THR-IMPL-002': { unit: 'mm', status: 'provisional_implementation', thresholdType: 'provisional_implementation' },
+  'THR-IMPL-003': { unit: 'mm^2', status: 'provisional_implementation', thresholdType: 'provisional_implementation' },
+});
 
 // Schema to example mapping (prefix match)
 const SCHEMA_EXAMPLE_MAP = {
@@ -75,25 +72,70 @@ function cloneJSON(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function loadThresholdConfig() {
-  const registry = loadJSON(THRESHOLD_REGISTRY_PATH);
-  if (registry._error || !Array.isArray(registry.rows)) return;
+function parseExecutableThresholdConfig(registry) {
+  const errors = [];
+  const values = {};
+
+  if (registry._error) {
+    return { values, errors: [registry._error] };
+  }
+  if (!Array.isArray(registry.rows)) {
+    return { values, errors: ['threshold registry rows must be an array'] };
+  }
+
+  const seenIds = new Set();
+  for (const row of registry.rows) {
+    if (seenIds.has(row.thresholdId)) {
+      errors.push(`duplicate thresholdId ${row.thresholdId}`);
+    }
+    seenIds.add(row.thresholdId);
+  }
 
   const byId = new Map(registry.rows.map(row => [row.thresholdId, row]));
-  const numericThreshold = (thresholdId, expectedUnit) => {
+  for (const [thresholdId, expected] of Object.entries(EXECUTABLE_THRESHOLD_SPECS)) {
     const row = byId.get(thresholdId);
-    if (!row || typeof row.value !== 'number' || row.unit !== expectedUnit) return null;
-    if (!['confirmed', 'provisional_implementation'].includes(row.status)) return null;
-    return row.value;
-  };
+    if (!row) {
+      errors.push(`required executable threshold ${thresholdId} is missing`);
+      continue;
+    }
+    if (typeof row.value !== 'number' || !Number.isFinite(row.value) || row.value < 0) {
+      errors.push(`${thresholdId} value must be a finite non-negative number`);
+    }
+    if (row.unit !== expected.unit) {
+      errors.push(`${thresholdId} unit must be ${expected.unit}, got ${row.unit}`);
+    }
+    if (row.status !== expected.status) {
+      errors.push(`${thresholdId} status must be ${expected.status}, got ${row.status}`);
+    }
+    if (row.thresholdType !== expected.thresholdType) {
+      errors.push(`${thresholdId} thresholdType must be ${expected.thresholdType}, got ${row.thresholdType}`);
+    }
+    values[thresholdId] = row.value;
+  }
 
-  COORDINATE_TOLERANCE_MM = numericThreshold('THR-GEOM-001', 'mm') ?? DEFAULT_COORDINATE_TOLERANCE_MM;
-  GOLDEN_PERIMETER_TOLERANCE_MM = numericThreshold('THR-IMPL-001', 'mm') ?? DEFAULT_GOLDEN_PERIMETER_TOLERANCE_MM;
-  NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM = numericThreshold('THR-IMPL-002', 'mm') ?? DEFAULT_NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM;
-  GOLDEN_AREA_TOLERANCE_MM2 = numericThreshold('THR-IMPL-003', 'mm^2') ?? DEFAULT_GOLDEN_AREA_TOLERANCE_MM2;
+  return { values, errors };
 }
 
-loadThresholdConfig();
+function loadThresholdConfig() {
+  const parsed = parseExecutableThresholdConfig(loadJSON(THRESHOLD_REGISTRY_PATH));
+  if (parsed.errors.length > 0) {
+    throw new Error(parsed.errors.join('; '));
+  }
+  return parsed.values;
+}
+
+let thresholdConfig;
+try {
+  thresholdConfig = loadThresholdConfig();
+} catch (error) {
+  console.error(`ERROR: Invalid executable threshold configuration: ${error.message}`);
+  process.exit(1);
+}
+
+const COORDINATE_TOLERANCE_MM = thresholdConfig['THR-GEOM-001'];
+const GOLDEN_PERIMETER_TOLERANCE_MM = thresholdConfig['THR-IMPL-001'];
+const NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM = thresholdConfig['THR-IMPL-002'];
+const GOLDEN_AREA_TOLERANCE_MM2 = thresholdConfig['THR-IMPL-003'];
 
 function getExampleFiles(dir, prefix) {
   if (!fs.existsSync(dir)) return [];
@@ -332,6 +374,10 @@ function validateGoldenConsistency(measurement, golden) {
 function validateMeasurementSemantics(measurement, fixtureId) {
   const errors = [];
 
+  if (polygonArea(measurement.boundary) <= 0) {
+    errors.push('room boundary winding must be counterclockwise');
+  }
+
   if (measurement.heights.wallHeight < measurement.heights.roomHeight) {
     errors.push(`wallHeight ${measurement.heights.wallHeight} is lower than roomHeight ${measurement.heights.roomHeight}`);
   }
@@ -369,6 +415,9 @@ function validateMeasurementSemantics(measurement, fixtureId) {
   });
 
   (measurement.pipeEnclosures || []).forEach(enclosure => {
+    if (polygonArea(enclosure.boundary) <= 0) {
+      errors.push(`pipe enclosure ${enclosure.enclosureId} boundary winding must be counterclockwise`);
+    }
     enclosure.boundary.forEach((point, index) => {
       if (!pointInPolygon(point, measurement.boundary)) {
         errors.push(`pipe enclosure ${enclosure.enclosureId} vertex ${index} is outside room boundary`);
@@ -377,7 +426,7 @@ function validateMeasurementSemantics(measurement, fixtureId) {
   });
 
   if (fixtureId === 'FIXTURE-002' && !isNearRectangle(measurement)) {
-    errors.push('FIXTURE-002 must be a 4-vertex near-rectangle with <=20mm coordinate offsets, not a chamfered polygon');
+    errors.push(`FIXTURE-002 must be a 4-vertex near-rectangle with <=${NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM}mm coordinate offsets, not a chamfered polygon`);
   }
 
   return errors;
@@ -385,6 +434,7 @@ function validateMeasurementSemantics(measurement, fixtureId) {
 
 function validateFixturePlacementSemantics(measurement, product, placement) {
   const errors = [];
+  const rotationZ = placement.orientation?.rotationZ;
 
   if (placement.roomId !== measurement.roomId) {
     errors.push(`placement roomId ${placement.roomId} does not match measurement roomId ${measurement.roomId}`);
@@ -394,6 +444,9 @@ function validateFixturePlacementSemantics(measurement, product, placement) {
   }
   if (product.installRequirements?.mountType === 'floor' && placement.position.z !== 0) {
     errors.push(`floor-mounted placement ${placement.placementId} must have z=0`);
+  }
+  if (!Number.isFinite(rotationZ) || rotationZ < 0 || rotationZ >= 360) {
+    errors.push(`placement ${placement.placementId} rotationZ must be in [0, 360)`);
   }
 
   const drainById = new Map((measurement.drainagePoints || []).map(drain => [drain.drainId, drain]));
@@ -406,6 +459,9 @@ function validateFixturePlacementSemantics(measurement, product, placement) {
   }
 
   const vertices = footprintVertices(placement);
+  if (placement.footprint.type === 'polygonal' && polygonArea(vertices) <= 0) {
+    errors.push(`placement ${placement.placementId} polygonal footprint winding must be counterclockwise`);
+  }
   vertices.forEach((point, index) => {
     if (!pointInPolygon(point, measurement.boundary)) {
       errors.push(`placement ${placement.placementId} footprint vertex ${index} is outside room boundary`);
@@ -466,6 +522,47 @@ function validateGoldenFixtureExpectations(golden, measurement, schemas) {
   return errors;
 }
 
+function validateThresholdConfigNegativeCases(registry) {
+  const errors = [];
+  const cases = [
+    {
+      name: 'required threshold has the wrong unit',
+      mutate: data => {
+        data.rows.find(row => row.thresholdId === 'THR-IMPL-002').unit = 'cm';
+      },
+    },
+    {
+      name: 'required threshold has a non-numeric value',
+      mutate: data => {
+        data.rows.find(row => row.thresholdId === 'THR-IMPL-002').value = '20';
+      },
+    },
+    {
+      name: 'required executable threshold is missing',
+      mutate: data => {
+        data.rows = data.rows.filter(row => row.thresholdId !== 'THR-IMPL-002');
+      },
+    },
+    {
+      name: 'threshold registry contains duplicate IDs',
+      mutate: data => {
+        data.rows.push(cloneJSON(data.rows.find(row => row.thresholdId === 'THR-IMPL-002')));
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const data = cloneJSON(registry);
+    testCase.mutate(data);
+    const parsed = parseExecutableThresholdConfig(data);
+    if (parsed.errors.length === 0) {
+      errors.push(`${testCase.name}: invalid executable threshold configuration was accepted`);
+    }
+  }
+
+  return errors;
+}
+
 function validateSemanticNegativeCases(schemas) {
   const errors = [];
   const measurementSchema = schemas['measurement.schema.json']?.compiled;
@@ -484,6 +581,18 @@ function validateSemanticNegativeCases(schemas) {
 
   const measurementCases = [
     {
+      name: 'room boundary has clockwise winding',
+      mutate: data => {
+        data.boundary.reverse();
+        data.walls = data.boundary.map((startPoint, index) => ({
+          ...data.walls[index],
+          startPoint: cloneJSON(startPoint),
+          endPoint: cloneJSON(data.boundary[(index + 1) % data.boundary.length]),
+        }));
+      },
+      expected: 'room boundary winding must be counterclockwise',
+    },
+    {
       name: 'roomHeight greater than wallHeight',
       mutate: data => { data.heights.wallHeight = data.heights.roomHeight - 1; },
       expected: 'wallHeight',
@@ -497,6 +606,11 @@ function validateSemanticNegativeCases(schemas) {
       name: 'opening position is off owning wall',
       mutate: data => { data.openings[0].position.y += COORDINATE_TOLERANCE_MM + 1; },
       expected: 'position is not on wall',
+    },
+    {
+      name: 'opening references a missing wallIndex',
+      mutate: data => { data.openings[0].wallIndex = data.walls.length; },
+      expected: 'references missing wallIndex',
     },
     {
       name: 'opening width exceeds wall length',
@@ -513,6 +627,11 @@ function validateSemanticNegativeCases(schemas) {
       mutate: data => { data.pipeEnclosures[0].boundary[0].x = 3200; },
       expected: 'pipe enclosure',
     },
+    {
+      name: 'pipe enclosure has clockwise winding',
+      mutate: data => { data.pipeEnclosures[0].boundary.reverse(); },
+      expected: 'boundary winding must be counterclockwise',
+    },
   ];
 
   measurementCases.forEach(testCase => {
@@ -526,40 +645,74 @@ function validateSemanticNegativeCases(schemas) {
 
   const placementCases = [
     {
+      name: 'placement roomId mismatch',
+      mutatePlacement: data => { data.roomId = '55555555-5555-4555-8555-999999999999'; },
+      expected: 'does not match measurement roomId',
+    },
+    {
       name: 'placement productId mismatch',
-      mutate: data => { data.productId = 'PLACEHOLDER-sink'; },
+      mutatePlacement: data => { data.productId = 'PLACEHOLDER-sink'; },
       expected: 'productId',
     },
     {
       name: 'floor-mounted fixture has nonzero z',
-      mutate: data => { data.position.z = 50; },
+      mutatePlacement: data => { data.position.z = 50; },
       expected: 'must have z=0',
     },
     {
       name: 'required drain reference is missing',
-      mutate: data => { data.targetDrainagePoint = '55555555-5555-4555-8555-999999999999'; },
+      mutatePlacement: data => { data.targetDrainagePoint = '55555555-5555-4555-8555-999999999999'; },
       expected: 'targetDrainagePoint is missing',
     },
     {
+      name: 'toilet targets a non-toilet drain',
+      mutateMeasurement: data => { data.drainagePoints[0].type = 'floor_drain'; },
+      expected: 'must target toilet_drain',
+    },
+    {
       name: 'fixture footprint exceeds room boundary',
-      mutate: data => { data.position.x = 100; },
+      mutatePlacement: data => { data.position.x = 100; },
       expected: 'footprint vertex',
     },
     {
       name: 'rotated rectangular footprint exceeds room boundary',
-      mutate: data => {
+      mutatePlacement: data => {
         data.position = { x: 1500, y: 1200, z: 0 };
         data.orientation.rotationZ = 90;
         data.footprint = { type: 'rectangular', width: 2600, depth: 300 };
       },
       expected: 'footprint vertex',
     },
+    {
+      name: 'rotationZ is outside the frozen range',
+      mutatePlacement: data => { data.orientation.rotationZ = 360; },
+      expected: 'rotationZ must be in [0, 360)',
+    },
+    {
+      name: 'polygonal footprint has clockwise winding',
+      mutatePlacement: data => {
+        data.footprint = {
+          type: 'polygonal',
+          width: 400,
+          depth: 700,
+          vertices: [
+            { x: -200, y: -350 },
+            { x: -200, y: 350 },
+            { x: 200, y: 350 },
+            { x: 200, y: -350 },
+          ],
+        };
+      },
+      expected: 'footprint winding must be counterclockwise',
+    },
   ];
 
   placementCases.forEach(testCase => {
-    const data = cloneJSON(placement);
-    testCase.mutate(data);
-    const semanticErrors = validateFixturePlacementSemantics(measurement, product, data);
+    const measurementData = cloneJSON(measurement);
+    const placementData = cloneJSON(placement);
+    testCase.mutateMeasurement?.(measurementData);
+    testCase.mutatePlacement?.(placementData);
+    const semanticErrors = validateFixturePlacementSemantics(measurementData, product, placementData);
     if (!semanticErrors.some(error => error.includes(testCase.expected))) {
       errors.push(`${testCase.name}: expected semantic failure containing "${testCase.expected}", got ${semanticErrors.join('; ') || 'none'}`);
     }
@@ -771,6 +924,16 @@ function main() {
       failures.push({ file: 'evidence-registry.json', type: 'evidence-policy-failed', errors: policyErrors });
     } else {
       log('PASS', 'evidence-registry.json: Business-confirmation policy passes');
+      totalPassed++;
+    }
+
+    const thresholdConfigNegativeErrors = validateThresholdConfigNegativeCases(thresholdRegistry);
+    if (thresholdConfigNegativeErrors.length > 0) {
+      log('FAIL', `threshold config negative cases: ${thresholdConfigNegativeErrors.join('; ')}`);
+      totalFailed++;
+      failures.push({ file: 'threshold-config-negative-cases', type: 'threshold-config-negative-failed', errors: thresholdConfigNegativeErrors });
+    } else {
+      log('PASS', 'threshold config negative cases: Invalid executable configurations are rejected');
       totalPassed++;
     }
   }

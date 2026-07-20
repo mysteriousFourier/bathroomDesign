@@ -22,7 +22,7 @@ W1D2 deliverable: sample registration, executable synthetic test fixtures, thres
 
 ## Acceptance Checklist
 
-- [x] Evidence table contains rows for every Week 1 locked item (11 rows, 11 locked items)
+- [x] Evidence table contains 13 rows: 11 Week 1 locked-item rows plus 2 explicit real-sample scope rows
 - [x] Evidence registry JSON validates against `evidence-registry.schema.json`
 - [x] Threshold registry JSON validates against `threshold-registry.schema.json`
 - [x] Calculation tolerances, provisional implementation thresholds, and pending business thresholds are separated

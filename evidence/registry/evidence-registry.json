@@ -115,13 +115,13 @@
       "lockedItem": "Empty-room 3D",
       "sourceType": "3d_model",
       "contractFields": ["heights.roomHeight", "heights.wallHeight", "heights.groundElevation", "heights.netHeight", "heights.doorOpeningHeight", "boundary", "openings"],
-      "acceptanceMethod": "W1D5 scene JSON and screenshot/report reproduce empty-room 3D from W1D3/W1D4 outputs; every primitive carries stable ID, source field, evidence ID, and status.",
-      "expectedArtifact": "contracts/3d/scene.json planned; screenshot/report planned",
+      "acceptanceMethod": "Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0 generates deterministic W1D5 scene JSON, screenshot artifacts, report, and viewer from W1D3/W1D4 synthetic outputs; every primitive carries stable ID, source field, evidence ID, and status.",
+      "expectedArtifact": "contracts/3d/empty-room-scene.json; reports/screenshots/w1d5-empty-room-desktop.svg; reports/screenshots/w1d5-empty-room-mobile.svg; reports/screenshots/w1d5-empty-room-desktop.png; reports/screenshots/w1d5-empty-room-mobile.png; reports/w1d5-empty-room-report.md; viewer/w1d5-empty-room-viewer.html",
       "owner": "3D",
       "day": "W1D5",
-      "status": "pending_implementation",
+      "status": "unverified",
       "thresholdRefs": ["THR-3D-001", "THR-3D-002", "THR-3D-003", "THR-3D-004", "THR-3D-005", "THR-3D-006", "THR-3D-007"],
-      "notes": "Use roomHeight, wallHeight, groundElevation, netHeight, and doorOpeningHeight only. Default dimensions and camera/view choices remain provisional or unverified while business thresholds are pending."
+      "notes": "Implementation evidence is from Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0 and is synthetic/generated only. Scene primitives carry stable id, source, evidenceId, and status. 3D thresholds remain pending_business_confirmation, so acceptance stays unverified."
     },
     {
       "schemaVersion": "1.1.0",
@@ -129,13 +129,13 @@
       "lockedItem": "Automatic annotation",
       "sourceType": "annotation_output",
       "contractFields": ["stable annotation IDs", "source fields", "dimension annotations", "point annotations", "evidence references", "status"],
-      "acceptanceMethod": "W1D5 annotation JSON validates label coverage, source/evidence references, and status markers for dimensions and points.",
-      "expectedArtifact": "contracts/annotation/annotation.json planned; screenshot/report planned",
+      "acceptanceMethod": "Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0 generates annotation JSON and validates target primitive references, source/evidence references, status markers, dimensions, and points.",
+      "expectedArtifact": "contracts/annotation/measurement-synthetic-005-annotation.json",
       "owner": "Annotation",
       "day": "W1D5",
-      "status": "pending_implementation",
+      "status": "unverified",
       "thresholdRefs": ["THR-ANN-001", "THR-ANN-002", "THR-ANN-003", "THR-ANN-004", "THR-ANN-005", "THR-ANN-006", "THR-ANN-007"],
-      "notes": "Customer-facing vocabulary and confidence thresholds are pending_business_confirmation; annotation rows may only be provisional or unverified until confirmed."
+      "notes": "Implementation evidence is from Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0 and is synthetic/generated only. Every annotation carries stable id, source, evidenceId, and status. Customer-facing vocabulary and confidence thresholds remain pending_business_confirmation."
     },
     {
       "schemaVersion": "1.1.0",
@@ -148,7 +148,7 @@
       "owner": "Data",
       "day": "W1D5",
       "status": "unverified",
-      "notes": "Roll-up artifact exists and preserves unverified, pending_review, pending_implementation, and pending_business_confirmation markers. It remains unverified until child rows and business confirmations close."
+      "notes": "Roll-up artifact exists and preserves unverified, pending_review, and pending_business_confirmation markers. It remains unverified until child rows and business confirmations close."
     },
     {
       "schemaVersion": "1.1.0",

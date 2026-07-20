@@ -2,7 +2,7 @@
 
 W1D2 deliverable: sample registration, executable synthetic test fixtures, threshold configuration, evidence registry, and real-sample scope baseline. JSON files are the validation source; Markdown files are display summaries only.
 
-Current mapping note: EV-007 and EV-008 describe implemented W1D3/W1D4 geometry-topology artifacts and remain `unverified` only because business thresholds are still pending. EV-009 and EV-010 remain W1D5 planned implementation outputs and must use `roomHeight`, `wallHeight`, `groundElevation`, `netHeight`, and `doorOpeningHeight`; do not reintroduce `floorHeight`. EV-011 now points to `registry/week1-rollup.json`, an executable Data-owned roll-up that preserves child row blockers and does not claim business confirmation.
+Current mapping note: EV-007 and EV-008 describe implemented W1D3/W1D4 geometry-topology artifacts and remain `unverified` only because business thresholds are still pending. EV-009 and EV-010 now map to Fronted commit `42c46ccebc6a2180eef055ba58c08a3ebb37ebb0` as synthetic/generated W1D5 implementation evidence, remain `unverified`, and must use `roomHeight`, `wallHeight`, `groundElevation`, `netHeight`, and `doorOpeningHeight`; do not reintroduce `floorHeight`. EV-011 points to `registry/week1-rollup.json`, an executable Data-owned roll-up that preserves child row blockers and does not claim business confirmation.
 
 ## Directory
 
@@ -46,7 +46,7 @@ Current mapping note: EV-007 and EV-008 describe implemented W1D3/W1D4 geometry-
 
 ## Blocking Condition
 
-Business acceptance cannot be confirmed from `pending_business_confirmation` thresholds. W1D3-W1D4 implementation evidence remains `unverified`, W1D5 implementation rows remain pending until their artifacts land in this branch, and the EV-011 roll-up remains `unverified` until all child blockers close.
+Business acceptance cannot be confirmed from `pending_business_confirmation` thresholds. W1D3-W1D5 implementation evidence remains `unverified`, and the EV-011 roll-up remains `unverified` until all child blockers close.
 
 ## Predecessors
 

@@ -98,23 +98,23 @@
       "evidenceId": "EV-009",
       "day": "W1D5",
       "owner": "3D",
-      "status": "pending_implementation",
-      "artifact": "contracts/3d/scene.json planned; screenshot/report planned",
+      "status": "unverified",
+      "artifact": "contracts/3d/empty-room-scene.json; reports/screenshots/w1d5-empty-room-desktop.svg; reports/screenshots/w1d5-empty-room-mobile.svg; reports/screenshots/w1d5-empty-room-desktop.png; reports/screenshots/w1d5-empty-room-mobile.png; reports/w1d5-empty-room-report.md; viewer/w1d5-empty-room-viewer.html",
       "contractFields": ["heights.roomHeight", "heights.wallHeight", "heights.groundElevation", "heights.netHeight", "heights.doorOpeningHeight", "boundary", "openings"],
       "thresholdRefs": ["THR-3D-001", "THR-3D-002", "THR-3D-003", "THR-3D-004", "THR-3D-005", "THR-3D-006", "THR-3D-007"],
-      "blocker": "3D scene artifact is not present on this Data branch.",
-      "validationState": "Expected contract mapping is ready; implementation evidence must arrive from the W1D5 owner branch."
+      "blocker": "THR-3D-001 through THR-3D-007 remain pending_business_confirmation; only synthetic/generated implementation evidence is available.",
+      "validationState": "Mapped to Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0, which reports build, validate, smoke, and screenshot commands passing for generated W1D5 scene evidence."
     },
     {
       "evidenceId": "EV-010",
       "day": "W1D5",
       "owner": "Annotation",
-      "status": "pending_implementation",
-      "artifact": "contracts/annotation/annotation.json planned; screenshot/report planned",
+      "status": "unverified",
+      "artifact": "contracts/annotation/measurement-synthetic-005-annotation.json",
       "contractFields": ["stable annotation IDs", "source fields", "dimension annotations", "point annotations", "evidence references", "status"],
       "thresholdRefs": ["THR-ANN-001", "THR-ANN-002", "THR-ANN-003", "THR-ANN-004", "THR-ANN-005", "THR-ANN-006", "THR-ANN-007"],
-      "blocker": "Annotation artifact is not present on this Data branch; vocabulary, confidence, and product-library accuracy remain pending_business_confirmation.",
-      "validationState": "Expected contract mapping is ready; implementation evidence must arrive from the W1D5 owner branch."
+      "blocker": "Customer-facing vocabulary, confidence thresholds, and annotation acceptance thresholds remain pending_business_confirmation; only synthetic/generated implementation evidence is available.",
+      "validationState": "Mapped to Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0, which reports generated annotation JSON with stable id/source/evidenceId/status rows and passing W1D5 traceability validation."
     },
     {
       "evidenceId": "EV-011",
@@ -123,7 +123,7 @@
       "status": "unverified",
       "artifact": "evidence/registry/week1-rollup.json",
       "contractFields": ["EV-001", "EV-002", "EV-003", "EV-004", "EV-005", "EV-006", "EV-007", "EV-008", "EV-009", "EV-010", "EV-011", "EV-012", "EV-013"],
-      "blocker": "Roll-up is executable, but several child rows remain unverified, pending_review, pending_implementation, or pending_business_confirmation.",
+      "blocker": "Roll-up is executable, but several child rows remain unverified, pending_review, or pending_business_confirmation.",
       "validationState": "Roll-up file validates and mirrors evidence-registry row day, owner, status, artifact, and contract fields."
     },
     {
@@ -150,9 +150,9 @@
   "summary": {
     "totalRows": 13,
     "confirmed": 3,
-    "unverified": 5,
+    "unverified": 7,
     "pendingReview": 1,
-    "pendingImplementation": 2,
+    "pendingImplementation": 0,
     "pendingBusinessConfirmation": 2,
     "unverifiedItems": ["EV-001", "EV-002", "EV-006", "EV-007", "EV-008", "EV-009", "EV-010", "EV-011", "EV-012", "EV-013"]
   }

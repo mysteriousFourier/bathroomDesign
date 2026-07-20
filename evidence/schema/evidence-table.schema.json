@@ -4,7 +4,7 @@
   "title": "Evidence Table Schema",
   "description": "Evidence table structure: maps each Week 1 locked item to an evidence row with source type, contractor-related field, acceptance method, expected artifact, owner, and status.",
   "type": "object",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "required": ["schemaVersion", "evidenceId", "lockedItem", "sourceType", "contractFields", "acceptanceMethod", "expectedArtifact", "owner", "day", "status"],
   "properties": {
     "schemaVersion": {
@@ -69,10 +69,15 @@
       "enum": ["confirmed", "unverified", "pending_business_confirmation", "pending_implementation", "pending_review"],
       "description": "Current status of this evidence row."
     },
-    "thresholdRef": {
-      "type": "string",
-      "description": "Reference to a threshold in threshold-registry.json, if this evidence depends on a numeric threshold.",
-      "pattern": "^THR-[A-Z0-9]+-[0-9]{3}$"
+    "thresholdRefs": {
+      "type": "array",
+      "description": "References to thresholds in threshold-registry.json, if this evidence depends on one or more numeric thresholds.",
+      "items": {
+        "type": "string",
+        "pattern": "^THR-[A-Z0-9]+-[0-9]{3}$"
+      },
+      "minItems": 1,
+      "uniqueItems": true
     },
     "notes": {
       "type": "string",

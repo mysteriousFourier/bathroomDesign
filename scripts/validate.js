@@ -90,7 +90,7 @@ function loadThresholdConfig() {
   COORDINATE_TOLERANCE_MM = numericThreshold('THR-GEOM-001', 'mm') ?? DEFAULT_COORDINATE_TOLERANCE_MM;
   GOLDEN_PERIMETER_TOLERANCE_MM = numericThreshold('THR-IMPL-001', 'mm') ?? DEFAULT_GOLDEN_PERIMETER_TOLERANCE_MM;
   NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM = numericThreshold('THR-IMPL-002', 'mm') ?? DEFAULT_NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM;
-  GOLDEN_AREA_TOLERANCE_MM2 = numericThreshold('THR-IMPL-003', 'mm2') ?? DEFAULT_GOLDEN_AREA_TOLERANCE_MM2;
+  GOLDEN_AREA_TOLERANCE_MM2 = numericThreshold('THR-IMPL-003', 'mm^2') ?? DEFAULT_GOLDEN_AREA_TOLERANCE_MM2;
 }
 
 loadThresholdConfig();
@@ -260,15 +260,15 @@ function validateEvidencePolicy(registry, thresholdRegistry) {
   const errors = [];
 
   for (const row of registry.rows) {
-    if (row.thresholdRef) {
-      const threshold = thresholdById.get(row.thresholdRef);
+    for (const thresholdRef of row.thresholdRefs || []) {
+      const threshold = thresholdById.get(thresholdRef);
       if (!threshold) {
-        errors.push(`${row.evidenceId}: thresholdRef ${row.thresholdRef} not found`);
+        errors.push(`${row.evidenceId}: thresholdRefs entry ${thresholdRef} not found`);
         continue;
       }
 
       if (threshold.status === 'pending_business_confirmation' && row.status === 'confirmed') {
-        errors.push(`${row.evidenceId}: pending_business_confirmation threshold ${row.thresholdRef} can only produce unverified evidence`);
+        errors.push(`${row.evidenceId}: pending_business_confirmation threshold ${thresholdRef} can only produce unverified evidence`);
       }
     }
 

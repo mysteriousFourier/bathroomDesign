@@ -22,7 +22,7 @@ Stable baseline for Week 1 acceptance thresholds. `threshold-registry.json` is t
 | `THR-GEOM-004` | Geometry | Minimum boundary vertices | 4 | points | measurement.schema.json boundary.minItems, frozen W1D1 | confirmed | Room boundary polygon |
 | `THR-IMPL-001` | Validation Harness | Synthetic golden perimeter comparison tolerance | 0.01 | mm | W1D2 validation harness only | provisional_implementation | Computed perimeter comparison for synthetic golden JSON |
 | `THR-IMPL-002` | Validation Harness | Near-rectangle maximum vertex offset | 20 | mm | W1D2 synthetic fixture semantic check only | provisional_implementation | FIXTURE-002 near-rectangle synthetic measurement classification |
-| `THR-IMPL-003` | Validation Harness | Synthetic golden area comparison tolerance | 0.01 | mm2 | W1D2 validation harness only | provisional_implementation | Computed area comparison for synthetic golden JSON |
+| `THR-IMPL-003` | Validation Harness | Synthetic golden area comparison tolerance | 0.01 | mm^2 | W1D2 validation harness only | provisional_implementation | Computed area comparison for synthetic golden JSON |
 | `THR-GEOM-005` | Geometry | Wall length tolerance | null | mm | pending_business_confirmation | pending_business_confirmation | Wall segment length deviation from boundary edge |
 | `THR-GEOM-006` | Geometry | Boundary closure tolerance | null | mm | pending_business_confirmation | pending_business_confirmation | Distance between boundary polygon endpoint and start point |
 | `THR-GEOM-007` | Geometry | Near-collinearity angle threshold | null | degrees | pending_business_confirmation | pending_business_confirmation | Adjacent wall segments; affects W1D3 topology |

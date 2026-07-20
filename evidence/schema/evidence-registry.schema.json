@@ -3,7 +3,7 @@
   "title": "Evidence Registry",
   "description": "Evidence rows for every Week 1 locked item from 最小实现计划书 line 222. Each row maps a locked item to day, artifact, owner, and acceptance evidence.",
   "type": "object",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "required": ["schemaVersion", "rows"],
   "properties": {
     "schemaVersion": {

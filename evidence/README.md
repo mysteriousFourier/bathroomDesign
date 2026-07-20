@@ -42,7 +42,7 @@ Business acceptance cannot be confirmed from `pending_business_confirmation` thr
 
 ## Predecessors
 
-- W1D1 frozen contract (schemas and CONTRACT-BASELINE.md) — complete and verified.
+- W1D1 frozen contract (schemas and CONTRACT-BASELINE.md) — `pending_review`; unit, global Y-axis, semantic validation, and annotation baseline corrections remain unverified until review closes.
 
 ## Responsible Role
 

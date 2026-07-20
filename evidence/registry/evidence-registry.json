@@ -20,12 +20,12 @@
       "lockedItem": "Backend contract",
       "sourceType": "contract_document",
       "contractFields": ["adapter boundary", "schema versioning", "provider-neutral contract"],
-      "acceptanceMethod": "Review that contract files contain no vendor-specific model API shape.",
+      "acceptanceMethod": "Pending review of W1D1 unit, global Y-axis, semantic validation, and annotation baseline corrections.",
       "expectedArtifact": "contracts/COORDINATE-SYSTEM.md; contracts/SCHEMA-VERSIONING.md",
       "owner": "Data",
       "day": "W1D1",
-      "status": "confirmed",
-      "notes": "Confirmed by W1D1 contract baseline."
+      "status": "pending_review",
+      "notes": "W1D1 backend contract remains unverified until unit, global Y-axis, semantic validation, and annotation baseline corrections are reviewed."
     },
     {
       "schemaVersion": "1.0.0",
@@ -101,10 +101,10 @@
       "lockedItem": "Topology",
       "sourceType": "topology_graph",
       "contractFields": ["openings[].wallIndex", "drainagePoints", "pipeEnclosures", "fixture-placement.targetDrainagePoint"],
-      "acceptanceMethod": "W1D3 topology graph validates containment and references.",
+      "acceptanceMethod": "W1D4 topology graph validates containment and references.",
       "expectedArtifact": "contracts/topology/ planned",
       "owner": "Topology",
-      "day": "W1D3",
+      "day": "W1D4",
       "status": "pending_implementation",
       "thresholdRef": "THR-TOPO-001",
       "notes": "Business thresholds remain unverified until confirmed."
@@ -115,10 +115,10 @@
       "lockedItem": "Empty-room 3D",
       "sourceType": "3d_model",
       "contractFields": ["heights.roomHeight", "heights.wallHeight", "boundary", "openings"],
-      "acceptanceMethod": "W1D4 empty-room model validates against confirmed dimensions and review artifact.",
+      "acceptanceMethod": "W1D5 empty-room model validates against confirmed dimensions and review artifact.",
       "expectedArtifact": "contracts/3d/ planned",
       "owner": "3D",
-      "day": "W1D4",
+      "day": "W1D5",
       "status": "pending_implementation",
       "thresholdRef": "THR-3D-001",
       "notes": "Default height values are pending_business_confirmation and cannot confirm acceptance."

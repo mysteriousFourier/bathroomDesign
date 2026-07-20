@@ -20,9 +20,15 @@ const Ajv = require('ajv');
 const addFormats = require('ajv-formats');
 
 const SCHEMAS_DIR = path.join(__dirname, '..', 'schemas');
+const EVIDENCE_SCHEMA_DIR = path.join(__dirname, '..', 'evidence', 'schema');
 const EXAMPLES_DIR = path.join(__dirname, '..', 'examples');
 const VALID_DIR = path.join(EXAMPLES_DIR, 'valid');
 const INVALID_DIR = path.join(EXAMPLES_DIR, 'invalid');
+const EVIDENCE_DIR = path.join(__dirname, '..', 'evidence');
+const EVIDENCE_REGISTRY_DIR = path.join(EVIDENCE_DIR, 'registry');
+const SYNTHETIC_DIR = path.join(EVIDENCE_DIR, 'samples', 'synthetic');
+const GOLDEN_DIR = path.join(EVIDENCE_DIR, 'samples', 'golden');
+const EVIDENCE_INVALID_DIR = path.join(EVIDENCE_DIR, 'invalid');
 
 // Schema to example mapping (prefix match)
 const SCHEMA_EXAMPLE_MAP = {
@@ -60,6 +66,115 @@ function getExampleFiles(dir, prefix) {
     .map(f => path.join(dir, f));
 }
 
+function listJsonFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter(f => f.endsWith('.json'))
+    .map(f => path.join(dir, f));
+}
+
+function formatErrors(errors) {
+  return (errors || []).map(e => `${e.instancePath || '/'}: ${e.message}`).join('; ');
+}
+
+function polygonArea(points) {
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return sum / 2;
+}
+
+function polygonPerimeter(points) {
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    sum += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return sum;
+}
+
+function countOpenings(measurement, type) {
+  return (measurement.openings || []).filter(o => o.type === type).length;
+}
+
+function validateEvidencePolicy(registry, thresholdRegistry) {
+  const thresholdById = new Map(thresholdRegistry.rows.map(row => [row.thresholdId, row]));
+  const errors = [];
+
+  for (const row of registry.rows) {
+    if (row.thresholdRef) {
+      const threshold = thresholdById.get(row.thresholdRef);
+      if (!threshold) {
+        errors.push(`${row.evidenceId}: thresholdRef ${row.thresholdRef} not found`);
+        continue;
+      }
+
+      if (threshold.status === 'pending_business_confirmation' && row.status === 'confirmed') {
+        errors.push(`${row.evidenceId}: pending_business_confirmation threshold ${row.thresholdRef} can only produce unverified evidence`);
+      }
+    }
+
+    const text = `${row.lockedItem} ${row.acceptanceMethod} ${row.expectedArtifact} ${row.notes || ''}`;
+    if (row.status === 'confirmed' && /pending_business_confirmation/.test(text)) {
+      errors.push(`${row.evidenceId}: W1D1/W1D2 row with pending_business_confirmation content must not be confirmed`);
+    }
+  }
+
+  return errors;
+}
+
+function validateGoldenConsistency(measurement, golden) {
+  const errors = [];
+  const geometry = golden.expectedGeometry;
+  const topology = golden.expectedTopology;
+  const area = polygonArea(measurement.boundary);
+  const perimeter = polygonPerimeter(measurement.boundary);
+  const openingWallIndexes = (measurement.openings || []).map(o => o.wallIndex);
+
+  if (area <= 0 && geometry.winding === 'counterclockwise') {
+    errors.push('boundary winding is not counterclockwise');
+  }
+  if (measurement.boundary.length !== geometry.boundaryVertexCount) {
+    errors.push(`boundaryVertexCount expected ${geometry.boundaryVertexCount}, got ${measurement.boundary.length}`);
+  }
+  if (measurement.walls.length !== geometry.wallCount) {
+    errors.push(`wallCount expected ${geometry.wallCount}, got ${measurement.walls.length}`);
+  }
+  if (Math.abs(Math.abs(area) - geometry.areaMm2) > 0.01) {
+    errors.push(`areaMm2 expected ${geometry.areaMm2}, got ${Math.abs(area)}`);
+  }
+  if (Math.abs(perimeter - geometry.perimeterMm) > 0.01) {
+    errors.push(`perimeterMm expected ${geometry.perimeterMm}, got ${perimeter}`);
+  }
+  if ((measurement.openings || []).length !== topology.openingCount) {
+    errors.push(`openingCount expected ${topology.openingCount}, got ${(measurement.openings || []).length}`);
+  }
+  if (countOpenings(measurement, 'door') !== topology.doorCount) {
+    errors.push(`doorCount expected ${topology.doorCount}, got ${countOpenings(measurement, 'door')}`);
+  }
+  if (countOpenings(measurement, 'window') !== topology.windowCount) {
+    errors.push(`windowCount expected ${topology.windowCount}, got ${countOpenings(measurement, 'window')}`);
+  }
+  if ((measurement.drainagePoints || []).length !== topology.drainagePointCount) {
+    errors.push(`drainagePointCount expected ${topology.drainagePointCount}, got ${(measurement.drainagePoints || []).length}`);
+  }
+  if ((measurement.pipeEnclosures || []).length !== topology.pipeEnclosureCount) {
+    errors.push(`pipeEnclosureCount expected ${topology.pipeEnclosureCount}, got ${(measurement.pipeEnclosures || []).length}`);
+  }
+  if ((measurement.waterSupplyPoints || []).length !== topology.waterSupplyPointCount) {
+    errors.push(`waterSupplyPointCount expected ${topology.waterSupplyPointCount}, got ${(measurement.waterSupplyPoints || []).length}`);
+  }
+  if (JSON.stringify(openingWallIndexes) !== JSON.stringify(topology.openingWallIndexes)) {
+    errors.push(`openingWallIndexes expected ${JSON.stringify(topology.openingWallIndexes)}, got ${JSON.stringify(openingWallIndexes)}`);
+  }
+
+  return errors;
+}
+
 // --- Main ---
 
 function main() {
@@ -91,10 +206,19 @@ function main() {
   ajv.addKeyword('version');
 
   const schemas = {};
-  const schemaFiles = fs.readdirSync(SCHEMAS_DIR).filter(f => f.endsWith('.json'));
+  const evidenceSchemaFiles = fs.readdirSync(EVIDENCE_SCHEMA_DIR)
+    .filter(f => f.endsWith('.json'))
+    .sort((a, b) => {
+      if (a === 'evidence-table.schema.json') return -1;
+      if (b === 'evidence-table.schema.json') return 1;
+      return a.localeCompare(b);
+    });
+  const schemaFiles = [
+    ...fs.readdirSync(SCHEMAS_DIR).filter(f => f.endsWith('.json')).map(f => ({ file: f, filepath: path.join(SCHEMAS_DIR, f), key: f })),
+    ...evidenceSchemaFiles.map(f => ({ file: `evidence/schema/${f}`, filepath: path.join(EVIDENCE_SCHEMA_DIR, f), key: f })),
+  ];
 
-  for (const file of schemaFiles) {
-    const filepath = path.join(SCHEMAS_DIR, file);
+  for (const { file, filepath, key } of schemaFiles) {
     const schema = loadJSON(filepath);
 
     if (schema._error) {
@@ -121,8 +245,9 @@ function main() {
 
     // Register the schema for later example validation
     try {
-      const compiled = ajv.compile(schema);
-      schemas[file] = { schema, compiled };
+      ajv.addSchema(schema, key);
+      const compiled = ajv.getSchema(key) || ajv.compile(schema);
+      schemas[key] = { schema, compiled };
     } catch (e) {
       log('FAIL', `${file}: Cannot compile schema: ${e.message}`);
       totalFailed++;
@@ -209,7 +334,147 @@ function main() {
     }
   }
 
-  // 4. Summary
+  // 4. Validate W1D2 registry JSON files and policy constraints.
+  console.log('\n--- Validating W1D2 Evidence Registries ---\n');
+
+  const evidenceRegistry = loadJSON(path.join(EVIDENCE_REGISTRY_DIR, 'evidence-registry.json'));
+  const thresholdRegistry = loadJSON(path.join(EVIDENCE_REGISTRY_DIR, 'threshold-registry.json'));
+
+  const registryChecks = [
+    ['evidence-registry.json', evidenceRegistry, schemas['evidence-registry.schema.json']?.compiled],
+    ['threshold-registry.json', thresholdRegistry, schemas['threshold-registry.schema.json']?.compiled],
+  ];
+
+  for (const [fname, data, compiled] of registryChecks) {
+    if (data._error) {
+      log('FAIL', `${fname}: ${data._error}`);
+      totalFailed++;
+      failures.push({ file: fname, type: 'evidence-registry-parse', error: data._error });
+      continue;
+    }
+    if (!compiled) {
+      log('FAIL', `${fname}: Missing compiled schema`);
+      totalFailed++;
+      failures.push({ file: fname, type: 'missing-schema' });
+      continue;
+    }
+    const valid = compiled(data);
+    if (!valid) {
+      log('FAIL', `${fname}: Should be valid but failed validation`);
+      log('INFO', `  ${formatErrors(compiled.errors)}`);
+      totalFailed++;
+      failures.push({ file: fname, type: 'evidence-registry-invalid', errors: compiled.errors });
+    } else {
+      log('PASS', `${fname}: Correctly passes validation`);
+      totalPassed++;
+    }
+  }
+
+  if (!evidenceRegistry._error && !thresholdRegistry._error) {
+    const policyErrors = validateEvidencePolicy(evidenceRegistry, thresholdRegistry);
+    if (policyErrors.length > 0) {
+      log('FAIL', `evidence-registry.json: ${policyErrors.join('; ')}`);
+      totalFailed++;
+      failures.push({ file: 'evidence-registry.json', type: 'evidence-policy-failed', errors: policyErrors });
+    } else {
+      log('PASS', 'evidence-registry.json: Business-confirmation policy passes');
+      totalPassed++;
+    }
+  }
+
+  // 5. Validate W1D2 synthetic fixtures and golden geometry/topology.
+  console.log('\n--- Validating W1D2 Synthetic Fixtures and Golden Outputs ---\n');
+
+  const measurementSchema = schemas['measurement.schema.json']?.compiled;
+  const goldenSchema = schemas['synthetic-golden.schema.json']?.compiled;
+  const syntheticFiles = listJsonFiles(SYNTHETIC_DIR);
+  const goldenFiles = listJsonFiles(GOLDEN_DIR);
+
+  if (syntheticFiles.length !== 5) {
+    log('FAIL', `Expected 5 synthetic fixture JSON files, found ${syntheticFiles.length}`);
+    totalFailed++;
+    failures.push({ file: 'evidence/samples/synthetic', type: 'synthetic-count' });
+  }
+  if (goldenFiles.length !== 5) {
+    log('FAIL', `Expected 5 golden JSON files, found ${goldenFiles.length}`);
+    totalFailed++;
+    failures.push({ file: 'evidence/samples/golden', type: 'golden-count' });
+  }
+
+  for (const examplePath of syntheticFiles) {
+    const data = loadJSON(examplePath);
+    const fname = path.basename(examplePath);
+    if (data._error || !measurementSchema(data)) {
+      log('FAIL', `${fname}: Synthetic measurement fixture failed schema validation`);
+      if (data._error) log('INFO', `  ${data._error}`);
+      else log('INFO', `  ${formatErrors(measurementSchema.errors)}`);
+      totalFailed++;
+      failures.push({ file: fname, type: 'synthetic-fixture-invalid' });
+    } else {
+      log('PASS', `${fname}: Correctly passes measurement schema`);
+      totalPassed++;
+    }
+  }
+
+  for (const goldenPath of goldenFiles) {
+    const golden = loadJSON(goldenPath);
+    const fname = path.basename(goldenPath);
+    if (golden._error || !goldenSchema(golden)) {
+      log('FAIL', `${fname}: Golden JSON failed schema validation`);
+      if (golden._error) log('INFO', `  ${golden._error}`);
+      else log('INFO', `  ${formatErrors(goldenSchema.errors)}`);
+      totalFailed++;
+      failures.push({ file: fname, type: 'golden-invalid' });
+      continue;
+    }
+
+    const measurementPath = path.join(SYNTHETIC_DIR, golden.measurementFile);
+    const measurement = loadJSON(measurementPath);
+    const consistencyErrors = measurement._error ? [measurement._error] : validateGoldenConsistency(measurement, golden);
+    if (consistencyErrors.length > 0) {
+      log('FAIL', `${fname}: Golden consistency check failed`);
+      log('INFO', `  ${consistencyErrors.join('; ')}`);
+      totalFailed++;
+      failures.push({ file: fname, type: 'golden-consistency-failed', errors: consistencyErrors });
+    } else {
+      log('PASS', `${fname}: Golden geometry/topology matches measurement fixture`);
+      totalPassed++;
+    }
+  }
+
+  // 6. Validate W1D2 invalid samples (must fail either schema or policy).
+  console.log('\n--- Validating W1D2 Negative Examples (must FAIL) ---\n');
+
+  const d2InvalidChecks = [
+    ['evidence-registry-invalid-001-confirmed-pending-threshold.json', schemas['evidence-registry.schema.json']?.compiled, data => {
+      if (!data._error && schemas['evidence-registry.schema.json'].compiled(data)) {
+        return validateEvidencePolicy(data, thresholdRegistry).length === 0;
+      }
+      return false;
+    }],
+    ['threshold-registry-invalid-001-pending-with-value.json', schemas['threshold-registry.schema.json']?.compiled, data => !data._error && schemas['threshold-registry.schema.json'].compiled(data)],
+    ['synthetic-fixture-invalid-001-missing-heights.json', measurementSchema, data => !data._error && measurementSchema(data)],
+  ];
+
+  for (const [fname, compiled, passes] of d2InvalidChecks) {
+    const data = loadJSON(path.join(EVIDENCE_INVALID_DIR, fname));
+    if (!compiled) {
+      log('FAIL', `${fname}: Missing compiled schema for invalid check`);
+      totalFailed++;
+      failures.push({ file: fname, type: 'missing-schema' });
+      continue;
+    }
+    if (passes(data)) {
+      log('FAIL', `${fname}: Should be invalid but passed validation/policy`);
+      totalFailed++;
+      failures.push({ file: fname, type: 'd2-invalid-passed' });
+    } else {
+      log('PASS', `${fname}: Correctly fails validation/policy`);
+      totalPassed++;
+    }
+  }
+
+  // 7. Summary
   console.log('\n=== Validation Summary ===');
   console.log(`  Passed: ${totalPassed}`);
   console.log(`  Failed: ${totalFailed}`);

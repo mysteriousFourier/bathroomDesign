@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0.0",
+  "rows": [
+    {
+      "thresholdId": "THR-TOPO-999",
+      "category": "Topology",
+      "parameter": "Invalid pending threshold",
+      "thresholdType": "business_threshold",
+      "value": 5,
+      "unit": "mm",
+      "source": "pending_business_confirmation",
+      "status": "pending_business_confirmation",
+      "verificationImpact": "unverified_only",
+      "appliesTo": "Invalid fixture for validator coverage."
+    }
+  ]
+}

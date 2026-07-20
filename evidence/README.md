@@ -1,6 +1,6 @@
 # Evidence Baseline
 
-W1D2 deliverable: sample registration, synthetic test fixtures, provisional threshold configuration, evidence table, and real-sample gap resolution plan.
+W1D2 deliverable: sample registration, executable synthetic test fixtures, threshold configuration, evidence registry, and real-sample scope baseline. JSON files are the validation source; Markdown files are display summaries only.
 
 ## Directory
 
@@ -8,26 +8,37 @@ W1D2 deliverable: sample registration, synthetic test fixtures, provisional thre
 |---|---|
 | `schema/evidence-table.schema.json` | JSON Schema for evidence table rows |
 | `schema/evidence-registry.schema.json` | JSON Schema for the evidence registry container |
-| `registry/evidence-registry.md` | 11 evidence rows for all Week 1 locked items (6 confirmed, 5 pending_implementation) |
-| `registry/threshold-registry.md` | 24 threshold rows (4 frozen from W1D1 contract, 20 `pending_business_confirmation`) |
-| `samples/synthetic-fixtures.md` | 5 synthetic fixture specifications covering rectangle, near-rectangle, single-open, multi-open, and full-featured geometries |
+| `schema/threshold-registry.schema.json` | JSON Schema for threshold status/type policy |
+| `schema/synthetic-golden.schema.json` | JSON Schema for expected synthetic geometry/topology |
+| `registry/evidence-registry.json` | Validated evidence registry for all Week 1 locked items |
+| `registry/evidence-registry.md` | Display summary of the evidence registry |
+| `registry/threshold-registry.json` | Validated threshold registry |
+| `registry/threshold-registry.md` | Display summary of threshold rows |
+| `samples/synthetic/*.json` | 5 W1D1-schema-compliant synthetic measurement fixtures |
+| `samples/golden/*.json` | 5 expected geometry/topology golden JSON files |
+| `samples/synthetic-fixtures.md` | Display summary of the synthetic fixture set |
 | `catalog/failure-examples.md` | 40 named failure examples (8 implemented in W1D1, 32 scoped for W1D3–W1D5) |
-| `real-sample-gap-plan.md` | Gap resolution plan for third (or more) real bathroom sample |
+| `real-sample-scope.md` | Fixed two-real-sample scope note |
 
 ## Acceptance Checklist
 
 - [x] Evidence table contains rows for every Week 1 locked item (11 rows, 11 locked items)
-- [x] Each threshold row is numeric-and-sourced (4 frozen from W1D1) or explicitly `pending_business_confirmation` (20)
+- [x] Evidence registry JSON validates against `evidence-registry.schema.json`
+- [x] Threshold registry JSON validates against `threshold-registry.schema.json`
+- [x] Calculation tolerances, provisional implementation thresholds, and pending business thresholds are separated
+- [x] `pending_business_confirmation` thresholds only produce `unverified` evidence
 - [x] Synthetic fixture geometry spans rectangle, near-rectangle, single-opening, multi-opening, and full-featured (5 fixtures)
+- [x] Five synthetic measurement JSON fixtures validate against W1D1 `measurement.schema.json`
+- [x] Five golden JSON files validate and match computed geometry/topology
 - [x] Failure examples are named and scoped (40 total, 32 pending)
-- [x] Gap resolution plan is explicit enough for Orchestrator escalation
+- [x] First-week real sample target is fixed at two
 - [x] No real customer cases, site media, addresses, or reference DWG files are used
-- [x] No numeric threshold is fabricated — every value is either from W1D1 frozen contract or `pending_business_confirmation`
+- [x] No business threshold value is fabricated
 - [x] All contract field references trace back to W1D1 schemas
 
 ## Blocking Condition
 
-Numeric acceptance cannot be separated from unconfirmed business choices for 20 of 24 thresholds. W1D3–W1D5 must proceed with `pending_business_confirmation` markers and must not invent pass/fail thresholds.
+Business acceptance cannot be confirmed from `pending_business_confirmation` thresholds. W1D3–W1D5 must preserve `unverified` markers until the business decision is confirmed.
 
 ## Predecessors
 

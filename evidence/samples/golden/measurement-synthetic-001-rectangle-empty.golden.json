@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0.0",
+  "fixtureId": "FIXTURE-001",
+  "measurementFile": "measurement-synthetic-001-rectangle-empty.json",
+  "expectedGeometry": {
+    "boundaryVertexCount": 4,
+    "wallCount": 4,
+    "winding": "counterclockwise",
+    "areaMm2": 4320000,
+    "perimeterMm": 8400,
+    "coordinateToleranceMm": 1,
+    "angularToleranceDeg": 0.5
+  },
+  "expectedTopology": {
+    "openingCount": 0,
+    "doorCount": 0,
+    "windowCount": 0,
+    "drainagePointCount": 0,
+    "pipeEnclosureCount": 0,
+    "waterSupplyPointCount": 0,
+    "openingWallIndexes": []
+  }
+}

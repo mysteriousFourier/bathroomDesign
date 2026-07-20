@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://opc-bathroom/evidence/schema/synthetic-golden.schema.json",
+  "title": "Synthetic Fixture Golden Geometry and Topology",
+  "type": "object",
+  "version": "1.0.0",
+  "required": ["schemaVersion", "fixtureId", "measurementFile", "expectedGeometry", "expectedTopology"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "fixtureId": {
+      "type": "string",
+      "pattern": "^FIXTURE-[0-9]{3}$"
+    },
+    "measurementFile": {
+      "type": "string",
+      "pattern": "^measurement-synthetic-[0-9]{3}-.+\\.json$"
+    },
+    "expectedGeometry": {
+      "type": "object",
+      "required": ["boundaryVertexCount", "wallCount", "winding", "areaMm2", "perimeterMm", "coordinateToleranceMm", "angularToleranceDeg"],
+      "properties": {
+        "boundaryVertexCount": { "type": "integer", "minimum": 4 },
+        "wallCount": { "type": "integer", "minimum": 4 },
+        "winding": { "type": "string", "enum": ["counterclockwise"] },
+        "areaMm2": { "type": "number", "minimum": 1 },
+        "perimeterMm": { "type": "number", "minimum": 1 },
+        "coordinateToleranceMm": { "type": "number", "const": 1 },
+        "angularToleranceDeg": { "type": "number", "const": 0.5 }
+      },
+      "additionalProperties": false
+    },
+    "expectedTopology": {
+      "type": "object",
+      "required": ["openingCount", "doorCount", "windowCount", "drainagePointCount", "pipeEnclosureCount", "waterSupplyPointCount", "openingWallIndexes"],
+      "properties": {
+        "openingCount": { "type": "integer", "minimum": 0 },
+        "doorCount": { "type": "integer", "minimum": 0 },
+        "windowCount": { "type": "integer", "minimum": 0 },
+        "drainagePointCount": { "type": "integer", "minimum": 0 },
+        "pipeEnclosureCount": { "type": "integer", "minimum": 0 },
+        "waterSupplyPointCount": { "type": "integer", "minimum": 0 },
+        "openingWallIndexes": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "roomId": "99999999-9999-4999-8999-999999999999",
+  "boundary": [
+    { "x": 0, "y": 0 },
+    { "x": 1000, "y": 0 },
+    { "x": 1000, "y": 1000 },
+    { "x": 0, "y": 1000 }
+  ],
+  "walls": [
+    { "startPoint": { "x": 0, "y": 0 }, "endPoint": { "x": 1000, "y": 0 }, "thickness": 120 },
+    { "startPoint": { "x": 1000, "y": 0 }, "endPoint": { "x": 1000, "y": 1000 }, "thickness": 120 },
+    { "startPoint": { "x": 1000, "y": 1000 }, "endPoint": { "x": 0, "y": 1000 }, "thickness": 120 },
+    { "startPoint": { "x": 0, "y": 1000 }, "endPoint": { "x": 0, "y": 0 }, "thickness": 120 }
+  ]
+}

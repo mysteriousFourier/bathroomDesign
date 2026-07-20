@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "1.0.0",
+  "roomId": "55555555-5555-4555-8555-555555555555",
+  "boundary": [
+    { "x": 0, "y": 0 },
+    { "x": 3000, "y": 0 },
+    { "x": 3000, "y": 2400 },
+    { "x": 0, "y": 2400 }
+  ],
+  "walls": [
+    { "startPoint": { "x": 0, "y": 0 }, "endPoint": { "x": 3000, "y": 0 }, "thickness": 240, "type": "exterior" },
+    { "startPoint": { "x": 3000, "y": 0 }, "endPoint": { "x": 3000, "y": 2400 }, "thickness": 240, "type": "exterior" },
+    { "startPoint": { "x": 3000, "y": 2400 }, "endPoint": { "x": 0, "y": 2400 }, "thickness": 240, "type": "exterior" },
+    { "startPoint": { "x": 0, "y": 2400 }, "endPoint": { "x": 0, "y": 0 }, "thickness": 240, "type": "exterior" }
+  ],
+  "openings": [
+    {
+      "openingId": "55555555-5555-4555-8555-000000000001",
+      "wallIndex": 0,
+      "position": { "x": 800, "y": 0 },
+      "width": 900,
+      "height": 2100,
+      "type": "door",
+      "swingDirection": "right",
+      "swingOpening": "inward"
+    },
+    {
+      "openingId": "55555555-5555-4555-8555-000000000002",
+      "wallIndex": 2,
+      "position": { "x": 1500, "y": 2400 },
+      "width": 1200,
+      "height": 1200,
+      "type": "window",
+      "sillHeight": 900,
+      "swingDirection": "none"
+    }
+  ],
+  "drainagePoints": [
+    {
+      "drainId": "55555555-5555-4555-8555-000000000003",
+      "position": { "x": 1500, "y": 1200 },
+      "type": "floor_drain",
+      "diameter": 110
+    }
+  ],
+  "pipeEnclosures": [
+    {
+      "enclosureId": "55555555-5555-4555-8555-000000000004",
+      "boundary": [
+        { "x": 2800, "y": 0 },
+        { "x": 3000, "y": 0 },
+        { "x": 3000, "y": 400 },
+        { "x": 2800, "y": 400 }
+      ],
+      "isAccessible": false,
+      "containsDrain": true
+    }
+  ],
+  "waterSupplyPoints": [
+    {
+      "supplyId": "55555555-5555-4555-8555-000000000005",
+      "position": { "x": 300, "y": 300 },
+      "waterType": "cold",
+      "heightAboveFloor": 450
+    }
+  ],
+  "heights": {
+    "roomHeight": 2800,
+    "groundElevation": 0,
+    "wallHeight": 2400
+  }
+}

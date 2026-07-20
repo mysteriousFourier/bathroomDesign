@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "rows": [
+    {
+      "schemaVersion": "1.0.0",
+      "evidenceId": "EV-999",
+      "lockedItem": "Invalid pending threshold confirmation",
+      "sourceType": "schema_validation",
+      "contractFields": ["pending_business_confirmation"],
+      "acceptanceMethod": "This row must fail the D2 policy check because confirmed evidence references a pending business threshold.",
+      "expectedArtifact": "none",
+      "owner": "Data",
+      "day": "W1D2",
+      "status": "confirmed",
+      "thresholdRef": "THR-TOPO-001",
+      "notes": "Invalid fixture for validator coverage."
+    }
+  ]
+}

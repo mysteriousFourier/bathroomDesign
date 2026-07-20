@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0.0",
+  "roomId": "33333333-3333-4333-8333-333333333333",
+  "boundary": [
+    { "x": 0, "y": 0 },
+    { "x": 2400, "y": 0 },
+    { "x": 2400, "y": 1800 },
+    { "x": 0, "y": 1800 }
+  ],
+  "walls": [
+    { "startPoint": { "x": 0, "y": 0 }, "endPoint": { "x": 2400, "y": 0 }, "thickness": 240, "type": "structural" },
+    { "startPoint": { "x": 2400, "y": 0 }, "endPoint": { "x": 2400, "y": 1800 }, "thickness": 240, "type": "structural" },
+    { "startPoint": { "x": 2400, "y": 1800 }, "endPoint": { "x": 0, "y": 1800 }, "thickness": 120, "type": "partition" },
+    { "startPoint": { "x": 0, "y": 1800 }, "endPoint": { "x": 0, "y": 0 }, "thickness": 240, "type": "structural" }
+  ],
+  "openings": [
+    {
+      "openingId": "33333333-3333-4333-8333-000000000001",
+      "wallIndex": 2,
+      "position": { "x": 1200, "y": 1800 },
+      "width": 900,
+      "height": 2100,
+      "type": "door",
+      "swingDirection": "right",
+      "swingOpening": "inward"
+    }
+  ],
+  "drainagePoints": [],
+  "pipeEnclosures": [],
+  "waterSupplyPoints": [],
+  "heights": {
+    "roomHeight": 2800,
+    "groundElevation": 0,
+    "wallHeight": 2400
+  }
+}

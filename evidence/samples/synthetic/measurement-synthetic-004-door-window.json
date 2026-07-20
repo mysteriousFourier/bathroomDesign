@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0.0",
+  "roomId": "44444444-4444-4444-8444-444444444444",
+  "boundary": [
+    { "x": 0, "y": 0 },
+    { "x": 3000, "y": 0 },
+    { "x": 3000, "y": 2400 },
+    { "x": 0, "y": 2400 }
+  ],
+  "walls": [
+    { "startPoint": { "x": 0, "y": 0 }, "endPoint": { "x": 3000, "y": 0 }, "thickness": 240, "type": "exterior" },
+    { "startPoint": { "x": 3000, "y": 0 }, "endPoint": { "x": 3000, "y": 2400 }, "thickness": 240, "type": "exterior" },
+    { "startPoint": { "x": 3000, "y": 2400 }, "endPoint": { "x": 0, "y": 2400 }, "thickness": 240, "type": "exterior" },
+    { "startPoint": { "x": 0, "y": 2400 }, "endPoint": { "x": 0, "y": 0 }, "thickness": 240, "type": "exterior" }
+  ],
+  "openings": [
+    {
+      "openingId": "44444444-4444-4444-8444-000000000001",
+      "wallIndex": 0,
+      "position": { "x": 1500, "y": 0 },
+      "width": 900,
+      "height": 2100,
+      "type": "door",
+      "swingDirection": "right",
+      "swingOpening": "inward"
+    },
+    {
+      "openingId": "44444444-4444-4444-8444-000000000002",
+      "wallIndex": 2,
+      "position": { "x": 1500, "y": 2400 },
+      "width": 1200,
+      "height": 1200,
+      "type": "window",
+      "sillHeight": 900,
+      "swingDirection": "none"
+    }
+  ],
+  "drainagePoints": [],
+  "pipeEnclosures": [],
+  "waterSupplyPoints": [],
+  "heights": {
+    "roomHeight": 2800,
+    "groundElevation": 0,
+    "wallHeight": 2400
+  }
+}

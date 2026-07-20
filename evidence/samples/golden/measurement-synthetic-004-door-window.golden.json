@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0.0",
+  "fixtureId": "FIXTURE-004",
+  "measurementFile": "measurement-synthetic-004-door-window.json",
+  "expectedGeometry": {
+    "boundaryVertexCount": 4,
+    "wallCount": 4,
+    "winding": "counterclockwise",
+    "areaMm2": 7200000,
+    "perimeterMm": 10800,
+    "coordinateToleranceMm": 1,
+    "angularToleranceDeg": 0.5
+  },
+  "expectedTopology": {
+    "openingCount": 2,
+    "doorCount": 1,
+    "windowCount": 1,
+    "drainagePointCount": 0,
+    "pipeEnclosureCount": 0,
+    "waterSupplyPointCount": 0,
+    "openingWallIndexes": [0, 2]
+  }
+}

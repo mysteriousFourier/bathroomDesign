@@ -5,7 +5,7 @@
   "description": "Evidence table structure: maps each Week 1 locked item to an evidence row with source type, contractor-related field, acceptance method, expected artifact, owner, and status.",
   "type": "object",
   "version": "1.0.0",
-  "required": ["schemaVersion", "evidenceId", "lockedItem", "sourceType", "contractFields", "acceptanceMethod", "expectedArtifact", "owner", "status"],
+  "required": ["schemaVersion", "evidenceId", "lockedItem", "sourceType", "contractFields", "acceptanceMethod", "expectedArtifact", "owner", "day", "status"],
   "properties": {
     "schemaVersion": {
       "type": "string",
@@ -14,8 +14,8 @@
     },
     "evidenceId": {
       "type": "string",
-      "description": "Stable UUID for this evidence row. Used for traceability across days.",
-      "format": "uuid"
+      "description": "Stable evidence row key. Used for traceability across days.",
+      "pattern": "^EV-[0-9]{3}$"
     },
     "lockedItem": {
       "type": "string",
@@ -66,13 +66,13 @@
     },
     "status": {
       "type": "string",
-      "enum": ["confirmed", "pending_business_confirmation", "pending_implementation", "pending_review"],
+      "enum": ["confirmed", "unverified", "pending_business_confirmation", "pending_implementation", "pending_review"],
       "description": "Current status of this evidence row."
     },
     "thresholdRef": {
       "type": "string",
       "description": "Reference to a threshold in threshold-registry.json, if this evidence depends on a numeric threshold.",
-      "format": "uuid"
+      "pattern": "^THR-[A-Z0-9]+-[0-9]{3}$"
     },
     "notes": {
       "type": "string",

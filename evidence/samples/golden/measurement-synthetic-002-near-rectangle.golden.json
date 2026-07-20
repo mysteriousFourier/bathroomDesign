@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0.0",
+  "fixtureId": "FIXTURE-002",
+  "measurementFile": "measurement-synthetic-002-near-rectangle.json",
+  "expectedGeometry": {
+    "boundaryVertexCount": 5,
+    "wallCount": 5,
+    "winding": "counterclockwise",
+    "areaMm2": 4230000,
+    "perimeterMm": 8170.82,
+    "coordinateToleranceMm": 1,
+    "angularToleranceDeg": 0.5
+  },
+  "expectedTopology": {
+    "openingCount": 0,
+    "doorCount": 0,
+    "windowCount": 0,
+    "drainagePointCount": 0,
+    "pipeEnclosureCount": 0,
+    "waterSupplyPointCount": 0,
+    "openingWallIndexes": []
+  }
+}

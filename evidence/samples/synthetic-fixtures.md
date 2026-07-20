@@ -1,6 +1,6 @@
 # Synthetic Test Fixtures
 
-W1D2 baseline. Synthetic fixture specifications covering minimum viable bathroom geometries. These fixtures must validate against the W1D1 `measurement.schema.json` contract. They are designed to drive W1D3–W1D5 implementation without real cases.
+W1D2 baseline. Synthetic fixture specifications covering minimum viable bathroom geometries. The executable source files are in `evidence/samples/synthetic/*.json` and validate against the W1D1 `measurement.schema.json` contract. Expected geometry/topology outputs are in `evidence/samples/golden/*.json`.
 
 No real customer cases, site media, addresses, or reference DWG files are used.
 
@@ -94,3 +94,7 @@ No real customer cases, site media, addresses, or reference DWG files are used.
 | Height params | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Coverage: 12 feature dimensions across 5 fixtures. Sufficient to drive W1D3 2D recovery (boundary, walls, openings), W1D4 3D extrusion (heights, walls, openings), and W1D5 annotation (dimensions, labels).
+
+## Validation Source
+
+Markdown is display-only. `npm run validate` validates all five synthetic measurement JSON fixtures and all five golden JSON files, then checks that computed area, perimeter, topology counts, and opening wall indexes match the golden values.

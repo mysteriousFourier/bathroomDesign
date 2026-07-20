@@ -46,4 +46,3 @@ Predecessors: W1D1, W1D2.
 ## Blocking Condition
 
 W1D3 can implement deterministic recovery with synthetic fixtures while thresholds remain pending, but EV-007 must stay `unverified` until those thresholds are confirmed.
-

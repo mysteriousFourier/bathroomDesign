@@ -47,4 +47,3 @@ Predecessors: W1D1, W1D2, W1D3.
 ## Blocking Condition
 
 If W1D3 output is unavailable, W1D4 can only validate topology schema shape and cannot claim closure or containment evidence.
-

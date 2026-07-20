@@ -46,4 +46,3 @@ Predecessors: W1D1, W1D2, W1D3, W1D4.
 ## Blocking Condition
 
 If scene/annotation artifacts are missing, EV-009 through EV-011 remain `pending_implementation`. If artifacts exist but depend on pending business thresholds, they remain `unverified` rather than confirmed.
-

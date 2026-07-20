@@ -1,0 +1,13 @@
+{
+  "name": "bathroom-design-contracts",
+  "version": "1.0.0",
+  "description": "Bathroom design data contracts — JSON Schema validation",
+  "private": true,
+  "scripts": {
+    "validate": "node scripts/validate.js"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  }
+}

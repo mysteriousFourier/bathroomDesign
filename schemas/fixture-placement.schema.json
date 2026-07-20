@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://opc-bathroom/schemas/fixture-placement.schema.json",
+  "title": "Fixture Placement Schema",
+  "description": "Fixture placement in a room: device ID, position, orientation, footprint/outline, and target drainage point.",
+  "type": "object",
+  "version": "1.0.0",
+  "required": ["schemaVersion", "placementId", "roomId", "productId", "position", "orientation", "footprint"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "placementId": {
+      "type": "string",
+      "description": "Stable UUID for this placement instance. Unique per fixture instance in a room.",
+      "format": "uuid"
+    },
+    "roomId": {
+      "type": "string",
+      "description": "Reference to the room measurement (roomId in measurement schema).",
+      "format": "uuid"
+    },
+    "productId": {
+      "type": "string",
+      "description": "Reference to the product definition (productId in product schema).",
+      "pattern": "^(PROD-[a-f0-9-]+|PLACEHOLDER-[a-z_]+)$"
+    },
+    "position": {
+      "$ref": "#/definitions/Point3D",
+      "description": "Center/anchor point of the fixture in 3D room coordinates. Z=0 is finished floor."
+    },
+    "orientation": {
+      "$ref": "#/definitions/Orientation",
+      "description": "Fixture orientation. Rotation is counterclockwise when viewed from above (Z axis)."
+    },
+    "footprint": {
+      "$ref": "#/definitions/Footprint",
+      "description": "Occupied area / footprint of the fixture on the finished floor plane."
+    },
+    "targetDrainagePoint": {
+      "type": "string",
+      "description": "Reference to the drain this fixture connects to (drainId in measurement schema). Required when the fixture requires drainage.",
+      "format": "uuid"
+    }
+  },
+  "definitions": {
+    "Point3D": {
+      "type": "object",
+      "description": "A 3D point. X = horizontal (increasing right), Y = depth (increasing inward), Z = height (increasing upward). Unit: mm (integer).",
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {
+          "type": "integer",
+          "description": "X coordinate in millimeters."
+        },
+        "y": {
+          "type": "integer",
+          "description": "Y coordinate in millimeters."
+        },
+        "z": {
+          "type": "integer",
+          "description": "Z coordinate in millimeters. 0 = finished floor level."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Orientation": {
+      "type": "object",
+      "description": "Fixture orientation in 3D space.",
+      "required": ["rotationZ"],
+      "properties": {
+        "rotationZ": {
+          "type": "number",
+          "description": "Rotation around Z axis in degrees. Positive = counterclockwise when viewed from above. Range: [0, 360)."
+        },
+        "facing": {
+          "type": "string",
+          "enum": ["north", "east", "south", "west"],
+          "description": "Cardinal direction the fixture front faces. Redundant with rotationZ but provides human-readable intent."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Footprint": {
+      "type": "object",
+      "description": "Occupied area of the fixture on the finished floor plane.",
+      "required": ["type", "width", "depth"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["rectangular", "circular", "polygonal"],
+          "description": "Footprint shape type."
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bounding width (X axis) in mm. For circular, this is the diameter."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bounding depth (Y axis) in mm. For circular, this is the diameter (same as width)."
+        },
+        "vertices": {
+          "type": "array",
+          "description": "Polygon vertices defining the fixture outline, relative to position. Required when type=polygonal. Counterclockwise order.",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/definitions/Point2DRel"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "polygonal" } }
+          },
+          "then": {
+            "required": ["vertices"]
+          }
+        }
+      ]
+    },
+    "Point2DRel": {
+      "type": "object",
+      "description": "A 2D point relative to the fixture's position anchor.",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "integer" },
+        "y": { "type": "integer" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

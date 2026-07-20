@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://opc-bathroom/schemas/product.schema.json",
+  "title": "Product Schema",
+  "description": "Fixture / product definitions: identifiers, dimensions, installation requirements, and price-bearing placeholders linked to product library IDs.",
+  "type": "object",
+  "version": "1.0.0",
+  "required": ["schemaVersion", "productId", "type", "dimensions"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "productId": {
+      "type": "string",
+      "description": "Stable product identifier. MUST reference an approved product library ID. Use placeholder format 'PLACEHOLDER-<category>' when the canonical ID is pending_business_confirmation.",
+      "pattern": "^(PROD-[a-f0-9-]+|PLACEHOLDER-[a-z_]+)$"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "toilet",
+        "sink",
+        "bathtub",
+        "shower",
+        "bidet",
+        "vanity",
+        "cabinet",
+        "mirror",
+        "towel_rack",
+        "water_heater",
+        "washing_machine",
+        "other"
+      ]
+    },
+    "dimensions": {
+      "$ref": "#/definitions/Dimensions3D"
+    },
+    "installRequirements": {
+      "$ref": "#/definitions/InstallRequirements"
+    },
+    "price": {
+      "$ref": "#/definitions/PricePlaceholder"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional product metadata. Optional free-form fields.",
+      "properties": {
+        "brand": { "type": "string" },
+        "model": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "Dimensions3D": {
+      "type": "object",
+      "description": "3D bounding dimensions of the product in millimeters (integer). Width=X, Depth=Y, Height=Z.",
+      "required": ["width", "depth", "height"],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Width in mm (X axis)."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Depth in mm (Y axis)."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Height in mm (Z axis)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "InstallRequirements": {
+      "type": "object",
+      "description": "Installation requirements for this fixture.",
+      "properties": {
+        "requiresDrain": {
+          "type": "boolean",
+          "description": "Whether this fixture requires a drainage connection."
+        },
+        "requiresWaterSupply": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["cold", "hot"]
+          },
+          "description": "Required water supply types. Empty array if no water supply needed."
+        },
+        "requiresPower": {
+          "type": "boolean",
+          "description": "Whether this fixture requires electrical power."
+        },
+        "minimumClearances": {
+          "type": "object",
+          "description": "Minimum clearance distances in mm around the fixture.",
+          "properties": {
+            "front": { "type": "integer", "minimum": 0 },
+            "left": { "type": "integer", "minimum": 0 },
+            "right": { "type": "integer", "minimum": 0 },
+            "rear": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "mountType": {
+          "type": "string",
+          "enum": ["floor", "wall", "ceiling", "countertop", "recessed"],
+          "description": "How the fixture is mounted."
+        }
+      }
+    },
+    "PricePlaceholder": {
+      "type": "object",
+      "description": "Price-bearing placeholder. All concrete prices must reference approved product library IDs.",
+      "properties": {
+        "productLibraryId": {
+          "type": "string",
+          "description": "Reference to the canonical product library entry. 'pending_business_confirmation' until IDs are assigned."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending_business_confirmation", "confirmed"],
+          "description": "Confirmation status of the product library ID mapping."
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

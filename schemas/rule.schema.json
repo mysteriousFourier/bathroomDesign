@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://opc-bathroom/schemas/rule.schema.json",
+  "title": "Rule Schema",
+  "description": "Constraint / rule definitions: constraint types, applicability conditions, severity levels. Rules are validated against measurement and fixture placement data.",
+  "type": "object",
+  "version": "1.0.0",
+  "required": ["schemaVersion", "ruleId", "type", "severity", "description"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "ruleId": {
+      "type": "string",
+      "description": "Stable UUID for this rule. Used for traceability in violation reports.",
+      "format": "uuid"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "clearance",
+        "containment",
+        "drainage_alignment",
+        "door_conflict",
+        "accessibility",
+        "pipe_routing",
+        "ventilation",
+        "structural",
+        "waterproofing",
+        "custom"
+      ],
+      "description": "Category of constraint this rule enforces."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["error", "warning", "info"],
+      "description": "Severity level. 'error' = hard block, must be resolved. 'warning' = should be reviewed. 'info' = advisory."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the rule."
+    },
+    "applicability": {
+      "$ref": "#/definitions/Applicability",
+      "description": "Conditions under which this rule applies. If absent, the rule applies unconditionally."
+    },
+    "parameters": {
+      "type": "object",
+      "description": "Rule-specific parameters. Key-value pairs that configure the rule's behavior.",
+      "additionalProperties": true
+    }
+  },
+  "definitions": {
+    "Applicability": {
+      "type": "object",
+      "description": "Conditions that determine when this rule should be evaluated.",
+      "properties": {
+        "requiredFixtures": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["toilet", "sink", "bathtub", "shower", "bidet", "vanity", "cabinet", "mirror", "towel_rack", "water_heater", "washing_machine", "other"]
+          },
+          "description": "Rule only applies when all listed fixture types are present."
+        },
+        "minRoomArea": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rule only applies when room floor area >= this value (in mm²)."
+        },
+        "hasWindow": {
+          "type": "boolean",
+          "description": "Rule only applies when room has (or lacks) a window."
+        },
+        "hasDrain": {
+          "type": "boolean",
+          "description": "Rule only applies when room has (or lacks) a floor drain."
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

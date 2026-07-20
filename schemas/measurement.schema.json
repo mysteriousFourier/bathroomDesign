@@ -1,0 +1,302 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://opc-bathroom/schemas/measurement.schema.json",
+  "title": "Measurement Schema",
+  "description": "Bathroom measurement data: room boundary, walls, openings, drainage points, pipe enclosures, water supply points, and height parameters.",
+  "type": "object",
+  "version": "1.0.0",
+  "required": [
+    "schemaVersion",
+    "roomId",
+    "boundary",
+    "walls",
+    "heights"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Schema semantic version. Must match the version in $id.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "roomId": {
+      "type": "string",
+      "description": "Stable UUID for this room measurement. Uniquely identifies this room across the project lifecycle.",
+      "format": "uuid"
+    },
+    "boundary": {
+      "type": "array",
+      "description": "Ordered 2D points defining the room boundary polygon on the finished floor plane. Points are listed counterclockwise. Coordinates in millimeters (integer).",
+      "minItems": 4,
+      "items": {
+        "$ref": "#/definitions/Point2D"
+      }
+    },
+    "walls": {
+      "type": "array",
+      "description": "Wall segments forming the room perimeter. Must match boundary edges 1:1.",
+      "minItems": 4,
+      "items": {
+        "$ref": "#/definitions/WallSegment"
+      }
+    },
+    "openings": {
+      "type": "array",
+      "description": "Door and window openings in walls. Optional — an empty room may have no openings recorded.",
+      "items": {
+        "$ref": "#/definitions/Opening"
+      }
+    },
+    "drainagePoints": {
+      "type": "array",
+      "description": "Floor drain locations. Optional — a room without floor drains is valid (e.g. powder room).",
+      "items": {
+        "$ref": "#/definitions/DrainagePoint"
+      }
+    },
+    "pipeEnclosures": {
+      "type": "array",
+      "description": "Pipe shaft / enclosure areas that reduce usable floor space. Optional — rooms without pipe enclosures are valid.",
+      "items": {
+        "$ref": "#/definitions/PipeEnclosure"
+      }
+    },
+    "waterSupplyPoints": {
+      "type": "array",
+      "description": "Water supply connection points (cold/hot). Optional — a room without water supply points is valid (e.g. storage).",
+      "items": {
+        "$ref": "#/definitions/WaterSupplyPoint"
+      }
+    },
+    "heights": {
+      "$ref": "#/definitions/HeightParams"
+    }
+  },
+  "definitions": {
+    "Point2D": {
+      "type": "object",
+      "description": "A 2D point in the finished-floor coordinate system. X = horizontal (increasing right), Y = depth (increasing inward). Unit: mm (integer).",
+      "required": ["x", "y"],
+      "properties": {
+        "x": {
+          "type": "integer",
+          "description": "X coordinate in millimeters."
+        },
+        "y": {
+          "type": "integer",
+          "description": "Y coordinate in millimeters."
+        }
+      },
+      "additionalProperties": false
+    },
+    "HeightParams": {
+      "type": "object",
+      "description": "Height-related parameters. All values in millimeters (integer). These are distinct concepts — do not conflate them.",
+      "required": ["roomHeight", "groundElevation", "wallHeight"],
+      "properties": {
+        "roomHeight": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "room.height: finished-floor to finished-ceiling height of the room (净高 / net ceiling height)."
+        },
+        "groundElevation": {
+          "type": "integer",
+          "description": "地面标高: elevation of the finished floor relative to the building reference level. Can be negative (below reference)."
+        },
+        "wallHeight": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "墙高: total wall height from finished floor to structural ceiling (before any dropped ceiling). >= roomHeight when a dropped ceiling is present."
+        },
+        "netHeight": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "净高: net usable height. Same as roomHeight unless there are obstructions (beams, soffits) that reduce it locally. Optional — defaults to roomHeight when absent."
+        },
+        "doorOpeningHeight": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "门洞高度: height of door openings from finished floor to top of rough opening. Optional — defaults to scenario-dependent values (usually wallHeight) when absent."
+        }
+      },
+      "additionalProperties": false
+    },
+    "WallSegment": {
+      "type": "object",
+      "description": "A wall segment along one edge of the room boundary.",
+      "required": ["startPoint", "endPoint", "thickness"],
+      "properties": {
+        "startPoint": {
+          "$ref": "#/definitions/Point2D"
+        },
+        "endPoint": {
+          "$ref": "#/definitions/Point2D"
+        },
+        "thickness": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Wall thickness in millimeters."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["structural", "partition", "exterior"],
+          "description": "Wall type classification."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Opening": {
+      "type": "object",
+      "description": "A door or window opening in a wall.",
+      "required": ["openingId", "wallIndex", "position", "width", "height", "type"],
+      "properties": {
+        "openingId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID for this opening."
+        },
+        "wallIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Index into the walls array identifying which wall this opening belongs to."
+        },
+        "position": {
+          "$ref": "#/definitions/Point2D",
+          "description": "Center point of the opening on the finished floor plane."
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Opening width in millimeters."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Opening height in millimeters (finished floor to top of opening)."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["door", "window", "passage"],
+          "description": "Opening type: door, window, or open passage."
+        },
+        "sillHeight": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sill height above finished floor in mm. Required for windows, optional for doors (defaults to 0)."
+        },
+        "swingDirection": {
+          "type": "string",
+          "enum": ["left", "right", "none"],
+          "description": "Door swing direction as viewed from inside the room. 'none' for passages and windows."
+        },
+        "swingOpening": {
+          "type": "string",
+          "enum": ["inward", "outward"],
+          "description": "Whether the door swings into or out of the room. Required when type=door."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "window" } }
+          },
+          "then": {
+            "required": ["sillHeight"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "door" } }
+          },
+          "then": {
+            "required": ["swingOpening"]
+          }
+        }
+      ]
+    },
+    "DrainagePoint": {
+      "type": "object",
+      "description": "A floor drain or drainage connection point.",
+      "required": ["drainId", "position", "type"],
+      "properties": {
+        "drainId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID for this drainage point."
+        },
+        "position": {
+          "$ref": "#/definitions/Point2D",
+          "description": "Center of the drain on the finished floor plane."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["floor_drain", "wall_drain", "toilet_drain", "sink_drain", "shower_drain", "bathtub_drain"],
+          "description": "Type of drainage point."
+        },
+        "diameter": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Drain pipe diameter in millimeters."
+        }
+      },
+      "additionalProperties": false
+    },
+    "PipeEnclosure": {
+      "type": "object",
+      "description": "A pipe shaft or enclosure area. These are obstructions — non-load-bearing enclosed spaces for pipes.",
+      "required": ["enclosureId", "boundary"],
+      "properties": {
+        "enclosureId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID for this pipe enclosure."
+        },
+        "boundary": {
+          "type": "array",
+          "description": "2D polygon bounding the pipe enclosure on the finished floor plane. Counterclockwise order.",
+          "minItems": 4,
+          "items": {
+            "$ref": "#/definitions/Point2D"
+          }
+        },
+        "isAccessible": {
+          "type": "boolean",
+          "description": "Whether this enclosure has an access panel for maintenance."
+        },
+        "containsDrain": {
+          "type": "boolean",
+          "description": "Whether this enclosure contains a drainage pipe. True means it may affect drainage routing decisions."
+        }
+      },
+      "additionalProperties": false
+    },
+    "WaterSupplyPoint": {
+      "type": "object",
+      "description": "A water supply connection point.",
+      "required": ["supplyId", "position", "waterType"],
+      "properties": {
+        "supplyId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID for this water supply point."
+        },
+        "position": {
+          "$ref": "#/definitions/Point2D",
+          "description": "Position of the supply outlet on the finished floor plane."
+        },
+        "waterType": {
+          "type": "string",
+          "enum": ["cold", "hot", "mixed"],
+          "description": "Type of water supply."
+        },
+        "heightAboveFloor": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Height of the supply outlet center above finished floor in mm."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

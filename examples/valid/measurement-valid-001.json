@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.0.0",
+  "roomId": "550e8400-e29b-41d4-a716-446655440001",
+  "boundary": [
+    { "x": 0, "y": 0 },
+    { "x": 3000, "y": 0 },
+    { "x": 3000, "y": 2500 },
+    { "x": 0, "y": 2500 }
+  ],
+  "walls": [
+    { "startPoint": { "x": 0, "y": 0 }, "endPoint": { "x": 3000, "y": 0 }, "thickness": 120, "type": "structural" },
+    { "startPoint": { "x": 3000, "y": 0 }, "endPoint": { "x": 3000, "y": 2500 }, "thickness": 120, "type": "exterior" },
+    { "startPoint": { "x": 3000, "y": 2500 }, "endPoint": { "x": 0, "y": 2500 }, "thickness": 120, "type": "structural" },
+    { "startPoint": { "x": 0, "y": 2500 }, "endPoint": { "x": 0, "y": 0 }, "thickness": 120, "type": "structural" }
+  ],
+  "openings": [
+    {
+      "openingId": "550e8400-e29b-41d4-a716-446655440010",
+      "wallIndex": 2,
+      "position": { "x": 900, "y": 2500 },
+      "width": 800,
+      "height": 2100,
+      "type": "door",
+      "swingDirection": "left",
+      "swingOpening": "inward"
+    }
+  ],
+  "drainagePoints": [
+    {
+      "drainId": "550e8400-e29b-41d4-a716-446655440020",
+      "position": { "x": 1500, "y": 1000 },
+      "type": "floor_drain",
+      "diameter": 50
+    },
+    {
+      "drainId": "550e8400-e29b-41d4-a716-446655440021",
+      "position": { "x": 500, "y": 500 },
+      "type": "toilet_drain",
+      "diameter": 110
+    }
+  ],
+  "pipeEnclosures": [
+    {
+      "enclosureId": "550e8400-e29b-41d4-a716-446655440030",
+      "boundary": [
+        { "x": 2600, "y": 0 },
+        { "x": 2800, "y": 0 },
+        { "x": 2800, "y": 300 },
+        { "x": 2600, "y": 300 }
+      ],
+      "isAccessible": true,
+      "containsDrain": true
+    }
+  ],
+  "waterSupplyPoints": [
+    {
+      "supplyId": "550e8400-e29b-41d4-a716-446655440040",
+      "position": { "x": 500, "y": 500 },
+      "waterType": "cold",
+      "heightAboveFloor": 300
+    },
+    {
+      "supplyId": "550e8400-e29b-41d4-a716-446655440041",
+      "position": { "x": 500, "y": 500 },
+      "waterType": "hot",
+      "heightAboveFloor": 300
+    }
+  ],
+  "heights": {
+    "roomHeight": 2600,
+    "groundElevation": 0,
+    "wallHeight": 2800,
+    "netHeight": 2600,
+    "doorOpeningHeight": 2100
+  }
+}

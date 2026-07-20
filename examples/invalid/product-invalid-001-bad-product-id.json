@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "productId": "INVALID-FORMAT",
+  "type": "toilet",
+  "dimensions": {
+    "width": 400,
+    "depth": 700,
+    "height": 480
+  }
+}

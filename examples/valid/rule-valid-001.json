@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "ruleId": "660e8400-e29b-41d4-a716-446655440001",
+  "type": "clearance",
+  "severity": "error",
+  "description": "Toilet must have at least 600mm clearance in front and 200mm on each side.",
+  "applicability": {
+    "requiredFixtures": ["toilet"],
+    "minRoomArea": 2000000
+  },
+  "parameters": {
+    "minFrontClearance": 600,
+    "minSideClearance": 200,
+    "minRearClearance": 100
+  }
+}

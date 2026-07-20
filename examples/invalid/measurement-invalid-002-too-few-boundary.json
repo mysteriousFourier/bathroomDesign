@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "roomId": "550e8400-e29b-41d4-a716-446655440001",
+  "boundary": [
+    { "x": 0, "y": 0 },
+    { "x": 3000, "y": 0 },
+    { "x": 3000, "y": 2500 }
+  ],
+  "walls": [
+    { "startPoint": { "x": 0, "y": 0 }, "endPoint": { "x": 3000, "y": 0 }, "thickness": 120 },
+    { "startPoint": { "x": 3000, "y": 0 }, "endPoint": { "x": 3000, "y": 2500 }, "thickness": 120 },
+    { "startPoint": { "x": 3000, "y": 2500 }, "endPoint": { "x": 0, "y": 2500 }, "thickness": 120 },
+    { "startPoint": { "x": 0, "y": 2500 }, "endPoint": { "x": 0, "y": 0 }, "thickness": 120 }
+  ],
+  "heights": { "roomHeight": 2600, "groundElevation": 0, "wallHeight": 2800 }
+}

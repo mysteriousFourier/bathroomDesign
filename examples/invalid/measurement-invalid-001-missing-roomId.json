@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "boundary": [
+    { "x": 0, "y": 0 },
+    { "x": 3000, "y": 0 },
+    { "x": 3000, "y": 2500 },
+    { "x": 0, "y": 2500 }
+  ],
+  "walls": [],
+  "heights": { "roomHeight": 2600, "groundElevation": 0, "wallHeight": 2800 }
+}

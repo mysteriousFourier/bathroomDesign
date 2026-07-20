@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0.0",
+  "productId": "PLACEHOLDER-toilet",
+  "type": "toilet",
+  "dimensions": {
+    "width": 400,
+    "depth": 700,
+    "height": 480
+  },
+  "installRequirements": {
+    "requiresDrain": true,
+    "requiresWaterSupply": ["cold"],
+    "requiresPower": false,
+    "minimumClearances": {
+      "front": 600,
+      "left": 200,
+      "right": 200,
+      "rear": 100
+    },
+    "mountType": "floor"
+  },
+  "price": {
+    "productLibraryId": "pending_business_confirmation",
+    "status": "pending_business_confirmation"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0.0",
+  "placementId": "55555555-5555-4555-8555-000000000006",
+  "roomId": "55555555-5555-4555-8555-555555555555",
+  "productId": "PLACEHOLDER-toilet",
+  "position": { "x": 1500, "y": 1200, "z": 0 },
+  "orientation": {
+    "rotationZ": 0,
+    "facing": "north"
+  },
+  "footprint": {
+    "type": "rectangular",
+    "width": 400,
+    "depth": 700
+  },
+  "targetDrainagePoint": "55555555-5555-4555-8555-000000000003"
+}

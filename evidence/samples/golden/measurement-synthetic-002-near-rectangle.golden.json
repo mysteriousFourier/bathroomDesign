@@ -3,11 +3,11 @@
   "fixtureId": "FIXTURE-002",
   "measurementFile": "measurement-synthetic-002-near-rectangle.json",
   "expectedGeometry": {
-    "boundaryVertexCount": 5,
-    "wallCount": 5,
+    "boundaryVertexCount": 4,
+    "wallCount": 4,
     "winding": "counterclockwise",
-    "areaMm2": 4230000,
-    "perimeterMm": 8170.82,
+    "areaMm2": 4290656,
+    "perimeterMm": 8372.05,
     "coordinateToleranceMm": 1,
     "angularToleranceDeg": 0.5
   },

@@ -3,25 +3,23 @@
   "roomId": "22222222-2222-4222-8222-222222222222",
   "boundary": [
     { "x": 0, "y": 0 },
-    { "x": 2400, "y": 0 },
-    { "x": 2400, "y": 1200 },
-    { "x": 2100, "y": 1800 },
-    { "x": 0, "y": 1800 }
+    { "x": 2400, "y": 8 },
+    { "x": 2392, "y": 1800 },
+    { "x": 6, "y": 1794 }
   ],
   "walls": [
-    { "startPoint": { "x": 0, "y": 0 }, "endPoint": { "x": 2400, "y": 0 }, "thickness": 240, "type": "structural" },
-    { "startPoint": { "x": 2400, "y": 0 }, "endPoint": { "x": 2400, "y": 1200 }, "thickness": 240, "type": "structural" },
-    { "startPoint": { "x": 2400, "y": 1200 }, "endPoint": { "x": 2100, "y": 1800 }, "thickness": 240, "type": "structural" },
-    { "startPoint": { "x": 2100, "y": 1800 }, "endPoint": { "x": 0, "y": 1800 }, "thickness": 240, "type": "structural" },
-    { "startPoint": { "x": 0, "y": 1800 }, "endPoint": { "x": 0, "y": 0 }, "thickness": 240, "type": "structural" }
+    { "startPoint": { "x": 0, "y": 0 }, "endPoint": { "x": 2400, "y": 8 }, "thickness": 240, "type": "structural" },
+    { "startPoint": { "x": 2400, "y": 8 }, "endPoint": { "x": 2392, "y": 1800 }, "thickness": 240, "type": "structural" },
+    { "startPoint": { "x": 2392, "y": 1800 }, "endPoint": { "x": 6, "y": 1794 }, "thickness": 240, "type": "structural" },
+    { "startPoint": { "x": 6, "y": 1794 }, "endPoint": { "x": 0, "y": 0 }, "thickness": 240, "type": "structural" }
   ],
   "openings": [],
   "drainagePoints": [],
   "pipeEnclosures": [],
   "waterSupplyPoints": [],
   "heights": {
-    "roomHeight": 2800,
+    "roomHeight": 2400,
     "groundElevation": 0,
-    "wallHeight": 2400
+    "wallHeight": 2800
   }
 }

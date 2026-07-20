@@ -29,8 +29,8 @@
   "pipeEnclosures": [],
   "waterSupplyPoints": [],
   "heights": {
-    "roomHeight": 2800,
+    "roomHeight": 2400,
     "groundElevation": 0,
-    "wallHeight": 2400
+    "wallHeight": 2800
   }
 }

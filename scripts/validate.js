@@ -28,7 +28,11 @@ const EVIDENCE_DIR = path.join(__dirname, '..', 'evidence');
 const EVIDENCE_REGISTRY_DIR = path.join(EVIDENCE_DIR, 'registry');
 const SYNTHETIC_DIR = path.join(EVIDENCE_DIR, 'samples', 'synthetic');
 const GOLDEN_DIR = path.join(EVIDENCE_DIR, 'samples', 'golden');
+const SYNTHETIC_PRODUCT_DIR = path.join(EVIDENCE_DIR, 'samples', 'products');
+const SYNTHETIC_PLACEMENT_DIR = path.join(EVIDENCE_DIR, 'samples', 'placements');
 const EVIDENCE_INVALID_DIR = path.join(EVIDENCE_DIR, 'invalid');
+const COORDINATE_TOLERANCE_MM = 1;
+const NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM = 20;
 
 // Schema to example mapping (prefix match)
 const SCHEMA_EXAMPLE_MAP = {
@@ -101,6 +105,94 @@ function countOpenings(measurement, type) {
   return (measurement.openings || []).filter(o => o.type === type).length;
 }
 
+function samePoint(a, b) {
+  return a && b && a.x === b.x && a.y === b.y;
+}
+
+function distancePointToSegment(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(point.x - start.x, point.y - start.y);
+
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+  const projected = {
+    x: start.x + t * dx,
+    y: start.y + t * dy,
+  };
+  return Math.hypot(point.x - projected.x, point.y - projected.y);
+}
+
+function segmentLength(start, end) {
+  return Math.hypot(end.x - start.x, end.y - start.y);
+}
+
+function pointOnSegment(point, start, end, toleranceMm = COORDINATE_TOLERANCE_MM) {
+  if (distancePointToSegment(point, start, end) > toleranceMm) return false;
+  const minX = Math.min(start.x, end.x) - toleranceMm;
+  const maxX = Math.max(start.x, end.x) + toleranceMm;
+  const minY = Math.min(start.y, end.y) - toleranceMm;
+  const maxY = Math.max(start.y, end.y) + toleranceMm;
+  return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY;
+}
+
+function pointInPolygon(point, polygon) {
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i];
+    const b = polygon[(i + 1) % polygon.length];
+    if (pointOnSegment(point, a, b)) return true;
+  }
+
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i];
+    const b = polygon[j];
+    const intersects = ((a.y > point.y) !== (b.y > point.y))
+      && (point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x);
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function rectangularFootprintVertices(placement) {
+  const halfWidth = placement.footprint.width / 2;
+  const halfDepth = placement.footprint.depth / 2;
+  return [
+    { x: placement.position.x - halfWidth, y: placement.position.y - halfDepth },
+    { x: placement.position.x + halfWidth, y: placement.position.y - halfDepth },
+    { x: placement.position.x + halfWidth, y: placement.position.y + halfDepth },
+    { x: placement.position.x - halfWidth, y: placement.position.y + halfDepth },
+  ];
+}
+
+function footprintVertices(placement) {
+  if (placement.footprint.type === 'polygonal') {
+    return placement.footprint.vertices.map(vertex => ({
+      x: placement.position.x + vertex.x,
+      y: placement.position.y + vertex.y,
+    }));
+  }
+  return rectangularFootprintVertices(placement);
+}
+
+function isNearRectangle(measurement) {
+  if (measurement.boundary.length !== 4) return false;
+  const xs = measurement.boundary.map(p => p.x);
+  const ys = measurement.boundary.map(p => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const idealCorners = [
+    { x: minX, y: minY },
+    { x: maxX, y: minY },
+    { x: maxX, y: maxY },
+    { x: minX, y: maxY },
+  ];
+  const offsets = measurement.boundary.map((point, index) => Math.hypot(point.x - idealCorners[index].x, point.y - idealCorners[index].y));
+  return offsets.some(offset => offset > 0) && offsets.every(offset => offset <= NEAR_RECTANGLE_MAX_VERTEX_OFFSET_MM);
+}
+
 function validateEvidencePolicy(registry, thresholdRegistry) {
   const thresholdById = new Map(thresholdRegistry.rows.map(row => [row.thresholdId, row]));
   const errors = [];
@@ -170,6 +262,143 @@ function validateGoldenConsistency(measurement, golden) {
   }
   if (JSON.stringify(openingWallIndexes) !== JSON.stringify(topology.openingWallIndexes)) {
     errors.push(`openingWallIndexes expected ${JSON.stringify(topology.openingWallIndexes)}, got ${JSON.stringify(openingWallIndexes)}`);
+  }
+
+  return errors;
+}
+
+function validateMeasurementSemantics(measurement, fixtureId) {
+  const errors = [];
+
+  if (measurement.heights.wallHeight < measurement.heights.roomHeight) {
+    errors.push(`wallHeight ${measurement.heights.wallHeight} is lower than roomHeight ${measurement.heights.roomHeight}`);
+  }
+
+  if (measurement.walls.length !== measurement.boundary.length) {
+    errors.push(`walls length ${measurement.walls.length} does not match boundary edge count ${measurement.boundary.length}`);
+  } else {
+    measurement.walls.forEach((wall, index) => {
+      const start = measurement.boundary[index];
+      const end = measurement.boundary[(index + 1) % measurement.boundary.length];
+      if (!samePoint(wall.startPoint, start) || !samePoint(wall.endPoint, end)) {
+        errors.push(`wall ${index} does not match boundary edge ${index}`);
+      }
+    });
+  }
+
+  (measurement.openings || []).forEach(opening => {
+    const wall = measurement.walls[opening.wallIndex];
+    if (!wall) {
+      errors.push(`opening ${opening.openingId} references missing wallIndex ${opening.wallIndex}`);
+      return;
+    }
+    if (!pointOnSegment(opening.position, wall.startPoint, wall.endPoint)) {
+      errors.push(`opening ${opening.openingId} position is not on wall ${opening.wallIndex}`);
+    }
+    if (opening.width > segmentLength(wall.startPoint, wall.endPoint) + COORDINATE_TOLERANCE_MM) {
+      errors.push(`opening ${opening.openingId} width exceeds wall ${opening.wallIndex} length`);
+    }
+  });
+
+  (measurement.drainagePoints || []).forEach(drain => {
+    if (!pointInPolygon(drain.position, measurement.boundary)) {
+      errors.push(`drain ${drain.drainId} is outside room boundary`);
+    }
+  });
+
+  (measurement.pipeEnclosures || []).forEach(enclosure => {
+    enclosure.boundary.forEach((point, index) => {
+      if (!pointInPolygon(point, measurement.boundary)) {
+        errors.push(`pipe enclosure ${enclosure.enclosureId} vertex ${index} is outside room boundary`);
+      }
+    });
+  });
+
+  if (fixtureId === 'FIXTURE-002' && !isNearRectangle(measurement)) {
+    errors.push('FIXTURE-002 must be a 4-vertex near-rectangle with <=20mm coordinate offsets, not a chamfered polygon');
+  }
+
+  return errors;
+}
+
+function validateFixturePlacementSemantics(measurement, product, placement) {
+  const errors = [];
+
+  if (placement.roomId !== measurement.roomId) {
+    errors.push(`placement roomId ${placement.roomId} does not match measurement roomId ${measurement.roomId}`);
+  }
+  if (placement.productId !== product.productId) {
+    errors.push(`placement productId ${placement.productId} does not match product ${product.productId}`);
+  }
+  if (product.installRequirements?.mountType === 'floor' && placement.position.z !== 0) {
+    errors.push(`floor-mounted placement ${placement.placementId} must have z=0`);
+  }
+
+  const drainById = new Map((measurement.drainagePoints || []).map(drain => [drain.drainId, drain]));
+  const targetDrain = placement.targetDrainagePoint ? drainById.get(placement.targetDrainagePoint) : null;
+  if (product.installRequirements?.requiresDrain && !targetDrain) {
+    errors.push(`placement ${placement.placementId} targetDrainagePoint is missing from measurement drainagePoints`);
+  }
+  if (product.type === 'toilet' && targetDrain && targetDrain.type !== 'toilet_drain') {
+    errors.push(`toilet placement ${placement.placementId} must target toilet_drain, got ${targetDrain.type}`);
+  }
+
+  const vertices = footprintVertices(placement);
+  vertices.forEach((point, index) => {
+    if (!pointInPolygon(point, measurement.boundary)) {
+      errors.push(`placement ${placement.placementId} footprint vertex ${index} is outside room boundary`);
+    }
+  });
+  if (targetDrain && !pointInPolygon(targetDrain.position, vertices)) {
+    errors.push(`placement ${placement.placementId} footprint does not contain target drain ${targetDrain.drainId}`);
+  }
+
+  return errors;
+}
+
+function validateGoldenFixtureExpectations(golden, measurement, schemas) {
+  const errors = [];
+  const productSchema = schemas['product.schema.json']?.compiled;
+  const placementSchema = schemas['fixture-placement.schema.json']?.compiled;
+
+  for (const expected of golden.expectedFixtures || []) {
+    const productPath = path.join(SYNTHETIC_PRODUCT_DIR, expected.productFile);
+    const placementPath = path.join(SYNTHETIC_PLACEMENT_DIR, expected.placementFile);
+    const product = loadJSON(productPath);
+    const placement = loadJSON(placementPath);
+
+    if (product._error) {
+      errors.push(`${expected.productFile}: ${product._error}`);
+      continue;
+    }
+    if (placement._error) {
+      errors.push(`${expected.placementFile}: ${placement._error}`);
+      continue;
+    }
+    if (!productSchema(product)) {
+      errors.push(`${expected.productFile}: ${formatErrors(productSchema.errors)}`);
+      continue;
+    }
+    if (!placementSchema(placement)) {
+      errors.push(`${expected.placementFile}: ${formatErrors(placementSchema.errors)}`);
+      continue;
+    }
+    if (product.productId !== expected.productId) {
+      errors.push(`${expected.productFile}: productId expected ${expected.productId}, got ${product.productId}`);
+    }
+    if (placement.roomId !== expected.roomId) {
+      errors.push(`${expected.placementFile}: roomId expected ${expected.roomId}, got ${placement.roomId}`);
+    }
+    if (placement.targetDrainagePoint !== expected.targetDrainagePoint) {
+      errors.push(`${expected.placementFile}: targetDrainagePoint expected ${expected.targetDrainagePoint}, got ${placement.targetDrainagePoint}`);
+    }
+
+    const drain = (measurement.drainagePoints || []).find(item => item.drainId === expected.targetDrainagePoint);
+    if (!drain || drain.type !== expected.targetDrainageType) {
+      errors.push(`${expected.placementFile}: target drainage type expected ${expected.targetDrainageType}, got ${drain?.type || 'missing'}`);
+    }
+
+    errors.push(...validateFixturePlacementSemantics(measurement, product, placement));
   }
 
   return errors;
@@ -389,6 +618,8 @@ function main() {
   const goldenSchema = schemas['synthetic-golden.schema.json']?.compiled;
   const syntheticFiles = listJsonFiles(SYNTHETIC_DIR);
   const goldenFiles = listJsonFiles(GOLDEN_DIR);
+  const syntheticProductFiles = listJsonFiles(SYNTHETIC_PRODUCT_DIR);
+  const syntheticPlacementFiles = listJsonFiles(SYNTHETIC_PLACEMENT_DIR);
 
   if (syntheticFiles.length !== 5) {
     log('FAIL', `Expected 5 synthetic fixture JSON files, found ${syntheticFiles.length}`);
@@ -413,6 +644,50 @@ function main() {
     } else {
       log('PASS', `${fname}: Correctly passes measurement schema`);
       totalPassed++;
+
+      const fixtureId = fname.match(/^measurement-synthetic-(\d{3})-/)?.[1];
+      const semanticErrors = validateMeasurementSemantics(data, fixtureId ? `FIXTURE-${fixtureId}` : fname);
+      if (semanticErrors.length > 0) {
+        log('FAIL', `${fname}: Synthetic measurement semantic check failed`);
+        log('INFO', `  ${semanticErrors.join('; ')}`);
+        totalFailed++;
+        failures.push({ file: fname, type: 'synthetic-fixture-semantic-failed', errors: semanticErrors });
+      } else {
+        log('PASS', `${fname}: Synthetic measurement semantics pass`);
+        totalPassed++;
+      }
+    }
+  }
+
+  for (const examplePath of syntheticProductFiles) {
+    const data = loadJSON(examplePath);
+    const fname = path.basename(examplePath);
+    const productSchema = schemas['product.schema.json']?.compiled;
+    if (data._error || !productSchema(data)) {
+      log('FAIL', `${fname}: Synthetic product fixture failed schema validation`);
+      if (data._error) log('INFO', `  ${data._error}`);
+      else log('INFO', `  ${formatErrors(productSchema.errors)}`);
+      totalFailed++;
+      failures.push({ file: fname, type: 'synthetic-product-invalid' });
+    } else {
+      log('PASS', `${fname}: Correctly passes product schema`);
+      totalPassed++;
+    }
+  }
+
+  for (const examplePath of syntheticPlacementFiles) {
+    const data = loadJSON(examplePath);
+    const fname = path.basename(examplePath);
+    const placementSchema = schemas['fixture-placement.schema.json']?.compiled;
+    if (data._error || !placementSchema(data)) {
+      log('FAIL', `${fname}: Synthetic fixture placement failed schema validation`);
+      if (data._error) log('INFO', `  ${data._error}`);
+      else log('INFO', `  ${formatErrors(placementSchema.errors)}`);
+      totalFailed++;
+      failures.push({ file: fname, type: 'synthetic-placement-invalid' });
+    } else {
+      log('PASS', `${fname}: Correctly passes fixture placement schema`);
+      totalPassed++;
     }
   }
 
@@ -430,7 +705,10 @@ function main() {
 
     const measurementPath = path.join(SYNTHETIC_DIR, golden.measurementFile);
     const measurement = loadJSON(measurementPath);
-    const consistencyErrors = measurement._error ? [measurement._error] : validateGoldenConsistency(measurement, golden);
+    const consistencyErrors = measurement._error ? [measurement._error] : [
+      ...validateGoldenConsistency(measurement, golden),
+      ...validateGoldenFixtureExpectations(golden, measurement, schemas),
+    ];
     if (consistencyErrors.length > 0) {
       log('FAIL', `${fname}: Golden consistency check failed`);
       log('INFO', `  ${consistencyErrors.join('; ')}`);

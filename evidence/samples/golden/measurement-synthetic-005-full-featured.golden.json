@@ -19,5 +19,16 @@
     "pipeEnclosureCount": 1,
     "waterSupplyPointCount": 1,
     "openingWallIndexes": [0, 2]
-  }
+  },
+  "expectedFixtures": [
+    {
+      "productFile": "product-synthetic-005-toilet.json",
+      "placementFile": "fixture-placement-synthetic-005-toilet.json",
+      "productId": "PLACEHOLDER-toilet",
+      "roomId": "55555555-5555-4555-8555-555555555555",
+      "targetDrainagePoint": "55555555-5555-4555-8555-000000000003",
+      "targetDrainageType": "toilet_drain",
+      "footprintInsideRoom": true
+    }
+  ]
 }

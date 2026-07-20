@@ -39,7 +39,7 @@
     {
       "drainId": "55555555-5555-4555-8555-000000000003",
       "position": { "x": 1500, "y": 1200 },
-      "type": "floor_drain",
+      "type": "toilet_drain",
       "diameter": 110
     }
   ],
@@ -65,8 +65,8 @@
     }
   ],
   "heights": {
-    "roomHeight": 2800,
+    "roomHeight": 2400,
     "groundElevation": 0,
-    "wallHeight": 2400
+    "wallHeight": 2800
   }
 }

@@ -48,6 +48,45 @@
         }
       },
       "additionalProperties": false
+    },
+    "expectedFixtures": {
+      "type": "array",
+      "description": "Optional fixture/product placement expectations for samples that drive W1D4 semantic checks.",
+      "items": {
+        "type": "object",
+        "required": ["productFile", "placementFile", "productId", "roomId", "targetDrainagePoint", "targetDrainageType", "footprintInsideRoom"],
+        "properties": {
+          "productFile": {
+            "type": "string",
+            "pattern": "^product-synthetic-[0-9]{3}-.+\\.json$"
+          },
+          "placementFile": {
+            "type": "string",
+            "pattern": "^fixture-placement-synthetic-[0-9]{3}-.+\\.json$"
+          },
+          "productId": {
+            "type": "string",
+            "pattern": "^(PROD-[a-f0-9-]+|PLACEHOLDER-[a-z_]+)$"
+          },
+          "roomId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetDrainagePoint": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetDrainageType": {
+            "type": "string",
+            "enum": ["floor_drain", "wall_drain", "toilet_drain", "sink_drain", "shower_drain", "bathtub_drain"]
+          },
+          "footprintInsideRoom": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false

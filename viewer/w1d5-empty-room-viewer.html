@@ -140,6 +140,13 @@
     </aside>
   </main>
 
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js"
+      }
+    }
+  </script>
   <script>
     (async function initCanvasFallback() {
       const viewport = document.querySelector('#viewport');
@@ -206,6 +213,11 @@
         ], 'rgba(200, 210, 215, .78)', '#6d7d84');
       }
 
+      function pipeEnclosure(primitive) {
+        polygon(primitive.polygon.map(point => ({ ...point, z: 0 })), 'rgba(200, 210, 215, .84)', '#6d7d84');
+        polygon(primitive.polygon.map(point => ({ ...point, z: primitive.height })), 'rgba(200, 210, 215, .58)', '#6d7d84');
+      }
+
       function draw() {
         context.clearRect(0, 0, viewport.clientWidth, viewport.clientHeight);
         context.fillStyle = '#f8f6f0';
@@ -213,6 +225,7 @@
         const floor = sceneData.primitives.find(item => item.type === 'floor');
         polygon(floor.polygon.map(point => ({ ...point, z: 0 })), '#d8d1c5', '#273238');
         sceneData.primitives.filter(item => item.type === 'wall').forEach(wall);
+        sceneData.primitives.filter(item => item.type === 'pipeEnclosure').forEach(pipeEnclosure);
         sceneData.primitives.filter(item => item.type === 'opening').forEach(item => {
           const projected = project({ x: item.center.x, y: item.center.y, z: item.height / 2 });
           context.fillStyle = '#5f7790';
@@ -224,6 +237,11 @@
           context.arc(projected.x, projected.y, 8, 0, Math.PI * 2);
           context.fillStyle = '#b05b46';
           context.fill();
+        });
+        sceneData.primitives.filter(item => item.type === 'fixturePoint').forEach(item => {
+          const projected = project({ x: item.center.x, y: item.center.y, z: 70 });
+          context.fillStyle = '#273238';
+          context.fillRect(projected.x - 9, projected.y - 9, 18, 18);
         });
       }
 
@@ -304,8 +322,8 @@
         color: item.color,
         roughness: 0.7,
         metalness: 0,
-        transparent: item.id.includes('opening'),
-        opacity: item.id.includes('opening') ? 0.72 : 1,
+        transparent: item.id.includes('opening') || item.id.includes('ceiling'),
+        opacity: item.id.includes('ceiling') ? 0.22 : item.id.includes('opening') ? 0.72 : 1,
       }),
     ]));
 
@@ -329,6 +347,7 @@
       shape.closePath();
       const geometry = new THREE.ShapeGeometry(shape);
       const mesh = new THREE.Mesh(geometry, materials.get(primitive.material));
+      mesh.position.z = primitive.z || 0;
       mesh.name = primitive.id;
       return mesh;
     }
@@ -352,11 +371,37 @@
       return mesh;
     }
 
+    function pipeEnclosureMesh(primitive) {
+      const shape = new THREE.Shape();
+      primitive.polygon.forEach((point, index) => {
+        if (index === 0) shape.moveTo(point.x, point.y);
+        else shape.lineTo(point.x, point.y);
+      });
+      shape.closePath();
+      const geometry = new THREE.ExtrudeGeometry(shape, {
+        depth: primitive.height,
+        bevelEnabled: false,
+      });
+      const mesh = new THREE.Mesh(geometry, materials.get(primitive.material));
+      mesh.name = primitive.id;
+      return mesh;
+    }
+
+    function fixturePointMesh(primitive) {
+      const geometry = new THREE.BoxGeometry(160, 160, 80);
+      const mesh = new THREE.Mesh(geometry, materials.get(primitive.material));
+      mesh.position.set(primitive.center.x, primitive.center.y, 40);
+      mesh.name = primitive.id;
+      return mesh;
+    }
+
     for (const primitive of sceneData.primitives) {
       if (primitive.type === 'floor' || primitive.type === 'ceilingPlane') scene.add(floorMesh(primitive));
       if (primitive.type === 'wall') scene.add(wallMesh(primitive));
       if (primitive.type === 'opening') scene.add(openingMesh(primitive));
       if (primitive.type === 'floorMarker') scene.add(markerMesh(primitive));
+      if (primitive.type === 'pipeEnclosure') scene.add(pipeEnclosureMesh(primitive));
+      if (primitive.type === 'fixturePoint') scene.add(fixturePointMesh(primitive));
     }
 
     document.querySelector('#dimensions').innerHTML = ['roomHeight', 'wallHeight', 'groundElevation', 'netHeight', 'doorOpeningHeightStatus'].map(key => (

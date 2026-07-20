@@ -409,9 +409,28 @@ function validateW1D5Artifacts(evidenceRegistry) {
   }
 
   errors.push(...validateTraceableItems([scene.dimensions], new Set(['EV-009']), 'W1D5 dimensions'));
+  errors.push(...validateTraceableItems(scene.dependencies, new Set(['EV-007', 'EV-008']), 'W1D5 dependencies'));
   errors.push(...validateTraceableItems(scene.materials, new Set(['EV-009']), 'W1D5 materials'));
   errors.push(...validateTraceableItems(scene.primitives, new Set(['EV-009']), 'W1D5 primitives'));
   errors.push(...validateTraceableItems(annotation.annotations, new Set(['EV-010']), 'W1D5 annotations'));
+
+  const primitiveTypes = new Set((scene.primitives || []).map(item => item.type));
+  for (const type of ['floor', 'ceilingPlane', 'wall', 'opening', 'floorMarker', 'pipeEnclosure', 'fixturePoint']) {
+    if (!primitiveTypes.has(type)) {
+      errors.push(`W1D5 scene missing primitive type ${type}`);
+    }
+  }
+
+  const annotationTypes = new Set((annotation.annotations || []).map(item => item.type));
+  if (!annotationTypes.has('dimension') || !annotationTypes.has('height') || !annotationTypes.has('openingLabel') || !annotationTypes.has('pointLabel') || !annotationTypes.has('entityLabel')) {
+    errors.push('W1D5 annotations must include dimension, height, openingLabel, pointLabel, and entityLabel entries');
+  }
+  const annotationText = JSON.stringify(annotation.annotations || []);
+  for (const requiredText of ['door center', 'window center', 'pipe enclosure position', 'toilet placement', 'toilet_drain (']) {
+    if (!annotationText.includes(requiredText)) {
+      errors.push(`W1D5 annotations missing ${requiredText}`);
+    }
+  }
 
   const primitiveIds = new Set([scene.dimensions.id, ...(scene.primitives || []).map(item => item.id)]);
   for (const item of annotation.annotations || []) {

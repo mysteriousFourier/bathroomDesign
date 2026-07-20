@@ -5,6 +5,9 @@ Status: unverified. Business thresholds and customer-facing vocabulary remain pe
 ## Inputs
 
 - Measurement: `evidence/samples/synthetic/measurement-synthetic-005-full-featured.json`
+- Fixture placement: `evidence/samples/placements/fixture-placement-synthetic-005-toilet.json`
+- W1D3 geometry: `contracts/geometry/w1d3-recovery-golden.json`
+- W1D4 topology: `contracts/topology/w1d4-topology-golden.json`
 - Evidence: `EV-009`, `EV-010`, `EV-011`
 
 ## Outputs
@@ -29,8 +32,9 @@ Status: unverified. Business thresholds and customer-facing vocabulary remain pe
 
 ## Traceability
 
-- Scene primitives: 10; every primitive carries `id`, `source`, `evidenceId`, and `status`.
-- Annotation rows: 10; every annotation carries `id`, `source`, `evidenceId`, and `status`.
+- Scene primitives: 11; every primitive carries `id`, `source`, `evidenceId`, and `status`.
+- Annotation rows: 14; every annotation carries `id`, `source`, `evidenceId`, and `status`.
+- Point labels include opening centers, drain coordinates, pipe-enclosure position, and synthetic fixture placement. No real products, prices, or site media are used.
 - Only the allowed height fields are emitted: `roomHeight`, `wallHeight`, `groundElevation`, `netHeight`, and `doorOpeningHeight`.
 
 ## Interaction Contract

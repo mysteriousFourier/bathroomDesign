@@ -6,6 +6,12 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const SOURCE_FILE = 'evidence/samples/synthetic/measurement-synthetic-005-full-featured.json';
 const SOURCE_PATH = path.join(ROOT, SOURCE_FILE);
+const PLACEMENT_FILE = 'evidence/samples/placements/fixture-placement-synthetic-005-toilet.json';
+const PLACEMENT_PATH = path.join(ROOT, PLACEMENT_FILE);
+const PRODUCT_FILE = 'evidence/samples/products/product-synthetic-005-toilet.json';
+const PRODUCT_PATH = path.join(ROOT, PRODUCT_FILE);
+const TOPOLOGY_FILE = 'contracts/topology/w1d4-topology-golden.json';
+const TOPOLOGY_PATH = path.join(ROOT, TOPOLOGY_FILE);
 const SCENE_FILE = 'contracts/3d/empty-room-scene.json';
 const ANNOTATION_FILE = 'contracts/annotation/measurement-synthetic-005-annotation.json';
 const REPORT_FILE = 'reports/w1d5-empty-room-report.md';
@@ -46,6 +52,30 @@ function polygonArea(points) {
   return Math.abs(Math.round(sum / 2));
 }
 
+function polygonCentroid(points) {
+  const area = polygonArea(points);
+  if (area === 0) {
+    return points.reduce((acc, point) => ({ x: acc.x + point.x / points.length, y: acc.y + point.y / points.length }), { x: 0, y: 0 });
+  }
+
+  let cx = 0;
+  let cy = 0;
+  let crossSum = 0;
+  for (let index = 0; index < points.length; index++) {
+    const a = points[index];
+    const b = points[(index + 1) % points.length];
+    const cross = a.x * b.y - b.x * a.y;
+    crossSum += cross;
+    cx += (a.x + b.x) * cross;
+    cy += (a.y + b.y) * cross;
+  }
+  const divisor = 3 * crossSum;
+  return {
+    x: Math.round(cx / divisor),
+    y: Math.round(cy / divisor),
+  };
+}
+
 function makeTrace(id, sourcePath, evidenceId, status, extra = {}) {
   return {
     id,
@@ -63,7 +93,7 @@ function wallNormal(wall) {
   return { x: -dy / length, y: dx / length };
 }
 
-function buildScene(measurement) {
+function buildScene(measurement, placement, product, topology) {
   const heights = measurement.heights;
   const netHeight = heights.netHeight ?? heights.roomHeight;
   const doorOpeningHeight = heights.doorOpeningHeight ?? null;
@@ -124,11 +154,24 @@ function buildScene(measurement) {
       ...makeTrace(`scene-pipe-enclosure-${String(index + 1).padStart(3, '0')}`, `${SOURCE_FILE}#/pipeEnclosures/${index}`, 'EV-009', 'provisional'),
       type: 'pipeEnclosure',
       polygon: enclosure.boundary,
+      center: { ...polygonCentroid(enclosure.boundary), z: heights.groundElevation },
       height: heights.wallHeight,
       isAccessible: enclosure.isAccessible,
       containsDrain: enclosure.containsDrain,
       material: 'mat-wall-provisional',
     })),
+    {
+      ...makeTrace('scene-fixture-point-001', `${PLACEMENT_FILE}#/position`, 'EV-009', 'provisional', {
+        topologySource: `${TOPOLOGY_FILE}#/nodes/fixtures/0`,
+      }),
+      type: 'fixturePoint',
+      placementId: placement.placementId,
+      productType: product.type,
+      center: placement.position,
+      footprint: placement.footprint,
+      targetDrainagePoint: placement.targetDrainagePoint,
+      material: 'mat-marker-provisional',
+    },
   ];
 
   return {
@@ -155,6 +198,10 @@ function buildScene(measurement) {
       doorOpeningHeightStatus: doorOpeningHeight == null ? 'provisional' : 'unverified',
       areaMm2,
     },
+    dependencies: [
+      makeTrace('dep-w1d3-geometry', 'contracts/geometry/w1d3-recovery-golden.json', 'EV-007', 'unverified'),
+      makeTrace('dep-w1d4-topology', TOPOLOGY_FILE, 'EV-008', topology.status === 'confirmed' ? 'unverified' : 'provisional'),
+    ],
     materials: [
       makeTrace('mat-floor-provisional', 'W1D5 generated neutral material', 'EV-009', 'provisional', { color: '#d8d1c5' }),
       makeTrace('mat-wall-provisional', 'W1D5 generated neutral material', 'EV-009', 'provisional', { color: '#c8d2d7' }),
@@ -171,7 +218,7 @@ function buildScene(measurement) {
   };
 }
 
-function buildAnnotation(measurement, scene) {
+function buildAnnotation(measurement, placement, product, scene) {
   const annotations = [
     {
       ...makeTrace('ann-room-area-001', `${SOURCE_FILE}#/boundary`, 'EV-010', 'unverified'),
@@ -213,12 +260,38 @@ function buildAnnotation(measurement, scene) {
       unit: 'mm',
       targetPrimitiveId: `scene-opening-${String(index + 1).padStart(3, '0')}`,
     })),
+    ...(measurement.openings || []).map((opening, index) => ({
+      ...makeTrace(`ann-opening-center-${String(index + 1).padStart(3, '0')}`, `${SOURCE_FILE}#/openings/${index}/position`, 'EV-010', 'unverified'),
+      type: 'pointLabel',
+      label: `${opening.type} center`,
+      value: { x: opening.position.x, y: opening.position.y, z: measurement.heights.groundElevation },
+      unit: 'mm',
+      targetPrimitiveId: `scene-opening-${String(index + 1).padStart(3, '0')}`,
+    })),
     ...(measurement.drainagePoints || []).map((drain, index) => ({
       ...makeTrace(`ann-drain-${String(index + 1).padStart(3, '0')}`, `${SOURCE_FILE}#/drainagePoints/${index}`, 'EV-010', 'provisional'),
       type: 'entityLabel',
-      label: drain.type,
+      label: `${drain.type} (${drain.position.x}, ${drain.position.y})`,
+      value: { x: drain.position.x, y: drain.position.y, z: measurement.heights.groundElevation },
+      unit: 'mm',
       targetPrimitiveId: `scene-drain-${String(index + 1).padStart(3, '0')}`,
     })),
+    ...(measurement.pipeEnclosures || []).map((enclosure, index) => ({
+      ...makeTrace(`ann-pipe-enclosure-${String(index + 1).padStart(3, '0')}`, `${SOURCE_FILE}#/pipeEnclosures/${index}`, 'EV-010', 'provisional'),
+      type: 'pointLabel',
+      label: 'pipe enclosure position',
+      value: { ...polygonCentroid(enclosure.boundary), z: measurement.heights.groundElevation },
+      unit: 'mm',
+      targetPrimitiveId: `scene-pipe-enclosure-${String(index + 1).padStart(3, '0')}`,
+    })),
+    {
+      ...makeTrace('ann-fixture-point-001', `${PLACEMENT_FILE}#/position`, 'EV-010', 'provisional'),
+      type: 'pointLabel',
+      label: `${product.type} placement`,
+      value: placement.position,
+      unit: 'mm',
+      targetPrimitiveId: 'scene-fixture-point-001',
+    },
   ];
 
   return {
@@ -265,14 +338,27 @@ function svgFor(scene, width, height, label) {
     const center = project(item.center);
     return `<circle cx="${center.x.toFixed(1)}" cy="${center.y.toFixed(1)}" r="8" fill="#b05b46"><title>${item.id} ${item.status}</title></circle>`;
   }).join('\n    ');
+  const pipePolygons = scene.primitives.filter(item => item.type === 'pipeEnclosure').map(item => {
+    const pipe = item.polygon.map(point => {
+      const projected = project(point);
+      return `${projected.x.toFixed(1)},${projected.y.toFixed(1)}`;
+    }).join(' ');
+    return `<polygon points="${pipe}" fill="#c8d2d7" stroke="#6d7d84" stroke-width="2"><title>${item.id} ${item.status}</title></polygon>`;
+  }).join('\n    ');
+  const fixtureMarkers = scene.primitives.filter(item => item.type === 'fixturePoint').map(item => {
+    const center = project(item.center);
+    return `<rect x="${(center.x - 9).toFixed(1)}" y="${(center.y - 9).toFixed(1)}" width="18" height="18" fill="#273238"><title>${item.id} ${item.status}</title></rect>`;
+  }).join('\n    ');
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${label}">
   <rect width="100%" height="100%" fill="#f7f5ef"/>
   <text x="${margin}" y="${margin - 26}" fill="#273238" font-family="Arial, sans-serif" font-size="${width < 700 ? 18 : 26}" font-weight="700">${label}</text>
   <text x="${margin}" y="${margin - 4}" fill="#5f676b" font-family="Arial, sans-serif" font-size="${width < 700 ? 11 : 14}">EV-009/EV-010 · status: unverified/provisional · source: ${SOURCE_FILE}</text>
   <polygon points="${polygon}" fill="#d8d1c5" stroke="#273238" stroke-width="3"/>
+  ${pipePolygons}
   ${openingRects}
   ${drainMarkers}
+  ${fixtureMarkers}
   <text x="${margin}" y="${height - 24}" fill="#5f676b" font-family="Arial, sans-serif" font-size="${width < 700 ? 11 : 14}">roomHeight ${scene.dimensions.roomHeight}mm · wallHeight ${scene.dimensions.wallHeight}mm · groundElevation ${scene.dimensions.groundElevation}mm</text>
 </svg>
 `;
@@ -286,6 +372,9 @@ Status: unverified. Business thresholds and customer-facing vocabulary remain pe
 ## Inputs
 
 - Measurement: \`${SOURCE_FILE}\`
+- Fixture placement: \`${PLACEMENT_FILE}\`
+- W1D3 geometry: \`contracts/geometry/w1d3-recovery-golden.json\`
+- W1D4 topology: \`${TOPOLOGY_FILE}\`
 - Evidence: \`EV-009\`, \`EV-010\`, \`EV-011\`
 
 ## Outputs
@@ -312,6 +401,7 @@ Status: unverified. Business thresholds and customer-facing vocabulary remain pe
 
 - Scene primitives: ${scene.primitives.length}; every primitive carries \`id\`, \`source\`, \`evidenceId\`, and \`status\`.
 - Annotation rows: ${annotation.annotations.length}; every annotation carries \`id\`, \`source\`, \`evidenceId\`, and \`status\`.
+- Point labels include opening centers, drain coordinates, pipe-enclosure position, and synthetic fixture placement. No real products, prices, or site media are used.
 - Only the allowed height fields are emitted: \`roomHeight\`, \`wallHeight\`, \`groundElevation\`, \`netHeight\`, and \`doorOpeningHeight\`.
 
 ## Interaction Contract
@@ -342,8 +432,11 @@ function buildRollup() {
 
 function main() {
   const measurement = readJson(SOURCE_PATH);
-  const scene = buildScene(measurement);
-  const annotation = buildAnnotation(measurement, scene);
+  const placement = readJson(PLACEMENT_PATH);
+  const product = readJson(PRODUCT_PATH);
+  const topology = readJson(TOPOLOGY_PATH);
+  const scene = buildScene(measurement, placement, product, topology);
+  const annotation = buildAnnotation(measurement, placement, product, scene);
 
   writeJson(SCENE_FILE, scene);
   writeJson(ANNOTATION_FILE, annotation);

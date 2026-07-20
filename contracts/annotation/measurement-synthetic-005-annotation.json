@@ -122,13 +122,79 @@
       "targetPrimitiveId": "scene-opening-002"
     },
     {
+      "id": "ann-opening-center-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/openings/0/position",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "pointLabel",
+      "label": "door center",
+      "value": {
+        "x": 800,
+        "y": 0,
+        "z": 0
+      },
+      "unit": "mm",
+      "targetPrimitiveId": "scene-opening-001"
+    },
+    {
+      "id": "ann-opening-center-002",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/openings/1/position",
+      "evidenceId": "EV-010",
+      "status": "unverified",
+      "type": "pointLabel",
+      "label": "window center",
+      "value": {
+        "x": 1500,
+        "y": 2400,
+        "z": 0
+      },
+      "unit": "mm",
+      "targetPrimitiveId": "scene-opening-002"
+    },
+    {
       "id": "ann-drain-001",
       "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/drainagePoints/0",
       "evidenceId": "EV-010",
       "status": "provisional",
       "type": "entityLabel",
-      "label": "toilet_drain",
+      "label": "toilet_drain (1500, 1200)",
+      "value": {
+        "x": 1500,
+        "y": 1200,
+        "z": 0
+      },
+      "unit": "mm",
       "targetPrimitiveId": "scene-drain-001"
+    },
+    {
+      "id": "ann-pipe-enclosure-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/pipeEnclosures/0",
+      "evidenceId": "EV-010",
+      "status": "provisional",
+      "type": "pointLabel",
+      "label": "pipe enclosure position",
+      "value": {
+        "x": 2900,
+        "y": 200,
+        "z": 0
+      },
+      "unit": "mm",
+      "targetPrimitiveId": "scene-pipe-enclosure-001"
+    },
+    {
+      "id": "ann-fixture-point-001",
+      "source": "evidence/samples/placements/fixture-placement-synthetic-005-toilet.json#/position",
+      "evidenceId": "EV-010",
+      "status": "provisional",
+      "type": "pointLabel",
+      "label": "toilet placement",
+      "value": {
+        "x": 1500,
+        "y": 1200,
+        "z": 0
+      },
+      "unit": "mm",
+      "targetPrimitiveId": "scene-fixture-point-001"
     }
   ]
 }

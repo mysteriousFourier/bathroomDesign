@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidenceId": "EV-008",
+  "sourceMeasurement": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json",
+  "sourcePlacement": "evidence/samples/placements/fixture-placement-synthetic-005-toilet.json",
+  "sourceProduct": "evidence/samples/products/product-synthetic-005-toilet.json",
+  "cases": [
+    {
+      "caseId": "W1D4-FAIL-001",
+      "description": "Wall chain does not close against the frozen room boundary.",
+      "expectedCode": "wall_closure_invalid"
+    },
+    {
+      "caseId": "W1D4-FAIL-002",
+      "description": "Boundary has a non-adjacent self-intersection.",
+      "expectedCode": "boundary_self_intersection"
+    },
+    {
+      "caseId": "W1D4-FAIL-003",
+      "description": "Opening references a wall index that does not exist.",
+      "expectedCode": "opening_ownership_invalid"
+    },
+    {
+      "caseId": "W1D4-FAIL-004",
+      "description": "Rotated rectangular fixture footprint exceeds room boundary.",
+      "expectedCode": "fixture_outside_room"
+    },
+    {
+      "caseId": "W1D4-FAIL-005",
+      "description": "Fixture requires drainage but targetDrainagePoint is absent from measurement drainagePoints.",
+      "expectedCode": "fixture_drain_missing"
+    },
+    {
+      "caseId": "W1D4-FAIL-006",
+      "description": "Polygonal footprint vertex exceeds room boundary.",
+      "expectedCode": "fixture_outside_room"
+    },
+    {
+      "caseId": "W1D4-FAIL-007",
+      "description": "Circular footprint exceeds room boundary.",
+      "expectedCode": "fixture_outside_room"
+    },
+    {
+      "caseId": "W1D4-FAIL-008",
+      "description": "Fixture drain offset is reported as unverified while THR-TOPO-003 is pending business confirmation.",
+      "expectedCode": "drainage_alignment_pending_threshold"
+    },
+    {
+      "caseId": "W1D4-FAIL-009",
+      "description": "Multiple fixtures share one drainage point and are reported as unverified while THR-TOPO-005 is pending business confirmation.",
+      "expectedRelation": "sharedDrainage"
+    }
+  ]
+}

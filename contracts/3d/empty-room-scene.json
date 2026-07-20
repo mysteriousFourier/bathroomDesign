@@ -25,6 +25,20 @@
     "doorOpeningHeightStatus": "provisional",
     "areaMm2": 7200000
   },
+  "dependencies": [
+    {
+      "id": "dep-w1d3-geometry",
+      "source": "contracts/geometry/w1d3-recovery-golden.json",
+      "evidenceId": "EV-007",
+      "status": "unverified"
+    },
+    {
+      "id": "dep-w1d4-topology",
+      "source": "contracts/topology/w1d4-topology-golden.json",
+      "evidenceId": "EV-008",
+      "status": "provisional"
+    }
+  ],
   "materials": [
     {
       "id": "mat-floor-provisional",
@@ -304,10 +318,37 @@
           "y": 400
         }
       ],
+      "center": {
+        "x": 2900,
+        "y": 200,
+        "z": 0
+      },
       "height": 2800,
       "isAccessible": false,
       "containsDrain": true,
       "material": "mat-wall-provisional"
+    },
+    {
+      "id": "scene-fixture-point-001",
+      "source": "evidence/samples/placements/fixture-placement-synthetic-005-toilet.json#/position",
+      "evidenceId": "EV-009",
+      "status": "provisional",
+      "topologySource": "contracts/topology/w1d4-topology-golden.json#/nodes/fixtures/0",
+      "type": "fixturePoint",
+      "placementId": "55555555-5555-4555-8555-000000000006",
+      "productType": "toilet",
+      "center": {
+        "x": 1500,
+        "y": 1200,
+        "z": 0
+      },
+      "footprint": {
+        "type": "rectangular",
+        "width": 400,
+        "depth": 700
+      },
+      "targetDrainagePoint": "55555555-5555-4555-8555-000000000003",
+      "material": "mat-marker-provisional"
     }
   ],
   "thresholds": {

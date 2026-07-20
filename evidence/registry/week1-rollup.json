@@ -69,20 +69,20 @@
       "lockedItem": "2D geometry",
       "day": "W1D3",
       "owner": "Geometry",
-      "status": "pending_implementation",
-      "expectedArtifact": "contracts/geometry/ planned",
+      "status": "unverified",
+      "expectedArtifact": "lib/recovery2d.js; contracts/geometry/w1d3-recovery-golden.json; contracts/geometry/w1d3-failure-examples.json; scripts/check-w1d3-geometry.js",
       "openConfirmation": true,
-      "notes": "Only confirmed calculation tolerances may produce confirmed geometry evidence."
+      "notes": "Deterministic synthetic recovery is implemented with seed 2205 and mm coordinates. Business thresholds THR-GEOM-005..008 remain pending_business_confirmation, so evidence is unverified."
     },
     {
       "evidenceId": "EV-008",
       "lockedItem": "Topology",
       "day": "W1D4",
       "owner": "Topology",
-      "status": "pending_implementation",
-      "expectedArtifact": "contracts/topology/ planned",
+      "status": "unverified",
+      "expectedArtifact": "lib/topology.js; contracts/topology/w1d4-topology-golden.json; contracts/topology/w1d4-failure-examples.json; scripts/check-w1d4-topology.js",
       "openConfirmation": true,
-      "notes": "Business thresholds remain unverified until confirmed. D4 coverage must include fixture footprint containment with orientation.rotationZ for rectangular, circular, and polygonal footprints."
+      "notes": "D4 input includes FixturePlacement plus product and drain references. Rectangular, circular, and polygonal footprint containment are covered. Drain alignment reports distance/status only while THR-TOPO-003 remains pending_business_confirmation."
     },
     {
       "evidenceId": "EV-009",

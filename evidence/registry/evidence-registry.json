@@ -1,8 +1,8 @@
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.1.0",
   "rows": [
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-001",
       "lockedItem": "Data dictionary",
       "sourceType": "contract_document",
@@ -15,7 +15,7 @@
       "notes": "Frozen technical fields are present. Product library IDs and customer-facing labels remain pending_business_confirmation, so the row is not confirmed."
     },
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-002",
       "lockedItem": "Backend contract",
       "sourceType": "contract_document",
@@ -28,7 +28,7 @@
       "notes": "W1D1 backend contract remains unverified until unit, global Y-axis, semantic validation, and annotation baseline corrections are reviewed."
     },
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-003",
       "lockedItem": "Scheduling baseline",
       "sourceType": "contract_document",
@@ -41,7 +41,7 @@
       "notes": "Confirmed scheduling scope only."
     },
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-004",
       "lockedItem": "Evidence table structure",
       "sourceType": "schema_validation",
@@ -54,9 +54,9 @@
       "notes": "Markdown is display-only; JSON is the validation source."
     },
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-005",
-      "lockedItem": "Sample baseline",
+      "lockedItem": "Synthetic sample baseline",
       "sourceType": "synthetic_fixture",
       "contractFields": ["measurement.boundary", "measurement.walls", "measurement.openings", "measurement.drainagePoints", "measurement.pipeEnclosures", "measurement.waterSupplyPoints", "measurement.heights"],
       "acceptanceMethod": "npm run validate validates five synthetic measurement JSON files and five golden geometry/topology JSON files.",
@@ -64,25 +64,25 @@
       "owner": "Data",
       "day": "W1D2",
       "status": "confirmed",
-      "thresholdRef": "THR-GEOM-001",
-      "notes": "First-week real sample target is fixed at two."
+      "thresholdRefs": ["THR-GEOM-001", "THR-GEOM-003", "THR-GEOM-004"],
+      "notes": "Only the synthetic fixture baseline is confirmed. Real sample authorization remains separate in EV-012 and EV-013."
     },
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-006",
       "lockedItem": "Threshold baseline",
       "sourceType": "schema_validation",
-      "contractFields": ["coordinateToleranceMm", "angularToleranceDeg", "pending_business_confirmation thresholds"],
+      "contractFields": ["coordinateToleranceMm", "angularToleranceDeg", "thresholdRefs", "pending_business_confirmation thresholds"],
       "acceptanceMethod": "npm run validate validates threshold-registry.json and rejects pending business thresholds that carry confirmable values.",
       "expectedArtifact": "evidence/registry/threshold-registry.json",
       "owner": "Data",
       "day": "W1D2",
       "status": "unverified",
-      "thresholdRef": "THR-TOPO-001",
-      "notes": "Confirmed calculation tolerances are separated from pending business thresholds. Pending business thresholds can only produce unverified evidence."
+      "thresholdRefs": ["THR-GEOM-001", "THR-GEOM-002", "THR-GEOM-003", "THR-GEOM-004", "THR-IMPL-001", "THR-IMPL-002", "THR-IMPL-003", "THR-TOPO-001"],
+      "notes": "Confirmed calculation tolerances, provisional implementation thresholds, and pending business thresholds are separated. Pending business thresholds can only produce unverified evidence."
     },
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-007",
       "lockedItem": "2D geometry",
       "sourceType": "geometry_output",
@@ -92,11 +92,11 @@
       "owner": "Geometry",
       "day": "W1D3",
       "status": "pending_implementation",
-      "thresholdRef": "THR-GEOM-001",
+      "thresholdRefs": ["THR-GEOM-001", "THR-GEOM-002", "THR-GEOM-003", "THR-GEOM-004", "THR-GEOM-005", "THR-GEOM-006", "THR-GEOM-007", "THR-GEOM-008"],
       "notes": "Only confirmed calculation tolerances may produce confirmed geometry evidence."
     },
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-008",
       "lockedItem": "Topology",
       "sourceType": "topology_graph",
@@ -106,11 +106,11 @@
       "owner": "Topology",
       "day": "W1D4",
       "status": "pending_implementation",
-      "thresholdRef": "THR-TOPO-001",
-      "notes": "Business thresholds remain unverified until confirmed."
+      "thresholdRefs": ["THR-TOPO-001", "THR-TOPO-002", "THR-TOPO-003", "THR-TOPO-004", "THR-TOPO-005"],
+      "notes": "Business thresholds remain unverified until confirmed. D4 coverage must include fixture footprint containment with orientation.rotationZ for rectangular, circular, and polygonal footprints."
     },
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-009",
       "lockedItem": "Empty-room 3D",
       "sourceType": "3d_model",
@@ -120,11 +120,11 @@
       "owner": "3D",
       "day": "W1D5",
       "status": "pending_implementation",
-      "thresholdRef": "THR-3D-001",
+      "thresholdRefs": ["THR-3D-001", "THR-3D-002", "THR-3D-003", "THR-3D-004", "THR-3D-005", "THR-3D-006", "THR-3D-007"],
       "notes": "Default height values are pending_business_confirmation and cannot confirm acceptance."
     },
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-010",
       "lockedItem": "Automatic annotation",
       "sourceType": "annotation_output",
@@ -134,21 +134,47 @@
       "owner": "Annotation",
       "day": "W1D5",
       "status": "pending_implementation",
-      "thresholdRef": "THR-ANN-001",
+      "thresholdRefs": ["THR-ANN-001", "THR-ANN-002", "THR-ANN-003", "THR-ANN-004", "THR-ANN-005", "THR-ANN-006", "THR-ANN-007"],
       "notes": "Customer-facing vocabulary is pending_business_confirmation."
     },
     {
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "evidenceId": "EV-011",
       "lockedItem": "Week 1 final roll-up",
       "sourceType": "rollup_table",
-      "contractFields": ["EV-001", "EV-002", "EV-003", "EV-004", "EV-005", "EV-006", "EV-007", "EV-008", "EV-009", "EV-010"],
+      "contractFields": ["EV-001", "EV-002", "EV-003", "EV-004", "EV-005", "EV-006", "EV-007", "EV-008", "EV-009", "EV-010", "EV-012", "EV-013"],
       "acceptanceMethod": "W1D5 roll-up links every locked item to status, artifact, and blocker.",
       "expectedArtifact": "evidence/registry/week1-rollup.json planned",
       "owner": "Data",
       "day": "W1D5",
       "status": "pending_implementation",
       "notes": "Roll-up must preserve unverified markers for pending business confirmations."
+    },
+    {
+      "schemaVersion": "1.1.0",
+      "evidenceId": "EV-012",
+      "lockedItem": "Real sample scope REAL-001",
+      "sourceType": "real_sample",
+      "contractFields": ["REAL-001", "measurement.*", "authorization"],
+      "acceptanceMethod": "Business authorization must be received before any real sample artifact is accepted or validated.",
+      "expectedArtifact": "evidence/real-sample-scope.md",
+      "owner": "Data",
+      "day": "W1D2",
+      "status": "pending_business_confirmation",
+      "notes": "REAL-001 is scoped as a simple rectangular bathroom, but no real source file is confirmed or included."
+    },
+    {
+      "schemaVersion": "1.1.0",
+      "evidenceId": "EV-013",
+      "lockedItem": "Real sample scope REAL-002",
+      "sourceType": "real_sample",
+      "contractFields": ["REAL-002", "measurement.*", "authorization"],
+      "acceptanceMethod": "Business authorization must be received before any real sample artifact is accepted or validated.",
+      "expectedArtifact": "evidence/real-sample-scope.md",
+      "owner": "Data",
+      "day": "W1D2",
+      "status": "pending_business_confirmation",
+      "notes": "REAL-002 is scoped as a bathroom with door and window, but no real source file is confirmed or included."
     }
   ]
 }

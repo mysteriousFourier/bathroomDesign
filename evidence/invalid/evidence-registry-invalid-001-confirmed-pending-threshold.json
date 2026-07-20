@@ -12,7 +12,7 @@
       "owner": "Data",
       "day": "W1D2",
       "status": "confirmed",
-      "thresholdRef": "THR-TOPO-001",
+      "thresholdRefs": ["THR-TOPO-001"],
       "notes": "Invalid fixture for validator coverage."
     }
   ]

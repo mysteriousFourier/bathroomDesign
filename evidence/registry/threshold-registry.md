@@ -20,7 +20,9 @@ Stable baseline for Week 1 acceptance thresholds. `threshold-registry.json` is t
 | `THR-GEOM-002` | Geometry | Angular tolerance | ±0.5 | degrees | CONTRACT-BASELINE.md coordinate system, frozen W1D1 | confirmed | Wall segment orientation, opening facing, fixture orientation.rotationZ |
 | `THR-GEOM-003` | Geometry | Polygon winding direction | Counterclockwise | — | CONTRACT-BASELINE.md coordinate system, frozen W1D1 | confirmed | Room boundary, pipe enclosure boundary, fixture footprint vertices |
 | `THR-GEOM-004` | Geometry | Minimum boundary vertices | 4 | points | measurement.schema.json boundary.minItems, frozen W1D1 | confirmed | Room boundary polygon |
-| `THR-IMPL-001` | Validation Harness | Synthetic golden numeric comparison tolerance | 0.01 | mm | W1D2 validation harness only | provisional_implementation | Computed perimeter comparison for synthetic golden JSON |
+| `THR-IMPL-001` | Validation Harness | Synthetic golden perimeter comparison tolerance | 0.01 | mm | W1D2 validation harness only | provisional_implementation | Computed perimeter comparison for synthetic golden JSON |
+| `THR-IMPL-002` | Validation Harness | Near-rectangle max vertex offset | 20 | mm | W1D2 validation harness only | provisional_implementation | Synthetic near-rectangle fixture classification |
+| `THR-IMPL-003` | Validation Harness | Synthetic golden area comparison tolerance | 0.01 | mm^2 | W1D2 validation harness only | provisional_implementation | Computed area comparison for synthetic golden JSON |
 | `THR-GEOM-005` | Geometry | Wall length tolerance | null | mm | pending_business_confirmation | pending_business_confirmation | Wall segment length deviation from boundary edge |
 | `THR-GEOM-006` | Geometry | Boundary closure tolerance | null | mm | pending_business_confirmation | pending_business_confirmation | Distance between boundary polygon endpoint and start point |
 | `THR-GEOM-007` | Geometry | Near-collinearity angle threshold | null | degrees | pending_business_confirmation | pending_business_confirmation | Adjacent wall segments; affects W1D3 topology |
@@ -50,7 +52,7 @@ Stable baseline for Week 1 acceptance thresholds. `threshold-registry.json` is t
 | Status | Count |
 |---|---|
 | confirmed calculation tolerance (frozen from W1D1 contract) | 4 |
-| provisional_implementation | 1 |
+| provisional_implementation | 3 |
 | pending_business_confirmation | 23 |
 
-Total: 28 threshold rows. No business threshold value is fabricated; pending business rows use `null` and `verificationImpact=unverified_only`.
+Total: 30 threshold rows. No business threshold value is fabricated; pending business rows use `null` and `verificationImpact=unverified_only`.

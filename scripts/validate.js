@@ -198,15 +198,15 @@ function validateEvidencePolicy(registry, thresholdRegistry) {
   const errors = [];
 
   for (const row of registry.rows) {
-    if (row.thresholdRef) {
-      const threshold = thresholdById.get(row.thresholdRef);
+    for (const thresholdRef of row.thresholdRefs || []) {
+      const threshold = thresholdById.get(thresholdRef);
       if (!threshold) {
-        errors.push(`${row.evidenceId}: thresholdRef ${row.thresholdRef} not found`);
+        errors.push(`${row.evidenceId}: thresholdRefs entry ${thresholdRef} not found`);
         continue;
       }
 
       if (threshold.status === 'pending_business_confirmation' && row.status === 'confirmed') {
-        errors.push(`${row.evidenceId}: pending_business_confirmation threshold ${row.thresholdRef} can only produce unverified evidence`);
+        errors.push(`${row.evidenceId}: pending_business_confirmation threshold ${thresholdRef} can only produce unverified evidence`);
       }
     }
 

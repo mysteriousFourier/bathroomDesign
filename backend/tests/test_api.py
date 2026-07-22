@@ -1,0 +1,132 @@
+from io import BytesIO
+
+import httpx
+import pytest
+from PIL import Image
+
+from backend.app.database import db
+from backend.app.config import settings
+from backend.app import main as main_module
+from backend.app.ai import AIResponseError
+from backend.app.main import app
+
+
+def configure_temp_database(tmp_path) -> None:
+    db.data_dir = tmp_path
+    db.db_path = tmp_path / "studio.sqlite3"
+    db.asset_dir = tmp_path / "projects"
+
+
+@pytest.mark.asyncio
+async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
+    configure_temp_database(tmp_path)
+    monkeypatch.setattr(settings, "openai_base_url", "")
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr(settings, "openai_model", "")
+    db.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        health = await client.get("/api/health")
+        assert health.status_code == 200
+        assert health.json()["ok"] is True
+
+        created = await client.post("/api/projects", json={"name": "测试卫生间"})
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        image_data = BytesIO()
+        Image.new("RGB", (320, 240), "white").save(image_data, "JPEG")
+        uploaded = await client.post(
+            f"/api/projects/{project_id}/assets",
+            data={"role": "floorplan"},
+            files={"file": ("plan.jpg", image_data.getvalue(), "image/jpeg")},
+        )
+        assert uploaded.status_code == 201
+        asset = uploaded.json()
+        assert asset["width"] == 320
+        content = await client.get(asset["url"])
+        assert content.status_code == 200
+        assert content.headers["content-type"].startswith("image/jpeg")
+
+        unavailable = await client.post(f"/api/projects/{project_id}/analyze-plan")
+        assert unavailable.status_code == 503
+        assert "OPENAI_BASE_URL" in unavailable.json()["detail"]
+
+        spec = {
+            "schema_version": "1.0",
+            "name": "测试卫生间",
+            "boundary": [{"x_mm": 0, "z_mm": 0}, {"x_mm": 1800, "z_mm": 0}, {"x_mm": 1800, "z_mm": 2400}, {"x_mm": 0, "z_mm": 2400}],
+            "height_mm": 2600,
+            "wall_thickness_mm": 100,
+            "openings": [], "fixtures": [], "observations": [], "issues": [], "confirmed": True,
+        }
+        saved = await client.put(f"/api/projects/{project_id}/spec", json=spec)
+        assert saved.status_code == 200
+        assert saved.json()["status"] == "model"
+        measurement = saved.json()["measurement"]
+        assert measurement["units"] == "mm"
+        assert measurement["measurement_id"] == project_id
+        assert len(measurement["walls"]) == 4
+
+        validated = await client.post("/api/measurements/validate", json=measurement)
+        assert validated.status_code == 200
+        assert validated.json()["sufficient"] is True
+        assert validated.json()["spec"]["boundary"] == spec["boundary"]
+
+        downloaded = await client.get(f"/api/projects/{project_id}/measurement/download")
+        assert downloaded.status_code == 200
+        assert downloaded.headers["content-disposition"] == 'attachment; filename="measurement.json"'
+        assert downloaded.json()["measurement_id"] == project_id
+
+        measurement["room"]["name"] = "从量房文件重建"
+        measurement["confirmed"] = False
+        imported = await client.put(f"/api/projects/{project_id}/measurement", json=measurement)
+        assert imported.status_code == 200
+        assert imported.json()["status"] == "review"
+        assert imported.json()["spec"]["name"] == "从量房文件重建"
+        assert imported.json()["measurement"]["revision"] == 2
+
+
+@pytest.mark.asyncio
+async def test_rejects_non_image_upload(tmp_path) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "错误文件测试"})).json()["id"]
+        response = await client.post(
+            f"/api/projects/{project_id}/assets",
+            data={"role": "photo"},
+            files={"file": ("notes.txt", b"not an image", "text/plain")},
+        )
+        assert response.status_code == 415
+
+
+@pytest.mark.asyncio
+async def test_failed_reanalysis_marks_old_spec_stale_without_deleting_it(tmp_path, monkeypatch) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+
+    async def fail_analysis(*_args, **_kwargs):
+        raise AIResponseError("轮廓未闭合")
+
+    monkeypatch.setattr(main_module, "analyze_floorplan", fail_analysis)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "保留旧数据"})).json()["id"]
+        image_data = BytesIO()
+        Image.new("RGB", (320, 240), "white").save(image_data, "JPEG")
+        await client.post(
+            f"/api/projects/{project_id}/assets", data={"role": "floorplan"},
+            files={"file": ("plan.jpg", image_data.getvalue(), "image/jpeg")},
+        )
+        old_spec = {
+            "boundary": [{"x_mm": 0, "z_mm": 0}, {"x_mm": 1800, "z_mm": 0}, {"x_mm": 1800, "z_mm": 2400}],
+            "height_mm": 2600,
+        }
+        await client.put(f"/api/projects/{project_id}/spec", json=old_spec)
+
+        failed = await client.post(f"/api/projects/{project_id}/analyze-plan?rotation_degrees=0")
+        assert failed.status_code >= 400
+        project = (await client.get(f"/api/projects/{project_id}")).json()
+        assert project["status"] == "analysis_failed"
+        assert project["spec"]["height_mm"] == 2600
+        assert project["measurement"]["heights"]["room_height_mm"] == 2600
+        assert len(project["measurement"]["walls"]) == 3

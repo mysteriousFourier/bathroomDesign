@@ -1,0 +1,16 @@
+services:
+  studio:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-}"
+      APP_DATA_DIR: /data
+    volumes:
+      - studio-data:/data
+    restart: unless-stopped
+
+volumes:
+  studio-data:

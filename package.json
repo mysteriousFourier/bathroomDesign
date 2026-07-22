@@ -1,18 +1,39 @@
 {
-  "name": "bathroom-design-contracts",
+  "name": "bathroom-design-workspace",
   "version": "1.0.0",
-  "description": "Bathroom design data contracts — JSON Schema validation",
+  "description": "Bathroom design contracts and spatial studio",
   "private": true,
   "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -b && vite build",
     "build:w1d5": "node scripts/generate-w1d5-artifacts.js",
+    "preview": "vite preview --host 127.0.0.1",
     "smoke:w1d5": "node scripts/smoke-w1d5-viewer.js",
+    "test": "vitest run",
+    "test:ui": "node scripts/verify-ui.mjs",
     "validate": "node scripts/validate.js && node scripts/check-w1d3-geometry.js && node scripts/check-w1d4-topology.js",
     "validate:contracts": "node scripts/validate.js",
     "validate:w1d3": "node scripts/check-w1d3-geometry.js",
     "validate:w1d4": "node scripts/check-w1d4-topology.js"
   },
   "dependencies": {
+    "@react-three/drei": "^9.121.4",
+    "@react-three/fiber": "^8.17.10",
     "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1"
+    "ajv-formats": "^3.0.1",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.171.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/three": "^0.171.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "playwright-core": "^1.61.1",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^4.1.10"
   }
 }

@@ -412,21 +412,41 @@ The viewer uses Three.js OrbitControls for rotate, pan, and zoom. It consumes th
 
 function buildRollup() {
   const registry = readJson(path.join(ROOT, EVIDENCE_REGISTRY_FILE));
+  const summary = {
+    totalRows: registry.rows.length,
+    confirmed: registry.rows.filter(row => row.status === 'confirmed').length,
+    unverified: registry.rows.filter(row => row.status === 'unverified').length,
+    pendingReview: registry.rows.filter(row => row.status === 'pending_review').length,
+    pendingImplementation: registry.rows.filter(row => row.status === 'pending_implementation').length,
+    pendingBusinessConfirmation: registry.rows.filter(row => row.status === 'pending_business_confirmation').length,
+    unverifiedItems: registry.rows
+      .filter(row => row.status !== 'confirmed')
+      .map(row => row.evidenceId),
+  };
+
   return {
     schemaVersion: '1.0.0',
     generatedFrom: EVIDENCE_REGISTRY_FILE,
-    evidenceId: 'EV-011',
-    status: 'unverified',
+    scope: 'Week 1 synthetic/generated evidence only; no real source files, site media, addresses, or reference DWG.',
+    validationCommands: [
+      {
+        command: 'npm run validate',
+        expectedExitCode: 0,
+        purpose: 'Validate schemas, synthetic fixtures, evidence registry, threshold policy, and Week 1 roll-up consistency.',
+      },
+    ],
     rows: registry.rows.map(row => ({
       evidenceId: row.evidenceId,
-      lockedItem: row.lockedItem,
       day: row.day,
       owner: row.owner,
       status: row.status,
-      expectedArtifact: row.expectedArtifact,
-      openConfirmation: /pending_business_confirmation|pending_review|pending_implementation|unverified/.test(`${row.status} ${row.notes || ''}`),
-      notes: row.notes || '',
+      artifact: row.expectedArtifact,
+      contractFields: row.contractFields,
+      ...(row.thresholdRefs ? { thresholdRefs: row.thresholdRefs } : {}),
+      blocker: row.status === 'confirmed' ? 'None for confirmed synthetic/generated scope.' : (row.notes || 'Evidence remains unverified.'),
+      validationState: row.acceptanceMethod,
     })),
+    summary,
   };
 }
 

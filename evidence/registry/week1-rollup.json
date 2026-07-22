@@ -16,9 +16,14 @@
       "owner": "Data",
       "status": "unverified",
       "artifact": "CONTRACT-BASELINE.md; schemas/*.schema.json",
-      "contractFields": ["measurement.*", "heights.roomHeight", "heights.groundElevation", "heights.wallHeight"],
-      "blocker": "Product library IDs and customer-facing labels remain pending_business_confirmation.",
-      "validationState": "Schema files validate, but business terminology and product-bearing IDs are not confirmed."
+      "contractFields": [
+        "measurement.*",
+        "heights.roomHeight",
+        "heights.groundElevation",
+        "heights.wallHeight"
+      ],
+      "blocker": "Frozen technical fields are present. Product library IDs and customer-facing labels remain pending_business_confirmation, so the row is not confirmed.",
+      "validationState": "Review CONTRACT-BASELINE.md and validate all W1D1 schemas with npm run validate."
     },
     {
       "evidenceId": "EV-002",
@@ -26,9 +31,13 @@
       "owner": "Data",
       "status": "pending_review",
       "artifact": "contracts/COORDINATE-SYSTEM.md; contracts/SCHEMA-VERSIONING.md",
-      "contractFields": ["adapter boundary", "schema versioning", "provider-neutral contract"],
-      "blocker": "W1D1 unit, global Y-axis, semantic validation, and annotation baseline corrections still require review closure.",
-      "validationState": "Contract files exist; review status is not closed."
+      "contractFields": [
+        "adapter boundary",
+        "schema versioning",
+        "provider-neutral contract"
+      ],
+      "blocker": "W1D1 backend contract remains unverified until unit, global Y-axis, semantic validation, and annotation baseline corrections are reviewed.",
+      "validationState": "Pending review of W1D1 unit, global Y-axis, semantic validation, and annotation baseline corrections."
     },
     {
       "evidenceId": "EV-003",
@@ -36,9 +45,12 @@
       "owner": "Data",
       "status": "confirmed",
       "artifact": "W1 daily plan and issue chain",
-      "contractFields": ["daily dependency chain", "acceptance evidence"],
-      "blocker": "None for scheduling scope.",
-      "validationState": "Daily sequence and issue chain are confirmed for planning scope."
+      "contractFields": [
+        "daily dependency chain",
+        "acceptance evidence"
+      ],
+      "blocker": "None for confirmed synthetic/generated scope.",
+      "validationState": "Review daily plan and nested W1D1-W1D5 issue sequence."
     },
     {
       "evidenceId": "EV-004",
@@ -46,9 +58,12 @@
       "owner": "Data",
       "status": "confirmed",
       "artifact": "evidence/registry/evidence-registry.json",
-      "contractFields": ["evidence/schema/evidence-table.schema.json", "evidence/schema/evidence-registry.schema.json"],
-      "blocker": "None for evidence table structure.",
-      "validationState": "Registry JSON validates as the source of truth."
+      "contractFields": [
+        "evidence/schema/evidence-table.schema.json",
+        "evidence/schema/evidence-registry.schema.json"
+      ],
+      "blocker": "None for confirmed synthetic/generated scope.",
+      "validationState": "npm run validate validates D2 schemas and registry JSON."
     },
     {
       "evidenceId": "EV-005",
@@ -56,10 +71,22 @@
       "owner": "Data",
       "status": "confirmed",
       "artifact": "evidence/samples/synthetic/*.json; evidence/samples/golden/*.json",
-      "contractFields": ["measurement.boundary", "measurement.walls", "measurement.openings", "measurement.drainagePoints", "measurement.pipeEnclosures", "measurement.waterSupplyPoints", "measurement.heights"],
-      "thresholdRefs": ["THR-GEOM-001", "THR-GEOM-003", "THR-GEOM-004"],
-      "blocker": "No blocker for synthetic baseline; real sample authorization remains separate.",
-      "validationState": "Five synthetic measurements and five golden files validate."
+      "contractFields": [
+        "measurement.boundary",
+        "measurement.walls",
+        "measurement.openings",
+        "measurement.drainagePoints",
+        "measurement.pipeEnclosures",
+        "measurement.waterSupplyPoints",
+        "measurement.heights"
+      ],
+      "thresholdRefs": [
+        "THR-GEOM-001",
+        "THR-GEOM-003",
+        "THR-GEOM-004"
+      ],
+      "blocker": "None for confirmed synthetic/generated scope.",
+      "validationState": "npm run validate validates five synthetic measurement JSON files and five golden geometry/topology JSON files."
     },
     {
       "evidenceId": "EV-006",
@@ -67,10 +94,24 @@
       "owner": "Data",
       "status": "unverified",
       "artifact": "evidence/registry/threshold-registry.json",
-      "contractFields": ["coordinateToleranceMm", "angularToleranceDeg", "thresholdRefs", "pending_business_confirmation thresholds"],
-      "thresholdRefs": ["THR-GEOM-001", "THR-GEOM-002", "THR-GEOM-003", "THR-GEOM-004", "THR-IMPL-001", "THR-IMPL-002", "THR-IMPL-003", "THR-TOPO-001"],
-      "blocker": "Business thresholds remain pending_business_confirmation and can only produce unverified evidence.",
-      "validationState": "Threshold registry validates and invalid pending-with-value examples fail."
+      "contractFields": [
+        "coordinateToleranceMm",
+        "angularToleranceDeg",
+        "thresholdRefs",
+        "pending_business_confirmation thresholds"
+      ],
+      "thresholdRefs": [
+        "THR-GEOM-001",
+        "THR-GEOM-002",
+        "THR-GEOM-003",
+        "THR-GEOM-004",
+        "THR-IMPL-001",
+        "THR-IMPL-002",
+        "THR-IMPL-003",
+        "THR-TOPO-001"
+      ],
+      "blocker": "Confirmed calculation tolerances, provisional implementation thresholds, and pending business thresholds are separated. Pending business thresholds can only produce unverified evidence.",
+      "validationState": "npm run validate validates threshold-registry.json and rejects pending business thresholds that carry confirmable values."
     },
     {
       "evidenceId": "EV-007",
@@ -78,10 +119,27 @@
       "owner": "Geometry",
       "status": "unverified",
       "artifact": "lib/recovery2d.js; contracts/geometry/w1d3-recovery-golden.json; contracts/geometry/w1d3-failure-examples.json; scripts/check-w1d3-geometry.js",
-      "contractFields": ["measurement.boundary", "measurement.walls", "measurement.heights.*", "optional openings", "optional drainagePoints", "optional pipeEnclosures", "counterclockwise winding"],
-      "thresholdRefs": ["THR-GEOM-001", "THR-GEOM-002", "THR-GEOM-003", "THR-GEOM-004", "THR-GEOM-005", "THR-GEOM-006", "THR-GEOM-007", "THR-GEOM-008"],
-      "blocker": "THR-GEOM-005 through THR-GEOM-008 remain pending_business_confirmation.",
-      "validationState": "Mapped to Geometry-reported deterministic synthetic implementation; business acceptance is not claimed."
+      "contractFields": [
+        "measurement.boundary",
+        "measurement.walls",
+        "measurement.heights.*",
+        "optional openings",
+        "optional drainagePoints",
+        "optional pipeEnclosures",
+        "counterclockwise winding"
+      ],
+      "thresholdRefs": [
+        "THR-GEOM-001",
+        "THR-GEOM-002",
+        "THR-GEOM-003",
+        "THR-GEOM-004",
+        "THR-GEOM-005",
+        "THR-GEOM-006",
+        "THR-GEOM-007",
+        "THR-GEOM-008"
+      ],
+      "blocker": "Deterministic synthetic recovery is implemented without binding a model provider. Business thresholds THR-GEOM-005..008 remain pending_business_confirmation, so evidence is unverified.",
+      "validationState": "npm run validate:w1d3 validates deterministic 2D recovery against golden output and failure samples; missing required heights.* fails, while absent openings/drainagePoints/pipeEnclosures is legal."
     },
     {
       "evidenceId": "EV-008",
@@ -89,10 +147,23 @@
       "owner": "Topology",
       "status": "unverified",
       "artifact": "lib/topology.js; contracts/topology/w1d4-topology-golden.json; contracts/topology/w1d4-failure-examples.json; scripts/check-w1d4-topology.js",
-      "contractFields": ["openings[].wallIndex", "drainagePoints", "pipeEnclosures", "fixture-placement.targetDrainagePoint", "fixture-placement.orientation.rotationZ", "fixture-placement.footprint"],
-      "thresholdRefs": ["THR-TOPO-001", "THR-TOPO-002", "THR-TOPO-003", "THR-TOPO-004", "THR-TOPO-005"],
-      "blocker": "THR-TOPO-001 through THR-TOPO-005 and shared-drain business rules remain pending_business_confirmation.",
-      "validationState": "Mapped to Topology-reported synthetic implementation; drain alignment remains unverified."
+      "contractFields": [
+        "openings[].wallIndex",
+        "drainagePoints",
+        "pipeEnclosures",
+        "fixture-placement.targetDrainagePoint",
+        "fixture-placement.orientation.rotationZ",
+        "fixture-placement.footprint"
+      ],
+      "thresholdRefs": [
+        "THR-TOPO-001",
+        "THR-TOPO-002",
+        "THR-TOPO-003",
+        "THR-TOPO-004",
+        "THR-TOPO-005"
+      ],
+      "blocker": "D4 input includes FixturePlacement plus product and drain references. Rectangular, circular, and polygonal footprint containment are covered. Shared drains are not failed without an explicit rule; drain alignment reports distance/status while THR-TOPO thresholds remain pending_business_confirmation.",
+      "validationState": "npm run validate:w1d4 validates serializable topology JSON, opening ownership, FixturePlacement/Product/Drain references, rotationZ-applied footprint containment, and drain distance/status output."
     },
     {
       "evidenceId": "EV-009",
@@ -100,10 +171,26 @@
       "owner": "3D",
       "status": "unverified",
       "artifact": "contracts/3d/empty-room-scene.json; reports/screenshots/w1d5-empty-room-desktop.svg; reports/screenshots/w1d5-empty-room-mobile.svg; reports/screenshots/w1d5-empty-room-desktop.png; reports/screenshots/w1d5-empty-room-mobile.png; reports/w1d5-empty-room-report.md; viewer/w1d5-empty-room-viewer.html",
-      "contractFields": ["heights.roomHeight", "heights.wallHeight", "heights.groundElevation", "heights.netHeight", "heights.doorOpeningHeight", "boundary", "openings"],
-      "thresholdRefs": ["THR-3D-001", "THR-3D-002", "THR-3D-003", "THR-3D-004", "THR-3D-005", "THR-3D-006", "THR-3D-007"],
-      "blocker": "THR-3D-001 through THR-3D-007 remain pending_business_confirmation; only synthetic/generated implementation evidence is available.",
-      "validationState": "Mapped to Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0, which reports build, validate, smoke, and screenshot commands passing for generated W1D5 scene evidence."
+      "contractFields": [
+        "heights.roomHeight",
+        "heights.wallHeight",
+        "heights.groundElevation",
+        "heights.netHeight",
+        "heights.doorOpeningHeight",
+        "boundary",
+        "openings"
+      ],
+      "thresholdRefs": [
+        "THR-3D-001",
+        "THR-3D-002",
+        "THR-3D-003",
+        "THR-3D-004",
+        "THR-3D-005",
+        "THR-3D-006",
+        "THR-3D-007"
+      ],
+      "blocker": "Implementation evidence is from Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0 and is synthetic/generated only. Scene primitives carry stable id, source, evidenceId, and status. 3D thresholds remain pending_business_confirmation, so acceptance stays unverified.",
+      "validationState": "Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0 generates deterministic W1D5 scene JSON, screenshot artifacts, report, and viewer from W1D3/W1D4 synthetic outputs; every primitive carries stable ID, source field, evidence ID, and status."
     },
     {
       "evidenceId": "EV-010",
@@ -111,10 +198,25 @@
       "owner": "Annotation",
       "status": "unverified",
       "artifact": "contracts/annotation/measurement-synthetic-005-annotation.json",
-      "contractFields": ["stable annotation IDs", "source fields", "dimension annotations", "point annotations", "evidence references", "status"],
-      "thresholdRefs": ["THR-ANN-001", "THR-ANN-002", "THR-ANN-003", "THR-ANN-004", "THR-ANN-005", "THR-ANN-006", "THR-ANN-007"],
-      "blocker": "Customer-facing vocabulary, confidence thresholds, and annotation acceptance thresholds remain pending_business_confirmation; only synthetic/generated implementation evidence is available.",
-      "validationState": "Mapped to Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0, which reports generated annotation JSON with stable id/source/evidenceId/status rows and passing W1D5 traceability validation."
+      "contractFields": [
+        "stable annotation IDs",
+        "source fields",
+        "dimension annotations",
+        "point annotations",
+        "evidence references",
+        "status"
+      ],
+      "thresholdRefs": [
+        "THR-ANN-001",
+        "THR-ANN-002",
+        "THR-ANN-003",
+        "THR-ANN-004",
+        "THR-ANN-005",
+        "THR-ANN-006",
+        "THR-ANN-007"
+      ],
+      "blocker": "Implementation evidence is from Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0 and is synthetic/generated only. Every annotation carries stable id, source, evidenceId, and status. Customer-facing vocabulary and confidence thresholds remain pending_business_confirmation.",
+      "validationState": "Fronted commit 42c46ccebc6a2180eef055ba58c08a3ebb37ebb0 generates annotation JSON and validates target primitive references, source/evidence references, status markers, dimensions, and points."
     },
     {
       "evidenceId": "EV-011",
@@ -122,9 +224,23 @@
       "owner": "Data",
       "status": "unverified",
       "artifact": "evidence/registry/week1-rollup.json",
-      "contractFields": ["EV-001", "EV-002", "EV-003", "EV-004", "EV-005", "EV-006", "EV-007", "EV-008", "EV-009", "EV-010", "EV-011", "EV-012", "EV-013"],
-      "blocker": "Roll-up is executable, but several child rows remain unverified, pending_review, or pending_business_confirmation.",
-      "validationState": "Roll-up file validates and mirrors evidence-registry row day, owner, status, artifact, and contract fields."
+      "contractFields": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004",
+        "EV-005",
+        "EV-006",
+        "EV-007",
+        "EV-008",
+        "EV-009",
+        "EV-010",
+        "EV-011",
+        "EV-012",
+        "EV-013"
+      ],
+      "blocker": "Roll-up artifact exists and preserves unverified, pending_review, and pending_business_confirmation markers. It remains unverified until child rows and business confirmations close.",
+      "validationState": "npm run validate checks week1-rollup.json against all 13 evidence rows for day, owner, artifact, status, contract fields, and status summary without declaring real-case validation or business-threshold confirmation."
     },
     {
       "evidenceId": "EV-012",
@@ -132,9 +248,13 @@
       "owner": "Data",
       "status": "pending_business_confirmation",
       "artifact": "evidence/real-sample-scope.md",
-      "contractFields": ["REAL-001", "measurement.*", "authorization"],
-      "blocker": "No real source file is confirmed or included.",
-      "validationState": "Scope row only; no real sample validation is performed."
+      "contractFields": [
+        "REAL-001",
+        "measurement.*",
+        "authorization"
+      ],
+      "blocker": "REAL-001 is scoped as a simple rectangular bathroom, but no real source file is confirmed or included.",
+      "validationState": "Business authorization must be received before any real sample artifact is accepted or validated."
     },
     {
       "evidenceId": "EV-013",
@@ -142,9 +262,13 @@
       "owner": "Data",
       "status": "pending_business_confirmation",
       "artifact": "evidence/real-sample-scope.md",
-      "contractFields": ["REAL-002", "measurement.*", "authorization"],
-      "blocker": "No real source file is confirmed or included.",
-      "validationState": "Scope row only; no real sample validation is performed."
+      "contractFields": [
+        "REAL-002",
+        "measurement.*",
+        "authorization"
+      ],
+      "blocker": "REAL-002 is scoped as a bathroom with door and window, but no real source file is confirmed or included.",
+      "validationState": "Business authorization must be received before any real sample artifact is accepted or validated."
     }
   ],
   "summary": {
@@ -154,6 +278,17 @@
     "pendingReview": 1,
     "pendingImplementation": 0,
     "pendingBusinessConfirmation": 2,
-    "unverifiedItems": ["EV-001", "EV-002", "EV-006", "EV-007", "EV-008", "EV-009", "EV-010", "EV-011", "EV-012", "EV-013"]
+    "unverifiedItems": [
+      "EV-001",
+      "EV-002",
+      "EV-006",
+      "EV-007",
+      "EV-008",
+      "EV-009",
+      "EV-010",
+      "EV-011",
+      "EV-012",
+      "EV-013"
+    ]
   }
 }

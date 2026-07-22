@@ -109,6 +109,41 @@ def test_measurement_export_maps_wall_and_height_evidence() -> None:
     assert measurement.model_dump(mode="json")["heights"]["evidence_ids"] == ["room-height"]
 
 
+def test_measurement_export_does_not_bind_door_height_as_room_height_evidence() -> None:
+    spec = non_rectangular_spec()
+    spec.observations.extend(
+        [
+            Observation(
+                field="visual_evidence:wall-chain",
+                value="异形轮廓尺寸链",
+                source=SourceKind.measured,
+                asset_id="plan-1",
+                bbox=ImageBBox(x_min=10, y_min=10, x_max=400, y_max=900),
+                confidence=0.92,
+                note="boundary",
+            ),
+            Observation(
+                field="visual_evidence:door-height",
+                value="门高 2100",
+                source=SourceKind.measured,
+                asset_id="plan-1",
+                bbox=ImageBBox(x_min=700, y_min=80, x_max=900, y_max=140),
+                confidence=0.88,
+                note="kind=opening; related_to=door/opening",
+            ),
+        ]
+    )
+
+    measurement = measurement_from_spec(spec, "measurement-1")
+
+    assert measurement.heights.evidence_ids
+    assert "door-height" not in measurement.heights.evidence_ids
+    assert measurement.heights.evidence_ids[0].startswith("EV")
+    audit = {item.id: item for item in measurement.evidence}
+    assert audit[measurement.heights.evidence_ids[0]].field == "height_mm"
+    assert audit[measurement.heights.evidence_ids[0]].source == SourceKind.user
+
+
 def test_confirmed_measurement_export_creates_manual_audit_evidence() -> None:
     spec = non_rectangular_spec()
     spec.observations = []
@@ -320,7 +355,8 @@ def test_temporary_visual_substitute_real_plan_output_exports_traceable_measurem
     assert measurement.source_asset_ids == ["019f87f8-2747-75c6-9be1-0e0e19ea5561"]
     assert all(wall.evidence_ids == ["wall-chain-real-plan"] for wall in measurement.walls)
     assert measurement.openings[0].evidence_ids == ["door-800x2100"]
-    assert measurement.heights.evidence_ids == ["room-height-real-plan"]
+    assert measurement.heights.evidence_ids != ["room-height-real-plan"]
+    assert {item.id: item.field for item in measurement.evidence}[measurement.heights.evidence_ids[0]] == "height_mm"
     assert {anchor.id for anchor in measurement.anchors} == {"drain-1", "drain-2"}
     assert rebuilt is not None
     assert rebuilt.boundary == spec.boundary

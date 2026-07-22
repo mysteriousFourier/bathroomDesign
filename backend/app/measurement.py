@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
+from collections.abc import Callable
 
 from .models import (
     FixtureSpec,
@@ -49,15 +50,33 @@ def _observation_matches(observation: Observation, tokens: set[str]) -> bool:
     return any(token in haystack for token in tokens)
 
 
+def _observation_matches_room_height(observation: Observation) -> bool:
+    field = observation.field.lower()
+    note = observation.note.lower()
+    haystack = f"{field} {note} {observation.value}".lower()
+    negative_tokens = {"door", "opening", "门洞", "门高", "门宽", "门"}
+    if any(token in haystack for token in negative_tokens):
+        return False
+    explicit_field_tokens = {"height_mm", "room-height", "room_height"}
+    if any(token in field for token in explicit_field_tokens):
+        return True
+    positive_role_tokens = {"height;", "kind=height", "related_to=层高", "related_to=净高", "related_to=吊顶"}
+    if any(token in note for token in positive_role_tokens):
+        return True
+    return any(token in haystack for token in {"层高", "净高", "吊顶"})
+
+
 def _evidence_refs_for(
     observations: list[Observation],
     observation_ids: list[str],
     tokens: set[str],
+    *,
+    matcher: Callable[[Observation, set[str]], bool] | None = None,
 ) -> list[str]:
     return [
         evidence_id
         for observation, evidence_id in zip(observations, observation_ids, strict=False)
-        if _observation_matches(observation, tokens)
+        if (matcher or _observation_matches)(observation, tokens)
     ]
 
 
@@ -69,13 +88,15 @@ def _evidence_summary(
     fallback_source: SourceKind,
     fallback_confidence: float,
     confirmed: bool,
+    matcher: Callable[[Observation, set[str]], bool] | None = None,
 ) -> tuple[SourceKind, float, str, list[str]]:
+    matches = matcher or _observation_matches
     matched = [
         observation
         for observation, _ in zip(observations, observation_ids, strict=False)
-        if _observation_matches(observation, tokens)
+        if matches(observation, tokens)
     ]
-    evidence_ids = _evidence_refs_for(observations, observation_ids, tokens)
+    evidence_ids = _evidence_refs_for(observations, observation_ids, tokens, matcher=matcher)
     if not matched:
         status = _measurement_status(fallback_source, fallback_confidence, confirmed)
         return fallback_source, fallback_confidence, status, evidence_ids
@@ -184,6 +205,7 @@ def measurement_from_spec(
         fallback_source=SourceKind.user if spec.confirmed else SourceKind.estimated,
         fallback_confidence=1.0 if spec.confirmed and spec.height_mm is not None else 0.5,
         confirmed=spec.confirmed,
+        matcher=lambda observation, _tokens: _observation_matches_room_height(observation),
     )
     if not height_evidence_ids and spec.confirmed and spec.height_mm is not None:
         evidence_id = _evidence_id(

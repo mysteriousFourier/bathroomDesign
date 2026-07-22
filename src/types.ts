@@ -88,6 +88,10 @@ export interface MeasurementModel {
     wall_height_mm: number | null
     net_height_mm: number | null
     ground_elevation_mm: number
+    source: SourceKind
+    confidence: number
+    status: 'verified' | 'unverified' | 'provisional'
+    evidence_ids: string[]
   }
   walls: Array<{
     id: string; index: number; start: Point2D; end: Point2D

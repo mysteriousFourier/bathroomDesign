@@ -22,6 +22,12 @@
 | `COORDINATE-SYSTEM.md` | Frozen coordinate origin, X/Y/Z directions, rotation convention (±CCW), units (mm, integer), finished surface convention, height terminology |
 | `SCHEMA-VERSIONING.md` | Stable UUID-based entity IDs, reference relationships, SemVer versioning, migration rules |
 
+### Process Governance
+
+| File | Content |
+|------|---------|
+| `GIT-GOVERNANCE.md` | AGEN-17 push preconditions, remote branch limits, principal-maintainer integration flow, and required review evidence |
+
 ### Examples (`examples/`)
 
 - `valid/` — 4 positive examples (one per schema) that must pass validation
@@ -150,6 +156,7 @@ bathroomDesign/
 ├── contracts/
 │   ├── COORDINATE-SYSTEM.md
 │   └── SCHEMA-VERSIONING.md
+├── GIT-GOVERNANCE.md
 ├── scripts/
 │   └── validate.js
 └── package.json

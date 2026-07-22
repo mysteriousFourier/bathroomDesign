@@ -128,3 +128,5 @@ async def test_failed_reanalysis_marks_old_spec_stale_without_deleting_it(tmp_pa
         project = (await client.get(f"/api/projects/{project_id}")).json()
         assert project["status"] == "analysis_failed"
         assert project["spec"]["height_mm"] == 2600
+        assert project["measurement"]["heights"]["room_height_mm"] == 2600
+        assert len(project["measurement"]["walls"]) == 3

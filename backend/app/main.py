@@ -15,7 +15,7 @@ from PIL import Image, UnidentifiedImageError
 from .ai import AIConfigurationError, AIResponseError, analyze_floorplan, analyze_photos
 from .config import settings
 from .database import db
-from .measurement import validate_measurement
+from .measurement import measurement_contract_export, validate_measurement
 from .models import (
     AnalysisResponse,
     AssetResponse,
@@ -222,7 +222,7 @@ def get_measurement(project_id: str) -> MeasurementModel:
 def download_measurement(project_id: str) -> JSONResponse:
     measurement = get_measurement(project_id)
     return JSONResponse(
-        content=measurement.model_dump(mode="json"),
+        content=measurement_contract_export(measurement),
         headers={"Content-Disposition": 'attachment; filename="measurement.json"'},
     )
 

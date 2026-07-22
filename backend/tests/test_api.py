@@ -1,4 +1,5 @@
 from io import BytesIO
+from uuid import UUID
 
 import httpx
 import pytest
@@ -75,7 +76,16 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
         downloaded = await client.get(f"/api/projects/{project_id}/measurement/download")
         assert downloaded.status_code == 200
         assert downloaded.headers["content-disposition"] == 'attachment; filename="measurement.json"'
-        assert downloaded.json()["measurement_id"] == project_id
+        contract_measurement = downloaded.json()
+        assert set(contract_measurement) == {
+            "schemaVersion", "roomId", "boundary", "walls", "openings",
+            "drainagePoints", "pipeEnclosures", "waterSupplyPoints", "heights",
+        }
+        assert contract_measurement["roomId"] == str(UUID(project_id))
+        assert contract_measurement["heights"]["roomHeight"] == 2600
+        assert contract_measurement["walls"][0]["startPoint"] == {"x": 0, "y": 0}
+        assert "measurement_id" not in contract_measurement
+        assert "schema_version" not in contract_measurement
 
         measurement["room"]["name"] = "从量房文件重建"
         measurement["confirmed"] = False

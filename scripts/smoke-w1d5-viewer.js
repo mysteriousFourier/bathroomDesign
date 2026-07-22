@@ -3,7 +3,7 @@
 const { createServer } = require('node:http');
 const { createReadStream, existsSync, mkdtempSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
-const { extname, join, normalize, resolve } = require('node:path');
+const { extname, isAbsolute, join, normalize, relative, resolve, sep } = require('node:path');
 const { spawn } = require('node:child_process');
 
 const REPO_ROOT = resolve(__dirname, '..');
@@ -48,7 +48,8 @@ function startStaticServer() {
       }
       const relativePath = decodeURIComponent(parsedUrl.pathname).replace(/^\/+/, '') || 'viewer/w1d5-empty-room-viewer.html';
       const filePath = normalize(resolve(REPO_ROOT, relativePath));
-      if (!filePath.startsWith(`${REPO_ROOT}/`)) {
+      const pathFromRoot = relative(REPO_ROOT, filePath);
+      if (pathFromRoot === '..' || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot)) {
         response.writeHead(403);
         response.end('Forbidden');
         return;

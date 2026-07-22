@@ -499,6 +499,10 @@ class MeasurementHeights(BaseModel):
     wall_height_mm: int | None = Field(default=None, gt=0)
     net_height_mm: int | None = Field(default=None, gt=0)
     ground_elevation_mm: int = 0
+    source: SourceKind = SourceKind.estimated
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    status: Literal["verified", "unverified", "provisional"] = "unverified"
+    evidence_ids: list[str] = Field(default_factory=list)
 
 
 class MeasurementWall(BaseModel):

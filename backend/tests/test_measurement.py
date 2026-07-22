@@ -76,6 +76,87 @@ def test_non_rectangular_measurement_round_trip_preserves_topology_and_evidence(
     assert room_spec_from_measurement(measurement).confirmed
 
 
+def test_measurement_export_maps_wall_and_height_evidence() -> None:
+    spec = non_rectangular_spec()
+    spec.observations.extend(
+        [
+            Observation(
+                field="visual_evidence:wall-chain",
+                value="异形轮廓尺寸链",
+                source=SourceKind.measured,
+                asset_id="plan-1",
+                bbox=ImageBBox(x_min=10, y_min=10, x_max=400, y_max=900),
+                confidence=0.92,
+                note="boundary",
+            ),
+            Observation(
+                field="visual_evidence:room-height",
+                value="层高 2600",
+                source=SourceKind.measured,
+                asset_id="plan-1",
+                bbox=ImageBBox(x_min=700, y_min=80, x_max=900, y_max=140),
+                confidence=0.88,
+                note="height",
+            ),
+        ]
+    )
+
+    measurement = measurement_from_spec(spec, "measurement-1")
+
+    assert all(wall.evidence_ids == ["wall-chain"] for wall in measurement.walls)
+    assert measurement.heights.evidence_ids == ["room-height"]
+    assert measurement.heights.status == "verified"
+    assert measurement.model_dump(mode="json")["heights"]["evidence_ids"] == ["room-height"]
+
+
+def test_confirmed_measurement_export_creates_manual_audit_evidence() -> None:
+    spec = non_rectangular_spec()
+    spec.observations = []
+    spec.openings[0].evidence_ids = []
+    spec.openings[0].source = SourceKind.user
+
+    measurement = measurement_from_spec(spec, "measurement-1")
+    issues, sufficient, missing, _ = validate_measurement(measurement)
+
+    assert sufficient
+    assert missing == []
+    assert not any(issue.severity == "error" for issue in issues)
+    assert all(wall.evidence_ids for wall in measurement.walls)
+    assert measurement.openings[0].evidence_ids
+    assert measurement.heights.evidence_ids
+    audit_sources = {item.id: item.source for item in measurement.evidence}
+    assert audit_sources[measurement.walls[0].evidence_ids[0]] == SourceKind.user
+    assert audit_sources[measurement.openings[0].evidence_ids[0]] == SourceKind.user
+    assert audit_sources[measurement.heights.evidence_ids[0]] == SourceKind.user
+
+
+def test_measurement_validation_blocks_empty_critical_evidence() -> None:
+    measurement = measurement_from_spec(non_rectangular_spec(), "measurement-1")
+    for wall in measurement.walls:
+        wall.evidence_ids = []
+    measurement.openings[0].evidence_ids = []
+    measurement.heights.evidence_ids = []
+
+    issues, sufficient, missing, _ = validate_measurement(measurement)
+
+    assert not sufficient
+    assert "wall-1.evidence_ids" in missing
+    assert "door-1.evidence_ids" in missing
+    assert "heights.evidence_ids" in missing
+    assert sum(issue.code == "required_evidence_missing" for issue in issues) >= 3
+
+
+def test_measurement_validation_blocks_estimated_critical_evidence_source() -> None:
+    measurement = measurement_from_spec(non_rectangular_spec(), "measurement-1")
+    measurement.evidence[0].source = SourceKind.estimated
+
+    issues, sufficient, missing, _ = validate_measurement(measurement)
+
+    assert not sufficient
+    assert "evidence.door-width.source" in missing
+    assert any(issue.code == "invalid_evidence_source" for issue in issues)
+
+
 def test_measurement_rejects_broken_wall_chain() -> None:
     measurement = measurement_from_spec(non_rectangular_spec(), "measurement-1")
     measurement.walls[1].end = Point2D(x_mm=1400, z_mm=400)
@@ -97,6 +178,31 @@ def test_measurement_rejects_invalid_opening_host_and_outside_anchor() -> None:
     assert not sufficient
     assert any(issue.code == "opening_wall" for issue in issues)
     assert any(issue.code == "anchor_outside" for issue in issues)
+
+
+def test_measurement_validation_requires_valid_traceable_evidence_ids() -> None:
+    measurement = measurement_from_spec(non_rectangular_spec(), "measurement-1")
+    measurement.openings[0].evidence_ids = ["missing-evidence"]
+
+    issues, sufficient, missing, _ = validate_measurement(measurement)
+
+    assert not sufficient
+    assert "evidence.missing-evidence" in missing
+    assert any(issue.code == "missing_evidence_ref" for issue in issues)
+
+
+def test_measurement_validation_blocks_low_confidence_critical_evidence() -> None:
+    measurement = measurement_from_spec(non_rectangular_spec(), "measurement-1")
+    measurement.confirmed = False
+    measurement.openings[0].status = "provisional"
+    measurement.evidence[0].confidence = 0.42
+    measurement.evidence[0].status = "unverified"
+
+    issues, sufficient, missing, _ = validate_measurement(measurement)
+
+    assert not sufficient
+    assert "evidence.door-width" in missing
+    assert any(issue.code == "low_confidence_evidence" for issue in issues)
 
 
 def test_database_migrates_legacy_spec_to_measurement(tmp_path) -> None:

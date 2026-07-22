@@ -44,6 +44,67 @@ def _evidence_id(observation: Observation, index: int, used: set[str]) -> str:
     return candidate
 
 
+def _observation_matches(observation: Observation, tokens: set[str]) -> bool:
+    haystack = f"{observation.field} {observation.note} {observation.value}".lower()
+    return any(token in haystack for token in tokens)
+
+
+def _evidence_refs_for(
+    observations: list[Observation],
+    observation_ids: list[str],
+    tokens: set[str],
+) -> list[str]:
+    return [
+        evidence_id
+        for observation, evidence_id in zip(observations, observation_ids, strict=False)
+        if _observation_matches(observation, tokens)
+    ]
+
+
+def _evidence_summary(
+    observations: list[Observation],
+    observation_ids: list[str],
+    tokens: set[str],
+    *,
+    fallback_source: SourceKind,
+    fallback_confidence: float,
+    confirmed: bool,
+) -> tuple[SourceKind, float, str, list[str]]:
+    matched = [
+        observation
+        for observation, _ in zip(observations, observation_ids, strict=False)
+        if _observation_matches(observation, tokens)
+    ]
+    evidence_ids = _evidence_refs_for(observations, observation_ids, tokens)
+    if not matched:
+        status = _measurement_status(fallback_source, fallback_confidence, confirmed)
+        return fallback_source, fallback_confidence, status, evidence_ids
+    confidence = min(observation.confidence for observation in matched)
+    source = SourceKind.user if any(observation.source == SourceKind.user for observation in matched) else matched[0].source
+    status = "verified" if all(observation.confirmed for observation in matched) else _measurement_status(source, confidence, confirmed)
+    return source, confidence, status, evidence_ids
+
+
+def _manual_audit_evidence(
+    evidence_id: str,
+    *,
+    field: str,
+    raw_text: str,
+    note: str,
+) -> MeasurementEvidence:
+    return MeasurementEvidence(
+        id=evidence_id,
+        field=field,
+        raw_text=raw_text,
+        normalized_value=raw_text,
+        unit="mm" if field == "height_mm" else "text",
+        source=SourceKind.user,
+        confidence=1.0,
+        status="verified",
+        note=note,
+    )
+
+
 def measurement_from_spec(
     spec: RoomSpec,
     measurement_id: str,
@@ -96,8 +157,73 @@ def measurement_from_spec(
         ))
 
     valid_evidence_ids = set(observation_ids)
-    openings = [
-        MeasurementOpening(
+    boundary_evidence_ids = _evidence_refs_for(
+        spec.observations,
+        observation_ids,
+        {"boundary", "wall", "墙", "轮廓", "尺寸链"},
+    )
+    if not boundary_evidence_ids and spec.confirmed:
+        evidence_id = _evidence_id(
+            Observation(field="manual_confirmation:boundary", value="用户确认墙体轮廓", source=SourceKind.user),
+            len(observation_ids),
+            used_evidence_ids,
+        )
+        observation_ids.append(evidence_id)
+        valid_evidence_ids.add(evidence_id)
+        evidence.append(_manual_audit_evidence(
+            evidence_id,
+            field="boundary",
+            raw_text="用户确认墙体轮廓",
+            note="无图证据时的人工确认审计记录",
+        ))
+        boundary_evidence_ids = [evidence_id]
+    height_source, height_confidence, height_status, height_evidence_ids = _evidence_summary(
+        spec.observations,
+        observation_ids,
+        {"height", "height_mm", "层高", "净高", "吊顶"},
+        fallback_source=SourceKind.user if spec.confirmed else SourceKind.estimated,
+        fallback_confidence=1.0 if spec.confirmed and spec.height_mm is not None else 0.5,
+        confirmed=spec.confirmed,
+    )
+    if not height_evidence_ids and spec.confirmed and spec.height_mm is not None:
+        evidence_id = _evidence_id(
+            Observation(field="manual_confirmation:height_mm", value=str(spec.height_mm), source=SourceKind.user),
+            len(observation_ids),
+            used_evidence_ids,
+        )
+        observation_ids.append(evidence_id)
+        valid_evidence_ids.add(evidence_id)
+        evidence.append(_manual_audit_evidence(
+            evidence_id,
+            field="height_mm",
+            raw_text=str(spec.height_mm),
+            note="无图证据时的人工确认层高审计记录",
+        ))
+        height_source = SourceKind.user
+        height_confidence = 1.0
+        height_status = "verified"
+        height_evidence_ids = [evidence_id]
+    for wall in walls:
+        wall.evidence_ids = boundary_evidence_ids
+    openings: list[MeasurementOpening] = []
+    for item in spec.openings:
+        opening_evidence_ids = [evidence_id for evidence_id in item.evidence_ids if evidence_id in valid_evidence_ids]
+        if not opening_evidence_ids and (spec.confirmed or item.source == SourceKind.user):
+            evidence_id = _evidence_id(
+                Observation(field=f"manual_confirmation:opening:{item.id}", value=item.label, source=SourceKind.user),
+                len(observation_ids),
+                used_evidence_ids,
+            )
+            observation_ids.append(evidence_id)
+            valid_evidence_ids.add(evidence_id)
+            evidence.append(_manual_audit_evidence(
+                evidence_id,
+                field=f"opening:{item.id}",
+                raw_text=f"{item.label} width={item.width_mm} height={item.height_mm}",
+                note="无图证据时的人工确认门洞审计记录",
+            ))
+            opening_evidence_ids = [evidence_id]
+        openings.append(MeasurementOpening(
             id=item.id,
             kind=item.kind,
             wall_id=walls[item.wall_index].id if 0 <= item.wall_index < len(walls) else f"invalid-wall-{item.wall_index}",
@@ -110,10 +236,8 @@ def measurement_from_spec(
             source=item.source,
             confidence=item.confidence,
             status=_measurement_status(item.source, item.confidence, spec.confirmed),
-            evidence_ids=[evidence_id for evidence_id in item.evidence_ids if evidence_id in valid_evidence_ids],
-        )
-        for item in spec.openings
-    ]
+            evidence_ids=opening_evidence_ids,
+        ))
     anchors = [
         MeasurementAnchor(
             id=item.id,
@@ -144,6 +268,10 @@ def measurement_from_spec(
             room_height_mm=spec.height_mm,
             wall_height_mm=spec.height_mm,
             net_height_mm=spec.height_mm,
+            source=height_source,
+            confidence=height_confidence,
+            status=height_status,
+            evidence_ids=height_evidence_ids,
         ),
         walls=walls,
         openings=openings,
@@ -229,6 +357,58 @@ def validate_measurement(
     issues: list[ValidationIssue] = []
     missing = list(measurement.unresolved_fields)
     walls = sorted(measurement.walls, key=lambda wall: wall.index)
+    evidence_by_id = {item.id: item for item in measurement.evidence}
+
+    def check_evidence_refs(
+        target_id: str,
+        label: str,
+        evidence_ids: list[str],
+        *,
+        critical: bool,
+        status: str,
+    ) -> None:
+        if critical and not evidence_ids:
+            issues.append(ValidationIssue(
+                id=f"measurement-evidence-required-{target_id}",
+                severity="error",
+                code="required_evidence_missing",
+                message=f"{label} 缺少可审计证据来源",
+                target_id=target_id,
+            ))
+            missing.append(f"{target_id}.evidence_ids")
+            return
+        for evidence_id in evidence_ids:
+            evidence = evidence_by_id.get(evidence_id)
+            if evidence is None:
+                issues.append(ValidationIssue(
+                    id=f"measurement-evidence-missing-{target_id}-{evidence_id}",
+                    severity="error",
+                    code="missing_evidence_ref",
+                    message=f"{label} 引用了不存在的证据 {evidence_id}",
+                    target_id=target_id,
+                ))
+                missing.append(f"evidence.{evidence_id}")
+                continue
+            if critical and evidence.source == SourceKind.estimated:
+                issues.append(ValidationIssue(
+                    id=f"measurement-evidence-source-{target_id}-{evidence_id}",
+                    severity="error",
+                    code="invalid_evidence_source",
+                    message=f"{label} 关联的证据 {evidence_id} 缺少可审计来源",
+                    target_id=target_id,
+                ))
+                missing.append(f"evidence.{evidence_id}.source")
+            if evidence.confidence < 0.6 and status != "verified":
+                issues.append(ValidationIssue(
+                    id=f"measurement-evidence-low-{target_id}-{evidence_id}",
+                    severity="error" if critical else "warning",
+                    code="low_confidence_evidence",
+                    message=f"{label} 关联的证据 {evidence_id} 置信度低于 0.6",
+                    target_id=target_id,
+                ))
+                if critical:
+                    missing.append(f"evidence.{evidence_id}")
+
     if len(walls) < 3:
         issues.append(ValidationIssue(
             id="measurement-walls", severity="error", code="wall_chain_missing",
@@ -256,6 +436,7 @@ def validate_measurement(
                 id=f"measurement-wall-length-{wall.id}", severity="error", code="wall_length_mismatch",
                 message=f"{wall.id} 的端点距离与 length_mm 相差超过 20 mm", target_id=wall.id,
             ))
+        check_evidence_refs(wall.id, wall.id, wall.evidence_ids, critical=True, status=wall.status)
 
     boundary = [wall.start for wall in walls]
     span_x = max(point.x_mm for point in boundary) - min(point.x_mm for point in boundary)
@@ -278,12 +459,34 @@ def validate_measurement(
                 id=f"measurement-opening-range-{opening.id}", severity="error", code="opening_outside",
                 message=f"{opening.label} 超出所属墙体 {opening.wall_id}", target_id=opening.id,
             ))
+        check_evidence_refs(
+            opening.id,
+            opening.label,
+            opening.evidence_ids,
+            critical=True,
+            status=opening.status,
+        )
     for anchor in measurement.anchors:
         if not point_in_polygon(anchor.x_mm, anchor.z_mm, boundary):
             issues.append(ValidationIssue(
                 id=f"measurement-anchor-{anchor.id}", severity="error", code="anchor_outside",
                 message=f"{anchor.label} 点位位于房间边界外", target_id=anchor.id,
             ))
+        check_evidence_refs(
+            anchor.id,
+            anchor.label,
+            anchor.evidence_ids,
+            critical=False,
+            status=anchor.status,
+        )
+
+    check_evidence_refs(
+        "heights",
+        "层高",
+        measurement.heights.evidence_ids,
+        critical=True,
+        status=measurement.heights.status,
+    )
 
     spec: RoomSpec | None = None
     try:

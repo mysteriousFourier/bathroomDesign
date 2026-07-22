@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+import uuid
 from collections import Counter
 from collections.abc import Callable
 
@@ -22,6 +23,9 @@ from .models import (
     ValidationIssue,
 )
 from .validation import point_in_polygon, validate_spec, wall_length
+
+
+_MEASUREMENT_CONTRACT_NAMESPACE = uuid.UUID("c791c974-6b7e-48fc-93e6-cf5ec6f0e6d7")
 
 
 def _measurement_status(source: SourceKind, confidence: float, confirmed: bool = False) -> str:
@@ -124,6 +128,138 @@ def _manual_audit_evidence(
         status="verified",
         note=note,
     )
+
+
+def _contract_uuid(*parts: object) -> str:
+    raw = ":".join(str(part) for part in parts)
+    try:
+        return str(uuid.UUID(raw))
+    except ValueError:
+        return str(uuid.uuid5(_MEASUREMENT_CONTRACT_NAMESPACE, raw))
+
+
+def _contract_point(point: Point2D) -> dict[str, int]:
+    return {"x": point.x_mm, "y": point.z_mm}
+
+
+def _contract_opening_position(wall: MeasurementWall, opening: MeasurementOpening) -> dict[str, int]:
+    length = max(wall.length_mm, 1)
+    ratio = min(max(opening.offset_mm + opening.width_mm / 2, 0), length) / length
+    return {
+        "x": round(wall.start.x_mm + (wall.end.x_mm - wall.start.x_mm) * ratio),
+        "y": round(wall.start.z_mm + (wall.end.z_mm - wall.start.z_mm) * ratio),
+    }
+
+
+def _contract_anchor_position(anchor: MeasurementAnchor) -> dict[str, int]:
+    return {"x": anchor.x_mm, "y": anchor.z_mm}
+
+
+def _contract_anchor_boundary(anchor: MeasurementAnchor) -> list[dict[str, int]]:
+    x0 = anchor.x_mm
+    y0 = anchor.z_mm
+    x1 = x0 + anchor.width_mm
+    y1 = y0 + anchor.depth_mm
+    return [
+        {"x": x0, "y": y0},
+        {"x": x1, "y": y0},
+        {"x": x1, "y": y1},
+        {"x": x0, "y": y1},
+    ]
+
+
+def measurement_contract_export(measurement: MeasurementModel) -> dict:
+    """Return the frozen W1D1 measurement.schema.json representation."""
+    walls = sorted(measurement.walls, key=lambda wall: wall.index)
+    wall_index = {wall.id: index for index, wall in enumerate(walls)}
+    boundary = [_contract_point(wall.start) for wall in walls]
+
+    openings = []
+    for opening in measurement.openings:
+        wall = walls[wall_index[opening.wall_id]] if opening.wall_id in wall_index else None
+        if wall is None:
+            continue
+        opening_type = "passage" if opening.kind == "opening" else opening.kind
+        exported = {
+            "openingId": _contract_uuid(measurement.measurement_id, "opening", opening.id),
+            "wallIndex": wall_index[opening.wall_id],
+            "position": _contract_opening_position(wall, opening),
+            "width": opening.width_mm,
+            "height": opening.height_mm,
+            "type": opening_type,
+        }
+        if opening_type == "window":
+            exported["sillHeight"] = opening.sill_mm
+            exported["swingDirection"] = "none"
+        elif opening_type == "door":
+            exported["swingDirection"] = opening.swing_direction if opening.swing_direction in {"left", "right"} else "none"
+            exported["swingOpening"] = opening.swing_direction if opening.swing_direction in {"inward", "outward"} else "inward"
+        else:
+            exported["swingDirection"] = "none"
+        openings.append(exported)
+
+    drainage_points = [
+        {
+            "drainId": _contract_uuid(measurement.measurement_id, "drain", anchor.id),
+            "position": _contract_anchor_position(anchor),
+            "type": {
+                "toilet": "toilet_drain",
+                "shower": "shower_drain",
+                "floor_drain": "floor_drain",
+                "vanity": "sink_drain",
+            }.get(anchor.kind, "floor_drain"),
+            "diameter": max(anchor.width_mm, 1),
+        }
+        for anchor in measurement.anchors
+        if anchor.kind in {"toilet", "shower", "floor_drain", "vanity"}
+    ]
+    pipe_enclosures = [
+        {
+            "enclosureId": _contract_uuid(measurement.measurement_id, "pipe", anchor.id),
+            "boundary": _contract_anchor_boundary(anchor),
+            "isAccessible": False,
+            "containsDrain": True,
+        }
+        for anchor in measurement.anchors
+        if anchor.kind == "pipe"
+    ]
+    water_supply_points = [
+        {
+            "supplyId": _contract_uuid(measurement.measurement_id, "supply", anchor.id),
+            "position": _contract_anchor_position(anchor),
+            "waterType": "mixed",
+            "heightAboveFloor": anchor.height_mm,
+        }
+        for anchor in measurement.anchors
+        if anchor.kind in {"toilet", "vanity", "shower"}
+    ]
+
+    room_height = measurement.heights.room_height_mm or measurement.heights.wall_height_mm or 0
+    wall_height = measurement.heights.wall_height_mm or room_height
+    return {
+        "schemaVersion": "1.0.0",
+        "roomId": _contract_uuid(measurement.measurement_id),
+        "boundary": boundary,
+        "walls": [
+            {
+                "startPoint": _contract_point(wall.start),
+                "endPoint": _contract_point(wall.end),
+                "thickness": wall.thickness_mm,
+                "type": "partition",
+            }
+            for wall in walls
+        ],
+        "openings": openings,
+        "drainagePoints": drainage_points,
+        "pipeEnclosures": pipe_enclosures,
+        "waterSupplyPoints": water_supply_points,
+        "heights": {
+            "roomHeight": room_height,
+            "groundElevation": measurement.heights.ground_elevation_mm,
+            "wallHeight": wall_height,
+            "netHeight": measurement.heights.net_height_mm or room_height,
+        },
+    }
 
 
 def measurement_from_spec(

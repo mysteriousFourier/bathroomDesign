@@ -1,10 +1,16 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import Ajv from 'ajv'
+import addFormats from 'ajv-formats'
 import { chromium } from 'playwright-core'
 
 const outputDir = path.resolve('.tmp/ui-qa')
 await fs.mkdir(outputDir, { recursive: true })
 const apiBaseUrl = 'http://127.0.0.1:8000'
+const measurementSchema = JSON.parse(await fs.readFile(path.resolve('schemas/measurement.schema.json'), 'utf8'))
+const ajv = new Ajv({ allErrors: true })
+addFormats(ajv)
+const validateDownloadedMeasurement = ajv.compile(measurementSchema)
 
 async function apiRequest(url, init) {
   const response = await fetch(`${apiBaseUrl}${url}`, init)
@@ -76,12 +82,22 @@ async function createQaProject() {
 
 async function verifyMeasurementContract(projectId, savedMeasurement) {
   if (!savedMeasurement) throw new Error('QA 项目保存后没有返回量房 JSON')
-  const measurement = await apiRequest(`/api/projects/${projectId}/measurement/download`)
+  const measurement = await apiRequest(`/api/projects/${projectId}/measurement`)
+  if (measurement.measurement_id !== savedMeasurement.measurement_id) {
+    throw new Error(`内部量房模型 ID 不一致：${measurement.measurement_id} !== ${savedMeasurement.measurement_id}`)
+  }
   const validation = await apiRequest('/api/measurements/validate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(measurement),
   })
+  const downloadedMeasurement = await apiRequest(`/api/projects/${projectId}/measurement/download`)
+  if (!validateDownloadedMeasurement(downloadedMeasurement)) {
+    throw new Error(`下载量房 JSON 不符合 measurement.schema.json：${JSON.stringify(validateDownloadedMeasurement.errors)}`)
+  }
+  if ('measurement_id' in downloadedMeasurement || 'schema_version' in downloadedMeasurement) {
+    throw new Error('下载量房 JSON 泄漏了内部 MeasurementModel 字段')
+  }
   const criticalGroups = [
     { label: 'walls', items: measurement.walls ?? [] },
     { label: 'openings', items: measurement.openings ?? [] },
@@ -103,7 +119,7 @@ async function verifyMeasurementContract(projectId, savedMeasurement) {
   if (!validation.sufficient) {
     throw new Error(`后端量房校验未通过：${JSON.stringify({ missing: validation.missing, issues: validation.issues })}`)
   }
-  return { measurement, validation }
+  return { measurement, downloadedMeasurement, validation }
 }
 
 const verifyCurrentProject = process.argv.includes('--current')

@@ -86,6 +86,8 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
         assert contract_measurement["walls"][0]["startPoint"] == {"x": 0, "y": 0}
         assert "measurement_id" not in contract_measurement
         assert "schema_version" not in contract_measurement
+        exported_validation = await client.post("/api/measurements/validate", json=contract_measurement)
+        assert exported_validation.status_code == 422
 
         measurement["room"]["name"] = "从量房文件重建"
         measurement["confirmed"] = False

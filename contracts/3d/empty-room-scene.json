@@ -1,0 +1,367 @@
+{
+  "sceneVersion": "1.0.0",
+  "roomId": "55555555-5555-4555-8555-555555555555",
+  "generatedFrom": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json",
+  "units": "mm",
+  "coordinateSystem": {
+    "x": "horizontal right",
+    "y": "depth inward",
+    "z": "height upward",
+    "source": "contracts/COORDINATE-SYSTEM.md",
+    "evidenceId": "EV-009",
+    "status": "unverified"
+  },
+  "dimensions": {
+    "id": "scene-dimensions-001",
+    "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/heights",
+    "evidenceId": "EV-009",
+    "status": "unverified",
+    "roomHeight": 2400,
+    "wallHeight": 2800,
+    "groundElevation": 0,
+    "netHeight": 2400,
+    "netHeightStatus": "provisional",
+    "doorOpeningHeight": null,
+    "doorOpeningHeightStatus": "provisional",
+    "areaMm2": 7200000
+  },
+  "dependencies": [
+    {
+      "id": "dep-w1d3-geometry",
+      "source": "contracts/geometry/w1d3-recovery-golden.json",
+      "evidenceId": "EV-007",
+      "status": "unverified"
+    },
+    {
+      "id": "dep-w1d4-topology",
+      "source": "contracts/topology/w1d4-topology-golden.json",
+      "evidenceId": "EV-008",
+      "status": "provisional"
+    }
+  ],
+  "materials": [
+    {
+      "id": "mat-floor-provisional",
+      "source": "W1D5 generated neutral material",
+      "evidenceId": "EV-009",
+      "status": "provisional",
+      "color": "#d8d1c5"
+    },
+    {
+      "id": "mat-wall-provisional",
+      "source": "W1D5 generated neutral material",
+      "evidenceId": "EV-009",
+      "status": "provisional",
+      "color": "#c8d2d7"
+    },
+    {
+      "id": "mat-ceiling-provisional",
+      "source": "W1D5 generated neutral material",
+      "evidenceId": "EV-009",
+      "status": "provisional",
+      "color": "#eef0ed"
+    },
+    {
+      "id": "mat-opening-provisional",
+      "source": "W1D5 generated neutral material",
+      "evidenceId": "EV-009",
+      "status": "provisional",
+      "color": "#5f7790"
+    },
+    {
+      "id": "mat-marker-provisional",
+      "source": "W1D5 generated neutral material",
+      "evidenceId": "EV-009",
+      "status": "provisional",
+      "color": "#b05b46"
+    }
+  ],
+  "primitives": [
+    {
+      "id": "scene-floor-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/boundary",
+      "evidenceId": "EV-009",
+      "status": "unverified",
+      "type": "floor",
+      "polygon": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 3000,
+          "y": 0
+        },
+        {
+          "x": 3000,
+          "y": 2400
+        },
+        {
+          "x": 0,
+          "y": 2400
+        }
+      ],
+      "z": 0,
+      "areaMm2": 7200000,
+      "material": "mat-floor-provisional"
+    },
+    {
+      "id": "scene-ceiling-net-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/heights/netHeight",
+      "evidenceId": "EV-009",
+      "status": "provisional",
+      "type": "ceilingPlane",
+      "polygon": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 3000,
+          "y": 0
+        },
+        {
+          "x": 3000,
+          "y": 2400
+        },
+        {
+          "x": 0,
+          "y": 2400
+        }
+      ],
+      "z": 2400,
+      "sourceFallback": "heights.roomHeight",
+      "material": "mat-ceiling-provisional"
+    },
+    {
+      "id": "scene-wall-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/walls/0",
+      "evidenceId": "EV-009",
+      "status": "unverified",
+      "type": "wall",
+      "wallIndex": 0,
+      "start": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "end": {
+        "x": 3000,
+        "y": 0,
+        "z": 0
+      },
+      "height": 2800,
+      "thickness": 240,
+      "wallType": "exterior",
+      "normal": {
+        "x": 0,
+        "y": 1
+      },
+      "material": "mat-wall-provisional"
+    },
+    {
+      "id": "scene-wall-002",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/walls/1",
+      "evidenceId": "EV-009",
+      "status": "unverified",
+      "type": "wall",
+      "wallIndex": 1,
+      "start": {
+        "x": 3000,
+        "y": 0,
+        "z": 0
+      },
+      "end": {
+        "x": 3000,
+        "y": 2400,
+        "z": 0
+      },
+      "height": 2800,
+      "thickness": 240,
+      "wallType": "exterior",
+      "normal": {
+        "x": -1,
+        "y": 0
+      },
+      "material": "mat-wall-provisional"
+    },
+    {
+      "id": "scene-wall-003",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/walls/2",
+      "evidenceId": "EV-009",
+      "status": "unverified",
+      "type": "wall",
+      "wallIndex": 2,
+      "start": {
+        "x": 3000,
+        "y": 2400,
+        "z": 0
+      },
+      "end": {
+        "x": 0,
+        "y": 2400,
+        "z": 0
+      },
+      "height": 2800,
+      "thickness": 240,
+      "wallType": "exterior",
+      "normal": {
+        "x": 0,
+        "y": -1
+      },
+      "material": "mat-wall-provisional"
+    },
+    {
+      "id": "scene-wall-004",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/walls/3",
+      "evidenceId": "EV-009",
+      "status": "unverified",
+      "type": "wall",
+      "wallIndex": 3,
+      "start": {
+        "x": 0,
+        "y": 2400,
+        "z": 0
+      },
+      "end": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "height": 2800,
+      "thickness": 240,
+      "wallType": "exterior",
+      "normal": {
+        "x": 1,
+        "y": 0
+      },
+      "material": "mat-wall-provisional"
+    },
+    {
+      "id": "scene-opening-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/openings/0",
+      "evidenceId": "EV-009",
+      "status": "unverified",
+      "type": "opening",
+      "openingId": "55555555-5555-4555-8555-000000000001",
+      "openingType": "door",
+      "wallIndex": 0,
+      "center": {
+        "x": 800,
+        "y": 0,
+        "z": 0
+      },
+      "width": 900,
+      "height": 2100,
+      "sillHeight": 0,
+      "doorOpeningHeight": 2100,
+      "sourceFallback": "opening.height",
+      "material": "mat-opening-provisional"
+    },
+    {
+      "id": "scene-opening-002",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/openings/1",
+      "evidenceId": "EV-009",
+      "status": "unverified",
+      "type": "opening",
+      "openingId": "55555555-5555-4555-8555-000000000002",
+      "openingType": "window",
+      "wallIndex": 2,
+      "center": {
+        "x": 1500,
+        "y": 2400,
+        "z": 0
+      },
+      "width": 1200,
+      "height": 1200,
+      "sillHeight": 900,
+      "doorOpeningHeight": null,
+      "sourceFallback": null,
+      "material": "mat-opening-provisional"
+    },
+    {
+      "id": "scene-drain-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/drainagePoints/0",
+      "evidenceId": "EV-009",
+      "status": "provisional",
+      "type": "floorMarker",
+      "markerType": "toilet_drain",
+      "center": {
+        "x": 1500,
+        "y": 1200,
+        "z": 0
+      },
+      "diameter": 110,
+      "material": "mat-marker-provisional"
+    },
+    {
+      "id": "scene-pipe-enclosure-001",
+      "source": "evidence/samples/synthetic/measurement-synthetic-005-full-featured.json#/pipeEnclosures/0",
+      "evidenceId": "EV-009",
+      "status": "provisional",
+      "type": "pipeEnclosure",
+      "polygon": [
+        {
+          "x": 2800,
+          "y": 0
+        },
+        {
+          "x": 3000,
+          "y": 0
+        },
+        {
+          "x": 3000,
+          "y": 400
+        },
+        {
+          "x": 2800,
+          "y": 400
+        }
+      ],
+      "center": {
+        "x": 2900,
+        "y": 200,
+        "z": 0
+      },
+      "height": 2800,
+      "isAccessible": false,
+      "containsDrain": true,
+      "material": "mat-wall-provisional"
+    },
+    {
+      "id": "scene-fixture-point-001",
+      "source": "evidence/samples/placements/fixture-placement-synthetic-005-toilet.json#/position",
+      "evidenceId": "EV-009",
+      "status": "provisional",
+      "topologySource": "contracts/topology/w1d4-topology-golden.json#/nodes/fixtures/0",
+      "type": "fixturePoint",
+      "placementId": "55555555-5555-4555-8555-000000000006",
+      "productType": "toilet",
+      "center": {
+        "x": 1500,
+        "y": 1200,
+        "z": 0
+      },
+      "footprint": {
+        "type": "rectangular",
+        "width": 400,
+        "depth": 700
+      },
+      "targetDrainagePoint": "55555555-5555-4555-8555-000000000003",
+      "material": "mat-marker-provisional"
+    }
+  ],
+  "thresholds": {
+    "evidenceId": "EV-009",
+    "status": "unverified",
+    "refs": [
+      "THR-3D-001",
+      "THR-3D-002",
+      "THR-3D-003",
+      "THR-3D-004",
+      "THR-3D-005",
+      "THR-3D-006",
+      "THR-3D-007"
+    ]
+  }
+}

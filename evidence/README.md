@@ -2,6 +2,8 @@
 
 W1D2 deliverable: sample registration, executable synthetic test fixtures, threshold configuration, evidence registry, and real-sample scope baseline. JSON files are the validation source; Markdown files are display summaries only.
 
+Current mapping note: EV-007 and EV-008 describe implemented W1D3/W1D4 geometry-topology artifacts and remain `unverified` only because business thresholds are still pending. EV-009 and EV-010 now map to Fronted commit `42c46ccebc6a2180eef055ba58c08a3ebb37ebb0` as synthetic/generated W1D5 implementation evidence, remain `unverified`, and must use `roomHeight`, `wallHeight`, `groundElevation`, `netHeight`, and `doorOpeningHeight`; do not reintroduce `floorHeight`. EV-011 points to `registry/week1-rollup.json`, an executable Data-owned roll-up that preserves child row blockers and does not claim business confirmation.
+
 ## Directory
 
 | Path | Content |
@@ -10,8 +12,10 @@ W1D2 deliverable: sample registration, executable synthetic test fixtures, thres
 | `schema/evidence-registry.schema.json` | JSON Schema for the evidence registry container |
 | `schema/threshold-registry.schema.json` | JSON Schema for threshold status/type policy |
 | `schema/synthetic-golden.schema.json` | JSON Schema for expected synthetic geometry/topology |
+| `schema/week1-rollup.schema.json` | JSON Schema for the Week 1 evidence roll-up |
 | `registry/evidence-registry.json` | Validated evidence registry for all Week 1 locked items |
 | `registry/evidence-registry.md` | Display summary of the evidence registry |
+| `registry/week1-rollup.json` | Data-owned Week 1 evidence roll-up across all 13 rows |
 | `registry/threshold-registry.json` | Validated threshold registry |
 | `registry/threshold-registry.md` | Display summary of threshold rows |
 | `samples/synthetic/*.json` | 5 W1D1-schema-compliant synthetic measurement fixtures |
@@ -35,10 +39,14 @@ W1D2 deliverable: sample registration, executable synthetic test fixtures, thres
 - [x] No real customer cases, site media, addresses, or reference DWG files are used
 - [x] No business threshold value is fabricated
 - [x] All contract field references trace back to W1D1 schemas
+- [x] W1D3 evidence wording treats `openings`, `drainagePoints`, and `pipeEnclosures` as optional collections; malformed/out-of-bounds/reference-invalid data is failure scope
+- [x] W1D4 evidence wording includes `FixturePlacement`, product references, drain references, and rotated rectangular/circular/polygonal footprints
+- [x] W1D5 evidence wording requires scene JSON, annotation JSON, screenshot/report, stable IDs, source fields, evidence IDs, and status markers
+- [x] Week 1 roll-up JSON validates and mirrors all 13 evidence registry rows by day, owner, status, artifact, and contract fields
 
 ## Blocking Condition
 
-Business acceptance cannot be confirmed from `pending_business_confirmation` thresholds. W1D3–W1D5 must preserve `unverified` markers until the business decision is confirmed.
+Business acceptance cannot be confirmed from `pending_business_confirmation` thresholds. W1D3-W1D5 implementation evidence remains `unverified`, and the EV-011 roll-up remains `unverified` until all child blockers close.
 
 ## Predecessors
 

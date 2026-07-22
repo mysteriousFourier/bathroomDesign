@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0.0",
+  "recoveryId": "REC-55555555-5555-4555-8555-555555555555",
+  "engine": {
+    "engine": "deterministic-2d-recovery",
+    "version": "1.0.0",
+    "seed": 2205,
+    "units": "mm",
+    "coordinateSystem": "finished-floor 2D, X right, Y inward, counterclockwise boundary"
+  },
+  "roomId": "55555555-5555-4555-8555-555555555555",
+  "heights": {
+    "roomHeight": 2400,
+    "groundElevation": 0,
+    "wallHeight": 2800
+  },
+  "geometry": {
+    "boundaryVertexCount": 4,
+    "wallCount": 4,
+    "areaMm2": 7200000,
+    "perimeterMm": 10800,
+    "winding": "counterclockwise",
+    "closed": true
+  },
+  "optionalInputs": {
+    "openingsPresent": true,
+    "drainagePointsPresent": true,
+    "pipeEnclosuresPresent": true,
+    "openingCount": 2,
+    "drainagePointCount": 1,
+    "pipeEnclosureCount": 1
+  },
+  "status": "passed",
+  "violations": []
+}

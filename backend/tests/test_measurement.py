@@ -205,6 +205,128 @@ def test_measurement_validation_blocks_low_confidence_critical_evidence() -> Non
     assert any(issue.code == "low_confidence_evidence" for issue in issues)
 
 
+def test_temporary_visual_substitute_real_plan_output_exports_traceable_measurement() -> None:
+    spec = RoomSpec(
+        name="真实手绘图临时视觉替代样例",
+        boundary=[
+            Point2D(x_mm=0, z_mm=0),
+            Point2D(x_mm=1840, z_mm=0),
+            Point2D(x_mm=1840, z_mm=5530),
+            Point2D(x_mm=0, z_mm=5530),
+        ],
+        height_mm=2100,
+        openings=[
+            OpeningSpec(
+                id="door-1",
+                wall_index=3,
+                offset_mm=400,
+                width_mm=800,
+                height_mm=2100,
+                label="手绘门洞",
+                source=SourceKind.measured,
+                confidence=0.86,
+                evidence_ids=["door-800x2100"],
+            )
+        ],
+        fixtures=[
+            FixtureSpec(
+                id="drain-1",
+                kind="floor_drain",
+                label="右侧地漏",
+                x_mm=1540,
+                z_mm=1900,
+                width_mm=120,
+                depth_mm=120,
+                height_mm=10,
+                source=SourceKind.measured,
+                confidence=0.78,
+                evidence_ids=["right-drain"],
+            ),
+            FixtureSpec(
+                id="drain-2",
+                kind="floor_drain",
+                label="下侧地漏",
+                x_mm=1450,
+                z_mm=5150,
+                width_mm=120,
+                depth_mm=120,
+                height_mm=10,
+                source=SourceKind.measured,
+                confidence=0.74,
+                evidence_ids=["bottom-drain"],
+            ),
+        ],
+        observations=[
+            Observation(
+                field="visual_evidence:wall-chain-real-plan",
+                value="1840 x 5530 主墙体轮廓",
+                source=SourceKind.measured,
+                asset_id="019f87f8-2747-75c6-9be1-0e0e19ea5561",
+                bbox=ImageBBox(x_min=220, y_min=200, x_max=860, y_max=920),
+                confidence=0.82,
+                confirmed=True,
+                note="temporary visual substitute boundary wall 尺寸链",
+            ),
+            Observation(
+                field="visual_evidence:door-800x2100",
+                value="800 x 2100",
+                source=SourceKind.measured,
+                asset_id="019f87f8-2747-75c6-9be1-0e0e19ea5561",
+                bbox=ImageBBox(x_min=205, y_min=245, x_max=350, y_max=420),
+                confidence=0.86,
+                confirmed=True,
+                note="temporary visual substitute door opening 门洞",
+            ),
+            Observation(
+                field="visual_evidence:room-height-real-plan",
+                value="门高/高度 2100",
+                source=SourceKind.measured,
+                asset_id="019f87f8-2747-75c6-9be1-0e0e19ea5561",
+                bbox=ImageBBox(x_min=735, y_min=385, x_max=835, y_max=560),
+                confidence=0.76,
+                confirmed=True,
+                note="temporary visual substitute height 层高",
+            ),
+            Observation(
+                field="visual_evidence:right-drain",
+                value="右侧地漏 300/200/700 定位",
+                source=SourceKind.measured,
+                asset_id="019f87f8-2747-75c6-9be1-0e0e19ea5561",
+                bbox=ImageBBox(x_min=690, y_min=360, x_max=860, y_max=600),
+                confidence=0.78,
+                confirmed=True,
+                note="temporary visual substitute fixture floor drain",
+            ),
+            Observation(
+                field="visual_evidence:bottom-drain",
+                value="下侧地漏 400/450 定位",
+                source=SourceKind.measured,
+                asset_id="019f87f8-2747-75c6-9be1-0e0e19ea5561",
+                bbox=ImageBBox(x_min=690, y_min=810, x_max=870, y_max=950),
+                confidence=0.74,
+                confirmed=True,
+                note="temporary visual substitute fixture floor drain",
+            ),
+        ],
+        confirmed=True,
+    )
+
+    measurement = measurement_from_spec(spec, "real-plan-temporary-vision")
+    issues, sufficient, missing, rebuilt = validate_measurement(measurement)
+
+    assert sufficient
+    assert missing == []
+    assert not any(issue.severity == "error" for issue in issues)
+    assert measurement.source_asset_ids == ["019f87f8-2747-75c6-9be1-0e0e19ea5561"]
+    assert all(wall.evidence_ids == ["wall-chain-real-plan"] for wall in measurement.walls)
+    assert measurement.openings[0].evidence_ids == ["door-800x2100"]
+    assert measurement.heights.evidence_ids == ["room-height-real-plan"]
+    assert {anchor.id for anchor in measurement.anchors} == {"drain-1", "drain-2"}
+    assert rebuilt is not None
+    assert rebuilt.boundary == spec.boundary
+    assert rebuilt.openings[0].width_mm == 800
+
+
 def test_database_migrates_legacy_spec_to_measurement(tmp_path) -> None:
     database = Database(tmp_path)
     tmp_path.mkdir(parents=True, exist_ok=True)

@@ -8,7 +8,7 @@ const outputDir = path.resolve('.tmp/ui-qa')
 await fs.mkdir(outputDir, { recursive: true })
 const apiBaseUrl = 'http://127.0.0.1:8000'
 const measurementSchema = JSON.parse(await fs.readFile(path.resolve('schemas/measurement.schema.json'), 'utf8'))
-const ajv = new Ajv({ allErrors: true })
+const ajv = new Ajv({ strict: false, allErrors: true })
 addFormats(ajv)
 const validateDownloadedMeasurement = ajv.compile(measurementSchema)
 

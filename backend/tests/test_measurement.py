@@ -109,6 +109,54 @@ def test_measurement_export_maps_wall_and_height_evidence() -> None:
     assert measurement.model_dump(mode="json")["heights"]["evidence_ids"] == ["room-height"]
 
 
+def test_confirmed_measurement_export_creates_manual_audit_evidence() -> None:
+    spec = non_rectangular_spec()
+    spec.observations = []
+    spec.openings[0].evidence_ids = []
+    spec.openings[0].source = SourceKind.user
+
+    measurement = measurement_from_spec(spec, "measurement-1")
+    issues, sufficient, missing, _ = validate_measurement(measurement)
+
+    assert sufficient
+    assert missing == []
+    assert not any(issue.severity == "error" for issue in issues)
+    assert all(wall.evidence_ids for wall in measurement.walls)
+    assert measurement.openings[0].evidence_ids
+    assert measurement.heights.evidence_ids
+    audit_sources = {item.id: item.source for item in measurement.evidence}
+    assert audit_sources[measurement.walls[0].evidence_ids[0]] == SourceKind.user
+    assert audit_sources[measurement.openings[0].evidence_ids[0]] == SourceKind.user
+    assert audit_sources[measurement.heights.evidence_ids[0]] == SourceKind.user
+
+
+def test_measurement_validation_blocks_empty_critical_evidence() -> None:
+    measurement = measurement_from_spec(non_rectangular_spec(), "measurement-1")
+    for wall in measurement.walls:
+        wall.evidence_ids = []
+    measurement.openings[0].evidence_ids = []
+    measurement.heights.evidence_ids = []
+
+    issues, sufficient, missing, _ = validate_measurement(measurement)
+
+    assert not sufficient
+    assert "wall-1.evidence_ids" in missing
+    assert "door-1.evidence_ids" in missing
+    assert "heights.evidence_ids" in missing
+    assert sum(issue.code == "required_evidence_missing" for issue in issues) >= 3
+
+
+def test_measurement_validation_blocks_estimated_critical_evidence_source() -> None:
+    measurement = measurement_from_spec(non_rectangular_spec(), "measurement-1")
+    measurement.evidence[0].source = SourceKind.estimated
+
+    issues, sufficient, missing, _ = validate_measurement(measurement)
+
+    assert not sufficient
+    assert "evidence.door-width.source" in missing
+    assert any(issue.code == "invalid_evidence_source" for issue in issues)
+
+
 def test_measurement_rejects_broken_wall_chain() -> None:
     measurement = measurement_from_spec(non_rectangular_spec(), "measurement-1")
     measurement.walls[1].end = Point2D(x_mm=1400, z_mm=400)

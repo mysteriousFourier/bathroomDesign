@@ -1,0 +1,13 @@
+node_modules
+dist
+.venv
+.uv-cache
+backend/data
+__pycache__
+.pytest_cache
+.env
+*.jpg
+*.jpeg
+*.png
+*.webp
+

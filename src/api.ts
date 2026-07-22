@@ -1,7 +1,23 @@
 import type { AnalysisResponse, Asset, Health, Project, RoomSpec } from './types'
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init)
+const defaultTimeoutMs = 90_000
+
+async function request<T>(url: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), init?.timeoutMs ?? defaultTimeoutMs)
+  let response: Response
+  try {
+    response = await fetch(url, { ...init, signal: init?.signal ?? controller.signal })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      const timeoutError = new Error('请求超时，请稍后重试或改用手动录入。')
+      timeoutError.name = 'TimeoutError'
+      throw timeoutError
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeout)
+  }
   if (!response.ok) {
     let message = `请求失败 (${response.status})`
     try {
@@ -37,8 +53,8 @@ export const studioApi = {
   },
   analyzePlan: (id: string, rotationDegrees: number | null = null) => request<AnalysisResponse>(
     `/api/projects/${id}/analyze-plan${rotationDegrees === null ? '' : `?rotation_degrees=${rotationDegrees}`}`,
-    { method: 'POST' },
+    { method: 'POST', timeoutMs: 150_000 },
   ),
-  analyzePhotos: (id: string) => request<AnalysisResponse>(`/api/projects/${id}/analyze-photos`, { method: 'POST' }),
+  analyzePhotos: (id: string) => request<AnalysisResponse>(`/api/projects/${id}/analyze-photos`, { method: 'POST', timeoutMs: 150_000 }),
   measurementDownloadUrl: (id: string) => `/api/projects/${id}/measurement/download`,
 }

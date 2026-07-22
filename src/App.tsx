@@ -7,6 +7,8 @@ import { Inspector } from './components/Inspector'
 import { ModelCanvas, type ModelCanvasHandle } from './components/ModelCanvas'
 import { PlanReview } from './components/PlanReview'
 import { ProjectRail } from './components/ProjectRail'
+import { SolutionList } from './components/SolutionList'
+import { WorkflowStatus } from './components/WorkflowStatus'
 import { clientValidate, cloneSpec, manualRoom } from './spec'
 import type { Health, Project, RoomSpec, Selection } from './types'
 
@@ -113,7 +115,7 @@ export default function App() {
         const failed = await studioApi.project(project.id)
         setProject(failed); setSpec(visibleSpec(failed)); setHistory([]); setFuture([]); setDirty(false)
       } catch { /* Keep the original API error as the actionable message. */ }
-      showMessage('error', `本次识别失败，旧模型已标记为不可用，原图片无需删除：${(error as Error).message}`)
+      showMessage('error', error instanceof Error && error.name === 'TimeoutError' ? error.message : `本次识别失败，旧模型已标记为不可用，原图片无需删除：${(error as Error).message}`)
     }
     finally { setBusy(null) }
   }
@@ -201,6 +203,7 @@ export default function App() {
       <Header projectName={project?.name} dirty={dirty} canUndo={history.length > 0} canRedo={future.length > 0} canConfirm={canConfirm} canModel={canModel} canExportMeasurement={canExportMeasurement} saving={busy === 'save'} onUndo={undo} onRedo={redo} onSave={() => void save()} onConfirm={() => void confirm()} onExportMeasurement={exportMeasurement} onExport={exportModel} />
       <ProjectRail projects={projects} project={project} health={health} busy={busy} planRotation={planRotation} onPlanRotationChange={setPlanRotation} onSelectProject={(id) => void selectProject(id)} onCreateProject={createProject} onDeleteProject={() => void deleteProject()} onUpload={upload} onAnalyzePlan={() => void analyzePlan()} onAnalyzePhotos={() => void analyzePhotos()} />
       <main className="workspace">
+        <WorkflowStatus project={project} spec={spec} busy={busy} dirty={dirty} />
         {busy === 'boot' ? <div className="loading-screen"><LoaderCircle className="spin" size={28} /><span>正在打开工作台</span></div> : !project ? (
           <div className="no-project"><Box size={36} strokeWidth={1.2} /><h1>先创建一个项目</h1><p>项目会在本机保存测量图、现场照片和模型参数。</p></div>
         ) : !spec ? (
@@ -211,6 +214,7 @@ export default function App() {
               <button className={mode === 'review' ? 'active' : ''} onClick={() => setMode('review')}><FileSearch size={16} />二维审图</button>
               <button className={mode === 'model' ? 'active' : ''} onClick={() => canPreview && setMode('model')} disabled={!canPreview}><BoxSelect size={16} />三维预览</button>
             </div>
+            <SolutionList spec={spec} active={mode === 'model'} onOpenModel={() => canPreview && setMode('model')} />
             {mode === 'review' ? <PlanReview spec={spec} plan={plan} selection={selection} onSelect={setSelection} onFixtureMove={(id, x, z) => { const next = cloneSpec(spec); const fixture = next.fixtures.find((item) => item.id === id); if (fixture) { fixture.x_mm = x; fixture.z_mm = z; fixture.source = 'user'; fixture.confidence = 1; commitSpec(next) } }} /> : <ModelCanvas ref={modelRef} spec={spec} selection={selection} onSelect={setSelection} />}
           </>
         )}

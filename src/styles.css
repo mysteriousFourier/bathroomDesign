@@ -113,6 +113,12 @@ p, h1, h2, figure { margin: 0; }
 .plan-rotation-field select { width: 100%; height: 32px; appearance: none; padding: 0 28px 0 8px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface); color: var(--ink); font-size: 10px; }
 
 .workspace { position: relative; grid-column: 2; min-width: 0; min-height: 0; overflow: hidden; background: #ecece7; }
+.workflow-status { position: absolute; top: 61px; left: 14px; z-index: 12; max-width: min(520px, calc(100% - 28px)); min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 4px; background: rgb(250 249 246 / 94%); box-shadow: var(--shadow-1); color: var(--muted); font-size: 10px; line-height: 1.45; pointer-events: none; }
+.workflow-status svg { flex: none; }
+.workflow-status.working { color: var(--green); border-color: #a9bcaf; background: rgb(239 247 243 / 95%); }
+.workflow-status.error { color: var(--red); border-color: #d0a29b; background: rgb(249 239 237 / 96%); }
+.workflow-status.warning { color: var(--amber); border-color: #d1b77d; background: rgb(249 242 224 / 96%); }
+.workflow-status.ok { color: var(--green); border-color: #a8bfaf; background: rgb(239 247 243 / 95%); }
 .loading-screen, .no-project, .empty-workspace { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .loading-screen { gap: 10px; color: var(--muted); font-size: 13px; }
 .no-project { gap: 10px; color: var(--muted); }
@@ -130,6 +136,17 @@ p, h1, h2, figure { margin: 0; }
 .view-tabs { position: absolute; top: 14px; left: 50%; z-index: 10; display: flex; padding: 3px; border: 1px solid var(--line-strong); border-radius: 5px; background: rgb(250 249 246 / 94%); box-shadow: var(--shadow-1); transform: translateX(-50%); }
 .view-tabs button { height: 31px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-radius: 3px; color: var(--muted); background: transparent; font-size: 11px; cursor: pointer; }
 .view-tabs button.active { color: #fff; background: var(--ink); }
+.solution-list { position: absolute; right: 14px; top: 61px; z-index: 11; width: min(310px, calc(100% - 28px)); padding: 10px; border: 1px solid var(--line-strong); border-radius: 5px; background: rgb(250 249 246 / 96%); box-shadow: var(--shadow-1); }
+.solution-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 10px; color: var(--muted); }
+.solution-title strong { color: var(--ink); font-size: 10px; }
+.solution-card { width: 100%; display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; padding: 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); background: var(--surface); text-align: left; cursor: pointer; }
+.solution-card:hover, .solution-card.selected { border-color: #9fbaab; background: var(--green-soft); }
+.solution-card strong { display: block; margin-bottom: 3px; font-size: 11px; }
+.solution-card small { display: block; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.solution-meta { display: grid; gap: 5px; margin-top: 8px; color: var(--muted); font-size: 9px; }
+.solution-meta span { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.solution-list.no-solution p { display: flex; align-items: flex-start; gap: 7px; color: var(--red); font-size: 9px; line-height: 1.55; }
+.solution-list.no-solution p svg { flex: none; margin-top: 1px; }
 .plan-review, .model-canvas-wrap { position: relative; width: 100%; height: 100%; padding-top: 57px; }
 .canvas-toolbar { position: absolute; top: 13px; left: 14px; right: 14px; height: 36px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 10px; pointer-events: none; }
 .canvas-toolbar span { display: flex; align-items: center; gap: 6px; }
@@ -221,6 +238,10 @@ p, h1, h2, figure { margin: 0; }
   .workspace { grid-column: 1; min-height: 620px; }
   .inspector { grid-column: 1; min-height: 400px; overflow: visible; border-top: 1px solid var(--line-strong); border-left: 0; }
   .brand-block span:last-child, .save-state { display: none; }
+  .workflow-status { top: auto; left: 10px; right: 10px; bottom: 10px; max-width: none; }
+  .solution-list { top: 58px; right: 10px; width: min(300px, calc(100% - 20px)); }
+  .view-tabs { left: 10px; transform: none; }
+  .view-tabs button { padding: 0 9px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -2,9 +2,29 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { chromium } from 'playwright-core'
 
-const edgePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
 const outputDir = path.resolve('.tmp/ui-qa')
 await fs.mkdir(outputDir, { recursive: true })
+
+async function firstExisting(paths) {
+  for (const candidate of paths) {
+    try {
+      await fs.access(candidate)
+      return candidate
+    } catch {
+      // Try the next known browser location.
+    }
+  }
+  return undefined
+}
+
+const browserPath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || await firstExisting([
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+])
 
 async function createQaProject() {
   const createdResponse = await fetch('http://127.0.0.1:8000/api/projects', {
@@ -36,7 +56,7 @@ const verifyCurrentProject = process.argv.includes('--current')
 const qaProjectId = verifyCurrentProject ? null : await createQaProject()
 
 const browser = await chromium.launch({
-  executablePath: edgePath,
+  executablePath: browserPath,
   headless: true,
   args: ['--enable-webgl', '--use-angle=swiftshader'],
 })

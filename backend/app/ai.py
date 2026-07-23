@@ -10,7 +10,7 @@ import re
 import shutil
 import subprocess
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -806,7 +806,7 @@ def _ocr_overlay(image: Image.Image, tokens: list[dict]) -> Image.Image:
 
 def _cleanup_ocr_cache() -> None:
     ttl_hours = max(1, settings.ocr_cache_ttl_hours)
-    cutoff = datetime.now(UTC).timestamp() - ttl_hours * 3600
+    cutoff = datetime.now(timezone.utc).timestamp() - ttl_hours * 3600
     cache_root = settings.ocr_cache_dir
     try:
         if not cache_root.exists():
@@ -952,13 +952,13 @@ def _models(preferred: str | None = None) -> list[str]:
 def _write_trace(stage: str, model: str, status: int | str, body: str) -> str | None:
     if not settings.ai_trace_enabled:
         return None
-    trace_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    trace_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
     try:
         trace_dir = settings.app_data_dir / "ai-traces"
         trace_dir.mkdir(parents=True, exist_ok=True)
         payload = {
             "trace_id": trace_id,
-            "created_at": datetime.now(UTC).isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "stage": stage,
             "model": model,
             "status": status,

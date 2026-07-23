@@ -94,6 +94,14 @@ async function waitForDevTools(timeoutMs = 10000) {
   throw capabilityGap(`Chrome DevTools did not become reachable at ${DEVTOOLS_URL}`);
 }
 
+function removeTempDirBestEffort(userDataDir) {
+  try {
+    rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch (error) {
+    console.warn(`WARN could not remove temporary Chrome directory ${userDataDir}: ${error.message}`);
+  }
+}
+
 async function startChrome() {
   const chromePath = findChrome();
   if (!chromePath) {
@@ -133,12 +141,12 @@ async function startChrome() {
           child.once('exit', resolveClose);
           setTimeout(resolveClose, 2500);
         });
-        rmSync(userDataDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+        removeTempDirBestEffort(userDataDir);
       },
     };
   } catch (error) {
     child.kill('SIGTERM');
-    rmSync(userDataDir, { recursive: true, force: true });
+    removeTempDirBestEffort(userDataDir);
     if (stderr) {
       throw capabilityGap(`${error.message}; Chrome stderr: ${stderr.trim().split('\n').slice(-3).join(' | ')}`);
     }

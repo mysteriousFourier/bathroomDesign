@@ -1,0 +1,267 @@
+{
+  "source_agent": "Vision",
+  "simulation_scope": "Manual Vision-agent simulation of a visual-model response for the attached handwritten measurement image. It is not a real external AI API call, does not read any reference DWG, and is only an auditable temporary substitute for W1 verification.",
+  "image_asset": {
+    "source_issue_id": "1e54ced5-1384-4300-8233-30a8f4c999e0",
+    "parent_issue_id": "8051f921-f854-4ebe-8f3c-ba1367ad0bb2",
+    "source_comment_id": "2123f6d0-866f-4d81-9a96-caa4f1c514ed",
+    "attachment_id": "019f87f8-6b1e-7dd2-857a-60abfe565b31",
+    "filename": "微信图片_20260716091803_2_911.jpg",
+    "mime_type": "image/jpeg",
+    "declared_size_px": { "width": 4032, "height": 3024 },
+    "exif_orientation": 6,
+    "bbox_coordinate_basis": "Approximate [x,y,w,h] pixels in the EXIF-normalized upright view, width=3024 height=4032; evidence anchors only."
+  },
+  "recognized_measurements": [
+    {
+      "id": "M-outer-width-top-1840",
+      "category": "main_outline_dimension",
+      "source_text": "1840",
+      "value_mm": 1840,
+      "dimension_axis": "x",
+      "interpretation": "top horizontal span of the main room outline",
+      "confidence": 0.86
+    },
+    {
+      "id": "M-outer-width-bottom-1840",
+      "category": "main_outline_dimension",
+      "source_text": "1840",
+      "value_mm": 1840,
+      "dimension_axis": "x",
+      "interpretation": "bottom horizontal span of the main room outline, consistent with top 1840 mark",
+      "confidence": 0.84
+    },
+    {
+      "id": "M-outer-depth-left-5530",
+      "category": "main_outline_dimension",
+      "source_text": "5530",
+      "value_mm": 5530,
+      "dimension_axis": "y",
+      "interpretation": "long vertical span written beside the left inner wall",
+      "confidence": 0.78
+    },
+    {
+      "id": "M-door-800x2100",
+      "category": "door_opening",
+      "source_text": "800x2100",
+      "width_mm": 800,
+      "height_mm": 2100,
+      "interpretation": "swing door at upper-left side, size label 800x2100",
+      "confidence": 0.82
+    },
+    {
+      "id": "M-height-2100",
+      "category": "height_annotation",
+      "source_text": "层高2100",
+      "value_mm": 2100,
+      "interpretation": "central handwritten height note, read as floor/ceiling height 2100",
+      "confidence": 0.64
+    },
+    {
+      "id": "M-right-upper-offset-200",
+      "category": "plumbing_marker_offset",
+      "source_text": "200",
+      "value_mm": 200,
+      "interpretation": "horizontal offset from right wall to a marked plumbing/drain symbol near upper-right area",
+      "confidence": 0.69
+    },
+    {
+      "id": "M-right-middle-square-200-700",
+      "category": "pipe_or_floor_drain_marker",
+      "source_text": "200, 700",
+      "values_mm": [200, 700],
+      "interpretation": "small square symbol near right side with nearby 200 and 700 offsets; feature type requires confirmation",
+      "confidence": 0.58
+    },
+    {
+      "id": "M-bottom-left-notch-400-300",
+      "category": "bottom_left_wall_or_fixture_offset",
+      "source_text": "400, 300",
+      "values_mm": [400, 300],
+      "interpretation": "bottom-left inward/right-angle feature with circled marker; likely pipe/drain/equipment offset, not enough evidence for type",
+      "confidence": 0.61
+    },
+    {
+      "id": "M-bottom-right-marker-400-150",
+      "category": "pipe_or_floor_drain_marker",
+      "source_text": "400, 150",
+      "values_mm": [400, 150],
+      "interpretation": "small square marker near bottom-right side with offsets 400 and 150",
+      "confidence": 0.63
+    }
+  ],
+  "visual_evidence": [
+    {
+      "measurement_id": "M-outer-width-top-1840",
+      "bbox": [1310, 1135, 405, 150],
+      "confidence": 0.86,
+      "source_text": "1840",
+      "normalized_field": "room_outline.width_top_mm",
+      "risk_note": "clear number, but wall line is hand-drawn and slightly skewed"
+    },
+    {
+      "measurement_id": "M-outer-width-bottom-1840",
+      "bbox": [1315, 3440, 475, 150],
+      "confidence": 0.84,
+      "source_text": "1840",
+      "normalized_field": "room_outline.width_bottom_mm",
+      "risk_note": "clear number near bottom wall; assumes same x-span as top wall"
+    },
+    {
+      "measurement_id": "M-outer-depth-left-5530",
+      "bbox": [835, 1820, 185, 500],
+      "confidence": 0.78,
+      "source_text": "5530",
+      "normalized_field": "room_outline.depth_mm",
+      "risk_note": "digits are legible but written along a long hand-drawn wall with no exact endpoints marked"
+    },
+    {
+      "measurement_id": "M-door-800x2100",
+      "bbox": [300, 1240, 500, 760],
+      "confidence": 0.82,
+      "source_text": "800x2100",
+      "normalized_field": "openings[0].size_mm",
+      "risk_note": "door swing is visible; size label is legible, but placement offset is not fully resolved"
+    },
+    {
+      "measurement_id": "M-height-2100",
+      "bbox": [1640, 2045, 280, 365],
+      "confidence": 0.64,
+      "source_text": "层高2100",
+      "normalized_field": "ceiling_height_mm",
+      "risk_note": "label appears to read height 2100; handwriting is partially blurred"
+    },
+    {
+      "measurement_id": "M-right-upper-offset-200",
+      "bbox": [2345, 1390, 400, 270],
+      "confidence": 0.69,
+      "source_text": "200",
+      "normalized_field": "features.upper_right_marker.offset_from_right_wall_mm",
+      "risk_note": "offset and marker are visible; marker semantic label is only inferred as plumbing/drain"
+    },
+    {
+      "measurement_id": "M-right-middle-square-200-700",
+      "bbox": [2210, 1815, 470, 530],
+      "confidence": 0.58,
+      "source_text": "200, 700",
+      "normalized_field": "features.right_middle_square.offset_candidates_mm",
+      "risk_note": "square symbol and numbers are visible; offset directions require confirmation"
+    },
+    {
+      "measurement_id": "M-bottom-left-notch-400-300",
+      "bbox": [890, 3190, 495, 570],
+      "confidence": 0.61,
+      "source_text": "400, 300",
+      "normalized_field": "features.bottom_left_marker.offset_candidates_mm",
+      "risk_note": "circled marker suggests utility point; exact type and wall reference are uncertain"
+    },
+    {
+      "measurement_id": "M-bottom-right-marker-400-150",
+      "bbox": [2285, 3135, 565, 590],
+      "confidence": 0.63,
+      "source_text": "400, 150",
+      "normalized_field": "features.bottom_right_square.offset_candidates_mm",
+      "risk_note": "small square and offsets are visible; exact pipe/drain classification is uncertain"
+    }
+  ],
+  "measurement_candidate": {
+    "unit": "mm",
+    "coordinate_system": {
+      "origin": "normalized main room top-left corner derived from repeated 1840 wall span",
+      "x_axis": "right",
+      "y_axis": "down",
+      "z_axis": "up",
+      "coordinate_quality": "contract candidate only; the handwritten plan is not orthorectified and side protrusions/features need manual alignment"
+    },
+    "room_outline_candidate": {
+      "type": "rectangular_main_body_with_unresolved_side_features",
+      "vertices_mm": [
+        { "x": 0, "y": 0 },
+        { "x": 1840, "y": 0 },
+        { "x": 1840, "y": 5530 },
+        { "x": 0, "y": 5530 }
+      ],
+      "width_mm": 1840,
+      "depth_mm": 5530,
+      "confidence": 0.7,
+      "notes": "Main 1840 by 5530 rectangle is the strongest normalization candidate. Right-side recesses/fixtures and lower-left feature are separate because their geometry cannot be closed confidently from the sketch alone."
+    },
+    "ceiling_height_candidate_mm": {
+      "value": 2100,
+      "confidence": 0.64,
+      "source_measurement_id": "M-height-2100"
+    },
+    "openings": [
+      {
+        "id": "door_01",
+        "type": "swing_door",
+        "wall": "left_or_upper_left_boundary",
+        "width_mm": 800,
+        "height_mm": 2100,
+        "swing": "inward/right-hand arc visible in sketch",
+        "position_mm": null,
+        "offset_candidates_mm": [55, 320],
+        "confidence": 0.66,
+        "source_measurement_ids": ["M-door-800x2100"],
+        "risk_note": "Size is usable for simulation; exact insertion coordinate should be manually confirmed."
+      }
+    ],
+    "utility_markers": [
+      {
+        "id": "upper_right_marker_01",
+        "type_candidate": "floor_drain_or_pipe_marker",
+        "position_mm": { "x": 1640, "y": 500 },
+        "position_basis": "200 mm from right wall and about 500 mm from top-right vertical reference; approximate",
+        "confidence": 0.56,
+        "source_measurement_ids": ["M-right-upper-offset-200"]
+      },
+      {
+        "id": "right_middle_square_01",
+        "type_candidate": "pipe_or_drain_square_symbol",
+        "position_mm": { "x": 1640, "y": 1200 },
+        "position_basis": "200 mm from right side with nearby 700 dimension; exact y reference unresolved",
+        "confidence": 0.48,
+        "source_measurement_id": "M-right-middle-square-200-700"
+      },
+      {
+        "id": "bottom_left_marker_01",
+        "type_candidate": "pipe_or_drain_marker",
+        "position_mm": { "x": 400, "y": 5230 },
+        "position_basis": "400 by 300 offset annotation near lower-left feature",
+        "confidence": 0.51,
+        "source_measurement_id": "M-bottom-left-notch-400-300"
+      },
+      {
+        "id": "bottom_right_marker_01",
+        "type_candidate": "pipe_or_drain_square_symbol",
+        "position_mm": { "x": 1440, "y": 5380 },
+        "position_basis": "400 mm from right side and 150 mm from bottom/right local wall reference; approximate",
+        "confidence": 0.52,
+        "source_measurement_id": "M-bottom-right-marker-400-150"
+      }
+    ]
+  },
+  "uncertainties": [
+    "The exact polygon for right-side recesses/protrusions cannot be closed from the sketch without manual endpoint confirmation.",
+    "Several utility symbols look like floor drains, pipes, or reserved equipment points, but the drawing does not make their semantic type fully certain.",
+    "Door size 800x2100 is legible, but the door opening's exact coordinate along the wall is not determined from the labels alone.",
+    "The central height note is read as 层高2100 with moderate confidence; it should be confirmed before production use.",
+    "No scale calibration beyond the handwritten millimeter dimensions was performed; bboxes are approximate evidence anchors."
+  ],
+  "acceptance_notes": {
+    "usable_for_w1_simulation_validation": [
+      "traceable image asset metadata and attachment ID",
+      "main outline candidate 1840 x 5530 mm",
+      "door size candidate 800 x 2100 mm",
+      "ceiling-height candidate 2100 mm with uncertainty flag",
+      "multiple drain/pipe/fixture marker candidates with source evidence and risk notes",
+      "bbox-backed visual evidence for each recognized measurement"
+    ],
+    "not_a_substitute_for_real_ai_e2e": [
+      "not produced by a real visual model API",
+      "not validated against a reference DWG",
+      "not sufficient for fully automatic construction geometry generation",
+      "ambiguous labels and right-side feature topology still require human confirmation"
+    ]
+  }
+}

@@ -75,8 +75,8 @@
   --opening-strong: #57492e;
   --fixture-fill: #e4e6d2;
   --fixture-stroke: #5e6347;
-  --fixture-selected-fill: #f1dcd6;
-  --fixture-selected-stroke: #c7322e;
+  --fixture-selected-fill: #e0dbcb;
+  --fixture-selected-stroke: #1a1a1a;
   --fixture-text: #4c5138;
 
   --badge-derived-color: #6f6a58;
@@ -136,8 +136,8 @@
   --opening-strong: #cbb27e;
   --fixture-fill: #2c301f;
   --fixture-stroke: #a3a873;
-  --fixture-selected-fill: #3a231e;
-  --fixture-selected-stroke: #e0604f;
+  --fixture-selected-fill: #322e22;
+  --fixture-selected-stroke: #ede7d6;
   --fixture-text: #b3b98a;
 
   --badge-derived-color: #a89f88;
@@ -176,8 +176,8 @@
 [data-skin='magazine'] .rail-section { padding: 22px 20px; border-bottom: 1px solid var(--line); }
 [data-skin='magazine'] .rail-section > label { color: var(--accent); font-size: 9px; font-weight: 700; }
 [data-skin='magazine'] .section-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }
-[data-skin='magazine'] .section-title svg { color: var(--accent); }
-[data-skin='magazine'] .step-index { top: 14px; right: 18px; font-family: var(--font-display); font-size: 30px; font-style: italic; font-weight: 600; line-height: 1; color: var(--accent); opacity: 0.9; }
+[data-skin='magazine'] .section-title svg { color: var(--muted); }
+[data-skin='magazine'] .step-index { top: 14px; right: 18px; font-family: var(--font-display); font-size: 30px; font-style: italic; font-weight: 600; line-height: 1; color: var(--faint); opacity: 0.9; }
 [data-skin='magazine'] .step-section .section-title { padding-right: 48px; }
 [data-skin='magazine'] .select-wrap select, [data-skin='magazine'] .create-project-form input,
 [data-skin='magazine'] .plan-rotation-field select, [data-skin='magazine'] .manual-dimensions input { border-radius: 0; }
@@ -193,12 +193,13 @@
 [data-skin='magazine'] .solution-title { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; }
 [data-skin='magazine'] .solution-card { border-radius: 0; }
 [data-skin='magazine'] .solution-card strong { font-family: var(--font-display); font-size: 12px; }
-[data-skin='magazine'] .solution-card:hover, [data-skin='magazine'] .solution-card.selected { border-color: var(--accent); background: var(--accent-soft); }
+[data-skin='magazine'] .solution-card:hover, [data-skin='magazine'] .solution-card.selected { border-color: var(--ink); background: var(--surface-hover); }
 
 [data-skin='magazine'] .canvas-toolbar .icon-button { border: 1px solid var(--line-strong); background: var(--glass); }
 [data-skin='magazine'] .canvas-toolbar .icon-button:hover:not(:disabled) { border-color: var(--ink); }
 [data-skin='magazine'] .canvas-toolbar .icon-button.active-tool { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 [data-skin='magazine'] .plan-canvas { border: 1px solid var(--line-strong); box-shadow: none; }
+[data-skin='magazine'] .room-polygon.selected { stroke: var(--ink); }
 
 [data-skin='magazine'] .no-project h1, [data-skin='magazine'] .empty-workspace h1 { font-size: 40px; font-weight: 600; letter-spacing: 0.04em; }
 [data-skin='magazine'] .no-project p, [data-skin='magazine'] .empty-workspace > p { font-family: var(--font-display); font-style: italic; font-size: 14px; }
@@ -211,7 +212,7 @@
 [data-skin='magazine'] .text-field input, [data-skin='magazine'] .text-field select, [data-skin='magazine'] .number-field > div { border-radius: 0; }
 [data-skin='magazine'] .text-field input:focus, [data-skin='magazine'] .text-field select:focus, [data-skin='magazine'] .number-field > div:focus-within { border-color: var(--ink); }
 [data-skin='magazine'] .object-row { border-radius: 0; }
-[data-skin='magazine'] .object-row.selected { color: var(--accent); }
+[data-skin='magazine'] .object-row.selected { color: var(--ink); }
 [data-skin='magazine'] .source-badge { border-radius: 0; letter-spacing: 0.06em; }
 [data-skin='magazine'] .issue-ok, [data-skin='magazine'] .issue-row { border-radius: 0; }
 [data-skin='magazine'] .add-row select { border-radius: 0; }

@@ -2,8 +2,8 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './styles/base.css'
-import './styles/skin-classic.css'
-import './styles/skin-atelier.css'
+import './styles/skin-magazine.css'
+import './styles/skin-toolkit.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

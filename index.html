@@ -12,9 +12,9 @@
       (function () {
         try {
           var theme = localStorage.getItem('liangjie-theme') || 'system'
-          var skin = localStorage.getItem('liangjie-skin') || 'atelier'
+          var skin = localStorage.getItem('liangjie-skin') || 'magazine'
           if (['light', 'dark', 'system'].indexOf(theme) < 0) theme = 'system'
-          if (['atelier', 'classic'].indexOf(skin) < 0) skin = 'atelier'
+          if (['magazine', 'toolkit'].indexOf(skin) < 0) skin = 'magazine'
           var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
           var root = document.documentElement
           root.dataset.themeSetting = theme
@@ -23,7 +23,7 @@
           root.style.colorScheme = dark ? 'dark' : 'light'
         } catch (error) {
           document.documentElement.dataset.theme = 'light'
-          document.documentElement.dataset.skin = 'atelier'
+          document.documentElement.dataset.skin = 'magazine'
         }
       })()
     </script>

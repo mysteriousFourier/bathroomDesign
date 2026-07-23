@@ -25,8 +25,8 @@ const themeOptions: Array<{ value: ThemeSetting; label: string; hint: string; ic
 ]
 
 const skinOptions: Array<{ value: Skin; label: string; hint: string }> = [
-  { value: 'atelier', label: '绘所', hint: '绘所版式 · 设计版' },
-  { value: 'classic', label: '经典', hint: '经典版式 · 实用版' },
+  { value: 'magazine', label: '杂志', hint: '杂志版式 · 高端排版' },
+  { value: 'toolkit', label: '工具', hint: '工具版式 · 现代效率' },
 ]
 
 function ThemeSwitcher() {

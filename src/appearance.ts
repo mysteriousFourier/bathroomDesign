@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 
 export type ThemeSetting = 'light' | 'dark' | 'system'
 export type ResolvedTheme = 'light' | 'dark'
-export type Skin = 'atelier' | 'classic'
+export type Skin = 'magazine' | 'toolkit'
 
 const THEME_KEY = 'liangjie-theme'
 const SKIN_KEY = 'liangjie-skin'
@@ -27,7 +27,7 @@ function writeStored(key: string, value: string) {
 const media = window.matchMedia('(prefers-color-scheme: dark)')
 
 let themeSetting: ThemeSetting = readStored(THEME_KEY, 'system', ['light', 'dark', 'system'])
-let skin: Skin = readStored(SKIN_KEY, 'atelier', ['atelier', 'classic'])
+let skin: Skin = readStored(SKIN_KEY, 'magazine', ['magazine', 'toolkit'])
 
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((listener) => listener())

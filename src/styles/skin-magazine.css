@@ -1,0 +1,224 @@
+/* 版式 A · 杂志：高端杂志感（Editorial）。
+   参考 Monocle 杂志语言：米色纸面、衬线标题、红色 kicker、
+   发丝线分隔、零圆角、无投影、大量留白、斜体衬线数字标。 */
+
+:root, :root[data-skin='magazine'] {
+  --font-display: "Noto Serif CJK SC", "Songti SC", "STSong", "SimSun", serif;
+  --font-body: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Noto Sans Mono CJK SC", "Sarasa Mono SC", Consolas, monospace;
+
+  --header-h: 68px;
+  --rail-w: 272px;
+  --inspector-w: 304px;
+  --rail-w-mid: 238px;
+  --inspector-w-mid: 272px;
+
+  --radius-s: 0;
+  --radius-m: 0;
+  --radius-l: 0;
+  --canvas-radius: 0;
+  --motion-dur: 260ms;
+  --motion-ease: cubic-bezier(0.25, 0.8, 0.25, 1);
+  --tracking-label: 0.16em;
+
+  --paper: #f2efe7;
+  --surface: #f7f4eb;
+  --surface-2: #ece8db;
+  --surface-3: #e0dbcB;
+  --surface-hover: #fdfbf5;
+  --rail-bg: #f5f2e9;
+  --sheet: #f8f5ec;
+  --canvas-bg: #e6e0cf;
+  --glass: #f7f4eb;
+
+  --ink: #1a1a1a;
+  --ink-soft: #3d3a33;
+  --muted: #78715f;
+  --faint: #a89f88;
+  --on-ink: #f5f2e9;
+
+  --line: #ddd7c5;
+  --line-strong: #c8c2b0;
+  --line-hot: #1a1a1a;
+
+  --accent: #c7322e;
+  --accent-strong: #a82722;
+  --accent-soft: #f1dcd6;
+  --accent-ink: #faf3ee;
+  --accent-line: #d89790;
+
+  --ok: #5e6347;
+  --ok-soft: #e2e4d2;
+  --ok-line: #a9ad8c;
+  --ok-glass: #eff0e4;
+  --warn: #96712a;
+  --warn-soft: #eee2c8;
+  --warn-line: #cbb27e;
+  --warn-glass: #f4ecd9;
+  --err: #a83a2d;
+  --err-soft: #efd9d2;
+  --err-line: #cd9a90;
+  --err-glass: #f4e5de;
+
+  --brand-bg: #1a1a1a;
+  --brand-color: #f2efe7;
+
+  --shadow-1: none;
+  --shadow-2: none;
+
+  --grid-minor: #dfd9c6;
+  --grid-major: #cbc4ad;
+  --room-fill: rgb(248 245 236 / 80%);
+  --room-stroke: #33302a;
+  --dim-faint: #b3ab92;
+  --opening: #7a6a4a;
+  --opening-strong: #57492e;
+  --fixture-fill: #e4e6d2;
+  --fixture-stroke: #5e6347;
+  --fixture-selected-fill: #f1dcd6;
+  --fixture-selected-stroke: #c7322e;
+  --fixture-text: #4c5138;
+
+  --badge-derived-color: #6f6a58;
+  --badge-derived-bg: #e6e1d0;
+  --object-icon-bg: #dcd7c4;
+}
+
+:root[data-skin='magazine'][data-theme='dark'] {
+  --paper: #16140f;
+  --surface: #1e1c15;
+  --surface-2: #28251b;
+  --surface-3: #322e22;
+  --surface-hover: #26231a;
+  --rail-bg: #1a1812;
+  --sheet: #211e16;
+  --canvas-bg: #12110c;
+  --glass: #1e1c15;
+
+  --ink: #ede7d6;
+  --ink-soft: #cfc7b3;
+  --muted: #9a917a;
+  --faint: #6e6650;
+  --on-ink: #1a1812;
+
+  --line: #2c2920;
+  --line-strong: #413c2d;
+  --line-hot: #ede7d6;
+
+  --accent: #e0604f;
+  --accent-strong: #ec7565;
+  --accent-soft: #3a231e;
+  --accent-ink: #1c100d;
+  --accent-line: #6b3a30;
+
+  --ok: #a3a873;
+  --ok-soft: #272a1c;
+  --ok-line: #4a4f33;
+  --ok-glass: #23261a;
+  --warn: #c9a35b;
+  --warn-soft: #332b1a;
+  --warn-line: #5c4c2b;
+  --warn-glass: #2c2517;
+  --err: #d95f4e;
+  --err-soft: #37211c;
+  --err-line: #633a30;
+  --err-glass: #2e1d19;
+
+  --brand-bg: #ede7d6;
+  --brand-color: #16140f;
+
+  --grid-minor: #26231a;
+  --grid-major: #363124;
+  --room-fill: rgb(33 30 22 / 78%);
+  --room-stroke: #b3ab92;
+  --dim-faint: #57503c;
+  --opening: #a89163;
+  --opening-strong: #cbb27e;
+  --fixture-fill: #2c301f;
+  --fixture-stroke: #a3a873;
+  --fixture-selected-fill: #3a231e;
+  --fixture-selected-stroke: #e0604f;
+  --fixture-text: #b3b98a;
+
+  --badge-derived-color: #a89f88;
+  --badge-derived-bg: #2e2a20;
+  --object-icon-bg: #363124;
+}
+
+/* —— 杂志 · 结构覆盖 —— */
+
+[data-skin='magazine'] .app-header { border-bottom: 1px solid var(--line-strong); }
+
+[data-skin='magazine'] .brand-block { border-right: 1px solid var(--line-strong); }
+[data-skin='magazine'] .brand-block strong { font-size: 22px; font-weight: 700; letter-spacing: 0.14em; }
+[data-skin='magazine'] .brand-mark { width: 32px; height: 32px; border-radius: 0; }
+[data-skin='magazine'] .project-heading strong { font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.02em; }
+[data-skin='magazine'] .save-state { font-family: var(--font-display); font-style: italic; font-size: 12px; }
+
+[data-skin='magazine'] .button { border-radius: 0; padding: 0 18px; font-size: 11px; letter-spacing: 0.1em; }
+[data-skin='magazine'] .button.compact { padding: 0 12px; }
+[data-skin='magazine'] .button.primary { color: var(--on-ink); background: var(--ink); }
+[data-skin='magazine'] .button.primary:hover:not(:disabled) { color: var(--accent-ink); background: var(--accent); }
+[data-skin='magazine'] .button.secondary { border-color: var(--line-strong); background: transparent; }
+[data-skin='magazine'] .button.secondary:hover:not(:disabled) { border-color: var(--ink); background: transparent; }
+[data-skin='magazine'] .icon-button { border-radius: 0; }
+[data-skin='magazine'] .icon-button:hover:not(:disabled) { border-color: var(--ink); background: transparent; }
+[data-skin='magazine'] .icon-button.strong { color: var(--on-ink); background: var(--ink); }
+[data-skin='magazine'] .icon-button.strong:hover:not(:disabled) { color: var(--accent-ink); background: var(--accent); }
+[data-skin='magazine'] .text-button { font-family: var(--font-display); font-style: italic; font-size: 12px; }
+[data-skin='magazine'] .text-button:hover { color: var(--accent-strong); }
+
+[data-skin='magazine'] .segmented { border: 1px solid var(--line-strong); border-radius: 0; background: transparent; padding: 2px; }
+[data-skin='magazine'] .segment { border-radius: 0; padding: 0 11px; letter-spacing: 0.06em; }
+[data-skin='magazine'] .segment.active { color: var(--on-ink); background: var(--ink); box-shadow: none; }
+
+[data-skin='magazine'] .project-rail, [data-skin='magazine'] .inspector { border-color: var(--line-strong); }
+[data-skin='magazine'] .rail-section { padding: 22px 20px; border-bottom: 1px solid var(--line); }
+[data-skin='magazine'] .rail-section > label { color: var(--accent); font-size: 9px; font-weight: 700; }
+[data-skin='magazine'] .section-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }
+[data-skin='magazine'] .section-title svg { color: var(--accent); }
+[data-skin='magazine'] .step-index { top: 14px; right: 18px; font-family: var(--font-display); font-size: 30px; font-style: italic; font-weight: 600; line-height: 1; color: var(--accent); opacity: 0.9; }
+[data-skin='magazine'] .step-section .section-title { padding-right: 48px; }
+[data-skin='magazine'] .select-wrap select, [data-skin='magazine'] .create-project-form input,
+[data-skin='magazine'] .plan-rotation-field select, [data-skin='magazine'] .manual-dimensions input { border-radius: 0; }
+[data-skin='magazine'] .select-wrap select:focus, [data-skin='magazine'] .create-project-form input:focus,
+[data-skin='magazine'] .manual-dimensions input:focus { border-color: var(--ink); outline: none; }
+[data-skin='magazine'] .asset-strip img { border-radius: 0; }
+
+[data-skin='magazine'] .workflow-status { border: 1px solid var(--line-strong); border-radius: 0; background: var(--glass); box-shadow: none; padding: 8px 14px; }
+[data-skin='magazine'] .view-tabs { border: 1px solid var(--line-strong); border-radius: 0; background: var(--glass); box-shadow: none; padding: 3px; }
+[data-skin='magazine'] .view-tabs button { border-radius: 0; padding: 0 16px; font-size: 11px; letter-spacing: 0.08em; }
+[data-skin='magazine'] .view-tabs button.active { color: var(--on-ink); background: var(--ink); }
+[data-skin='magazine'] .solution-list { border: 1px solid var(--line-strong); border-radius: 0; background: var(--glass); box-shadow: none; padding: 14px; }
+[data-skin='magazine'] .solution-title { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; }
+[data-skin='magazine'] .solution-card { border-radius: 0; }
+[data-skin='magazine'] .solution-card strong { font-family: var(--font-display); font-size: 12px; }
+[data-skin='magazine'] .solution-card:hover, [data-skin='magazine'] .solution-card.selected { border-color: var(--accent); background: var(--accent-soft); }
+
+[data-skin='magazine'] .canvas-toolbar .icon-button { border: 1px solid var(--line-strong); background: var(--glass); }
+[data-skin='magazine'] .canvas-toolbar .icon-button:hover:not(:disabled) { border-color: var(--ink); }
+[data-skin='magazine'] .canvas-toolbar .icon-button.active-tool { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+[data-skin='magazine'] .plan-canvas { border: 1px solid var(--line-strong); box-shadow: none; }
+
+[data-skin='magazine'] .no-project h1, [data-skin='magazine'] .empty-workspace h1 { font-size: 40px; font-weight: 600; letter-spacing: 0.04em; }
+[data-skin='magazine'] .no-project p, [data-skin='magazine'] .empty-workspace > p { font-family: var(--font-display); font-style: italic; font-size: 14px; }
+[data-skin='magazine'] .empty-symbol { width: 84px; height: 84px; border: 1px solid var(--line-strong); border-radius: 0; box-shadow: 0 0 0 5px var(--paper), 0 0 0 6px var(--line-strong); }
+[data-skin='magazine'] .manual-divider { letter-spacing: 0.2em; }
+[data-skin='magazine'] .manual-dimensions input { border-radius: 0; }
+
+[data-skin='magazine'] .inspector-section { padding: 18px; border-bottom: 1px solid var(--line); }
+[data-skin='magazine'] .inspector-title { font-family: var(--font-display); font-size: 14px; font-weight: 600; letter-spacing: 0.03em; }
+[data-skin='magazine'] .text-field input, [data-skin='magazine'] .text-field select, [data-skin='magazine'] .number-field > div { border-radius: 0; }
+[data-skin='magazine'] .text-field input:focus, [data-skin='magazine'] .text-field select:focus, [data-skin='magazine'] .number-field > div:focus-within { border-color: var(--ink); }
+[data-skin='magazine'] .object-row { border-radius: 0; }
+[data-skin='magazine'] .object-row.selected { color: var(--accent); }
+[data-skin='magazine'] .source-badge { border-radius: 0; letter-spacing: 0.06em; }
+[data-skin='magazine'] .issue-ok, [data-skin='magazine'] .issue-row { border-radius: 0; }
+[data-skin='magazine'] .add-row select { border-radius: 0; }
+
+[data-skin='magazine'] .toast { border: 1px solid var(--line-strong); border-radius: 0; background: var(--surface); box-shadow: none; }
+
+@media (max-width: 1100px) {
+  [data-skin='magazine'] .segment { padding: 0 8px; }
+  [data-skin='magazine'] .header-actions .button { width: 34px; padding: 0; font-size: 0; letter-spacing: 0; }
+}

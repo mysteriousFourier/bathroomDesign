@@ -72,8 +72,8 @@ const scenePalettes: Record<ResolvedTheme, ScenePalette> = {
 }
 
 const sceneBackgrounds: Record<Skin, Record<ResolvedTheme, string>> = {
-  atelier: { light: '#e9e4d6', dark: '#14120e' },
-  classic: { light: '#ecece7', dark: '#151714' },
+  magazine: { light: '#e6e0cf', dark: '#12110c' },
+  toolkit: { light: '#f0f0ee', dark: '#0b0c0e' },
 }
 
 function Wall({ spec, index, selected, palette, onSelect }: { spec: RoomSpec; index: number; selected: boolean; palette: ScenePalette; onSelect: () => void }) {

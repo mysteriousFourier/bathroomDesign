@@ -1,0 +1,212 @@
+/* 版式 B · 工具：现代工具感（Builder SaaS）。
+   参考 Linear 的设计语言：发丝线面板、单一靛蓝点缀（<5% 像素）、
+   6/10/14 圆角、克制的层级阴影、紧凑密度、等宽数字。 */
+
+:root[data-skin='toolkit'] {
+  --font-display: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-body: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Consolas, "Noto Sans Mono CJK SC", monospace;
+
+  --header-h: 56px;
+  --rail-w: 256px;
+  --inspector-w: 296px;
+  --rail-w-mid: 224px;
+  --inspector-w-mid: 264px;
+
+  --radius-s: 6px;
+  --radius-m: 8px;
+  --radius-l: 12px;
+  --canvas-radius: 12px;
+  --motion-dur: 150ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --tracking-label: 0.08em;
+
+  --paper: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f4f4f2;
+  --surface-3: #ececea;
+  --surface-hover: #fafafa;
+  --rail-bg: #fbfbfa;
+  --sheet: #ffffff;
+  --canvas-bg: #f0f0ee;
+  --glass: rgb(255 255 255 / 84%);
+
+  --ink: #26262b;
+  --ink-soft: #4b4b52;
+  --muted: #75757c;
+  --faint: #a6a6ac;
+  --on-ink: #ffffff;
+
+  --line: #ececea;
+  --line-strong: #e0e0dc;
+  --line-hot: #c2c2bc;
+
+  --accent: #5e6ad2;
+  --accent-strong: #4f5bc4;
+  --accent-soft: #e9ebfa;
+  --accent-ink: #ffffff;
+  --accent-line: #b9c0ee;
+
+  --ok: #3e9b6f;
+  --ok-soft: #e0f0e7;
+  --ok-line: #a5d3bb;
+  --ok-glass: rgb(240 248 243 / 92%);
+  --warn: #b9862c;
+  --warn-soft: #f6ead0;
+  --warn-line: #ddc28c;
+  --warn-glass: rgb(250 244 230 / 92%);
+  --err: #d95040;
+  --err-soft: #f8e2de;
+  --err-line: #e5a89f;
+  --err-glass: rgb(252 240 238 / 92%);
+
+  --brand-bg: #26262b;
+  --brand-color: #ffffff;
+
+  --shadow-1: 0 1px 2px rgb(20 20 30 / 5%), 0 4px 14px rgb(20 20 30 / 5%);
+  --shadow-2: 0 2px 6px rgb(20 20 30 / 7%), 0 16px 40px rgb(20 20 30 / 11%);
+
+  --grid-minor: #e4e4e1;
+  --grid-major: #d3d3cf;
+  --room-fill: rgb(255 255 255 / 75%);
+  --room-stroke: #3a3d45;
+  --dim-faint: #b8b8b4;
+  --opening: #b9892f;
+  --opening-strong: #8a6420;
+  --fixture-fill: #eef0f6;
+  --fixture-stroke: #8a90a6;
+  --fixture-selected-fill: #e9ebfa;
+  --fixture-selected-stroke: #5e6ad2;
+  --fixture-text: #5b6178;
+
+  --badge-derived-color: #666e84;
+  --badge-derived-bg: #e8eaf1;
+  --object-icon-bg: #e0e0dc;
+}
+
+:root[data-skin='toolkit'][data-theme='dark'] {
+  --paper: #08090a;
+  --surface: #16171c;
+  --surface-2: #1e1f25;
+  --surface-3: #26272e;
+  --surface-hover: #1c1d23;
+  --rail-bg: #101114;
+  --sheet: #1a1b21;
+  --canvas-bg: #0b0c0e;
+  --glass: rgb(22 23 28 / 84%);
+
+  --ink: #f7f8f8;
+  --ink-soft: #c9ccd3;
+  --muted: #9ca3af;
+  --faint: #6b7280;
+  --on-ink: #0b0c0e;
+
+  --line: rgb(255 255 255 / 7%);
+  --line-strong: rgb(255 255 255 / 11%);
+  --line-hot: rgb(255 255 255 / 20%);
+
+  --accent: #6e79e2;
+  --accent-strong: #818cf0;
+  --accent-soft: rgb(94 106 210 / 18%);
+  --accent-ink: #ffffff;
+  --accent-line: rgb(110 121 226 / 45%);
+
+  --ok: #4cb782;
+  --ok-soft: rgb(76 183 130 / 14%);
+  --ok-line: rgb(76 183 130 / 35%);
+  --ok-glass: rgb(20 34 27 / 92%);
+  --warn: #e0b34c;
+  --warn-soft: rgb(224 179 76 / 13%);
+  --warn-line: rgb(224 179 76 / 32%);
+  --warn-glass: rgb(38 32 18 / 92%);
+  --err: #eb6b5a;
+  --err-soft: rgb(235 107 90 / 13%);
+  --err-line: rgb(235 107 90 / 35%);
+  --err-glass: rgb(40 24 21 / 92%);
+
+  --brand-bg: #f7f8f8;
+  --brand-color: #08090a;
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 18px rgb(0 0 0 / 32%);
+  --shadow-2: 0 2px 6px rgb(0 0 0 / 45%), 0 20px 48px rgb(0 0 0 / 50%);
+
+  --grid-minor: #1e2025;
+  --grid-major: #2b2e36;
+  --room-fill: rgb(26 27 33 / 75%);
+  --room-stroke: #9ba0aa;
+  --dim-faint: #4a4e58;
+  --opening: #d9a84e;
+  --opening-strong: #eec274;
+  --fixture-fill: #232833;
+  --fixture-stroke: #7f8aa3;
+  --fixture-selected-fill: rgb(94 106 210 / 22%);
+  --fixture-selected-stroke: #818cf0;
+  --fixture-text: #9aa5c0;
+
+  --badge-derived-color: #8b93a6;
+  --badge-derived-bg: #22242c;
+  --object-icon-bg: #2b2e36;
+}
+
+/* —— 工具 · 结构覆盖 —— */
+
+[data-skin='toolkit'] .app-header { border-bottom: 1px solid var(--line); background: var(--surface); }
+
+[data-skin='toolkit'] .brand-block { border-right: 1px solid var(--line); }
+[data-skin='toolkit'] .brand-block strong { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+[data-skin='toolkit'] .brand-mark { width: 28px; height: 28px; border-radius: 7px; box-shadow: var(--shadow-1); }
+[data-skin='toolkit'] .project-heading strong { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+[data-skin='toolkit'] .save-state { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; background: var(--ok-soft); font-size: 10px; font-weight: 600; }
+[data-skin='toolkit'] .save-state.dirty { background: var(--warn-soft); }
+
+[data-skin='toolkit'] .button { border-radius: var(--radius-s); font-size: 12px; font-weight: 550; }
+[data-skin='toolkit'] .button.primary { color: var(--accent-ink); background: var(--accent); box-shadow: 0 1px 2px rgb(20 20 30 / 12%); }
+[data-skin='toolkit'] .button.primary:hover:not(:disabled) { color: var(--accent-ink); background: var(--accent-strong); }
+[data-skin='toolkit'] .button.secondary { border-color: var(--line-strong); background: var(--surface); box-shadow: 0 1px 1px rgb(20 20 30 / 3%); }
+[data-skin='toolkit'] .button.secondary:hover:not(:disabled) { border-color: var(--line-hot); background: var(--surface-hover); }
+[data-skin='toolkit'] .icon-button { border-radius: var(--radius-s); }
+[data-skin='toolkit'] .icon-button.strong { color: var(--accent-ink); background: var(--accent); }
+[data-skin='toolkit'] .icon-button.strong:hover:not(:disabled) { background: var(--accent-strong); }
+[data-skin='toolkit'] .text-button:hover { color: var(--accent-strong); }
+
+[data-skin='toolkit'] .segmented { border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface-2); padding: 2px; }
+[data-skin='toolkit'] .segment { border-radius: var(--radius-s); padding: 0 9px; }
+[data-skin='toolkit'] .segment.active { color: var(--ink); background: var(--surface); box-shadow: 0 1px 2px rgb(20 20 30 / 10%), inset 0 0 0 1px var(--line); }
+
+[data-skin='toolkit'] .project-rail, [data-skin='toolkit'] .inspector { border-color: var(--line); }
+[data-skin='toolkit'] .rail-section { padding: 16px; border-bottom: 1px solid var(--line); }
+[data-skin='toolkit'] .rail-section > label { color: var(--faint); font-size: 9px; font-weight: 700; }
+[data-skin='toolkit'] .section-title { font-size: 12px; font-weight: 650; letter-spacing: -0.01em; }
+[data-skin='toolkit'] .section-title svg { color: var(--accent); }
+[data-skin='toolkit'] .step-index { top: 16px; right: 14px; padding: 2px 6px; border-radius: 4px; background: var(--surface-2); font: 600 10px var(--font-mono); color: var(--muted); }
+[data-skin='toolkit'] .api-state { border-radius: var(--radius-m); }
+
+[data-skin='toolkit'] .workflow-status { border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--glass); box-shadow: var(--shadow-1); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+[data-skin='toolkit'] .view-tabs { border: 1px solid var(--line); border-radius: 10px; background: var(--glass); box-shadow: var(--shadow-1); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 3px; }
+[data-skin='toolkit'] .view-tabs button { border-radius: 7px; padding: 0 13px; font-weight: 550; }
+[data-skin='toolkit'] .view-tabs button.active { color: var(--ink); background: var(--surface); box-shadow: 0 1px 3px rgb(20 20 30 / 12%), inset 0 0 0 1px var(--line); }
+[data-skin='toolkit'] .solution-list { border: 1px solid var(--line); border-radius: var(--radius-l); background: var(--glass); box-shadow: var(--shadow-2); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 12px; }
+[data-skin='toolkit'] .solution-card { border-radius: var(--radius-m); }
+[data-skin='toolkit'] .solution-card:hover, [data-skin='toolkit'] .solution-card.selected { border-color: var(--accent-line); background: var(--accent-soft); }
+
+[data-skin='toolkit'] .canvas-toolbar .icon-button { border: 1px solid var(--line); background: var(--glass); box-shadow: var(--shadow-1); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+[data-skin='toolkit'] .canvas-toolbar .icon-button.active-tool { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+
+[data-skin='toolkit'] .no-project h1, [data-skin='toolkit'] .empty-workspace h1 { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; }
+[data-skin='toolkit'] .empty-symbol { width: 72px; height: 72px; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-1); }
+
+[data-skin='toolkit'] .inspector-title { font-size: 11px; font-weight: 650; letter-spacing: 0.02em; }
+[data-skin='toolkit'] .text-field input:focus, [data-skin='toolkit'] .text-field select:focus, [data-skin='toolkit'] .number-field > div:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+[data-skin='toolkit'] .object-row.selected { color: var(--accent); background: var(--accent-soft); }
+[data-skin='toolkit'] .source-badge { border-radius: 4px; font-weight: 600; }
+
+[data-skin='toolkit'] .toast { border: 1px solid var(--line); border-radius: var(--radius-l); background: var(--glass); box-shadow: var(--shadow-2); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+
+@media (max-width: 1100px) {
+  [data-skin='toolkit'] .segment { padding: 0 7px; }
+  [data-skin='toolkit'] .header-actions .button { width: 34px; padding: 0; font-size: 0; }
+}
+
+@media (max-width: 820px) {
+  [data-skin='toolkit'] .save-state { display: none; }
+}

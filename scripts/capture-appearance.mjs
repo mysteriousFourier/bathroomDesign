@@ -12,13 +12,13 @@ const browser = await chromium.launch({
 })
 
 const combos = []
-for (const skin of ['atelier', 'classic']) {
+for (const skin of ['magazine', 'toolkit']) {
   for (const theme of ['light', 'dark']) {
     combos.push({ skin, theme, viewport: { width: 1440, height: 900 }, label: `${skin}-${theme}-desktop` })
   }
 }
-combos.push({ skin: 'atelier', theme: 'light', viewport: { width: 768, height: 1024 }, label: 'atelier-light-mobile' })
-combos.push({ skin: 'classic', theme: 'dark', viewport: { width: 768, height: 1024 }, label: 'classic-dark-mobile' })
+combos.push({ skin: 'magazine', theme: 'light', viewport: { width: 768, height: 1024 }, label: 'magazine-light-mobile' })
+combos.push({ skin: 'toolkit', theme: 'dark', viewport: { width: 768, height: 1024 }, label: 'toolkit-dark-mobile' })
 
 const results = []
 
@@ -94,9 +94,9 @@ for (const combo of combos) await capture(combo)
   const afterTheme = await page.evaluate(() => document.documentElement.dataset.theme)
   if (afterTheme !== 'dark') throw new Error(`主题切换失败: ${afterTheme}`)
 
-  await page.getByRole('button', { name: '经典', exact: true }).click()
+  await page.getByRole('button', { name: '工具', exact: true }).click()
   const afterSkin = await page.evaluate(() => document.documentElement.dataset.skin)
-  if (afterSkin !== 'classic') throw new Error(`版式切换失败: ${afterSkin}`)
+  if (afterSkin !== 'toolkit') throw new Error(`版式切换失败: ${afterSkin}`)
 
   await page.getByRole('button', { name: '系统', exact: true }).click()
   const setting = await page.evaluate(() => document.documentElement.dataset.themeSetting)

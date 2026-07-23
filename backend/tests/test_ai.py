@@ -1,6 +1,7 @@
 import pytest
 import httpx
 import numpy as np
+from pathlib import Path
 from PIL import Image, ImageDraw
 
 from backend.app import ai
@@ -34,6 +35,19 @@ def valid_spec() -> RoomSpec:
         boundary=[Point2D(x_mm=0, z_mm=0), Point2D(x_mm=1800, z_mm=0), Point2D(x_mm=1800, z_mm=2400)],
         height_mm=2600,
     )
+
+
+def test_agen17_long_term_real_sample_is_persisted_and_orientable() -> None:
+    sample_dir = Path(__file__).resolve().parents[2] / "evidence" / "samples" / "real" / "agen-17-long-term"
+    image_path = sample_dir / "source.jpg"
+    manifest_path = sample_dir / "manifest.json"
+
+    assert image_path.exists()
+    assert manifest_path.exists()
+
+    oriented = ai._oriented_image(image_path)
+    assert oriented.size == (3024, 4032)
+    assert oriented.mode == "RGB"
 
 
 @pytest.mark.asyncio
@@ -418,6 +432,100 @@ def test_raster_topology_candidates_keep_non_rectangular_turns(tmp_path) -> None
     assert candidates
     assert any(len(candidate.corners) >= 8 for candidate in candidates)
     assert all(ai._shape_directions(ShapeTraceResult(corners=item.corners, closed=True)) for item in candidates)
+
+
+def test_ocr_assist_writes_hash_isolated_artifacts(tmp_path, monkeypatch) -> None:
+    image = Image.new("RGB", (320, 220), "white")
+    draw = ImageDraw.Draw(image)
+    draw.text((120, 80), "1840", fill="black")
+    path = tmp_path / "plan.jpg"
+    image.save(path)
+    monkeypatch.setattr(settings, "ocr_cache_dir", tmp_path / "ocr-cache")
+
+    def fake_ocr(_image_path, prepared_image, image_hash, rotation):
+        return [
+            {
+                "id": "E001",
+                "raw_text": "1840",
+                "normalized_candidates": ["1840"],
+                "bbox": ImageBBox(x_min=350, y_min=330, x_max=520, y_max=430).model_dump(),
+                "pixel_bbox": {"left": 112, "top": 72, "width": 55, "height": 22},
+                "orientation": "horizontal",
+                "confidence": 0.68,
+                "image_hash": image_hash,
+                "coordinate_transform": {
+                    "exif_transposed": True,
+                    "rotation_degrees": rotation,
+                    "trim_document": True,
+                    "coordinate_space": "oriented-original normalized 0..1000",
+                },
+            }
+        ]
+
+    monkeypatch.setattr(ai, "_run_local_ocr", fake_ocr)
+
+    bundle = ai._prepare_ocr_assist(path, 0)
+    cache_dir = __import__("pathlib").Path(bundle["cache_dir"])
+
+    assert cache_dir.name == bundle["image_hash"]
+    assert (cache_dir / "oriented-original.jpg").exists()
+    assert (cache_dir / "ocr-overlay.png").exists()
+    assert (cache_dir / "ocr-tokens.json").exists()
+    assert (cache_dir / "crops" / "E001.png").exists()
+    assert bundle["tokens"][0]["coordinate_transform"]["trim_document"] is True
+
+
+def test_ocr_overlay_only_marks_token_bbox() -> None:
+    image = Image.new("RGB", (100, 80), "white")
+    draw = ImageDraw.Draw(image)
+    draw.text((42, 30), "1840", fill="black")
+
+    overlay = ai._ocr_overlay(
+        image,
+        [
+            {
+                "id": "E001",
+                "raw_text": "1840",
+                "bbox": ImageBBox(x_min=400, y_min=300, x_max=700, y_max=500).model_dump(),
+                "confidence": 0.9,
+            }
+        ],
+    )
+
+    assert overlay.getpixel((10, 10)) == image.getpixel((10, 10))
+    assert overlay.getpixel((85, 30)) == image.getpixel((85, 30))
+    assert overlay.getpixel((45, 32)) != image.getpixel((45, 32))
+
+
+def test_ocr_assist_content_includes_overlay_tokens_and_crops(tmp_path, monkeypatch) -> None:
+    overlay = tmp_path / "ocr-overlay.png"
+    crop = tmp_path / "E001.png"
+    Image.new("RGB", (20, 20), "white").save(overlay)
+    Image.new("RGB", (20, 20), "white").save(crop)
+    monkeypatch.setattr(ai, "_image_path_data_url", lambda *_args, **_kwargs: "data:image/jpeg;base64,test")
+
+    content = ai._ocr_assist_content(
+        {
+            "image_hash": "abc123",
+            "overlay": overlay,
+            "tokens": [
+                {
+                    "id": "E001",
+                    "raw_text": "1840",
+                    "normalized_candidates": ["1840"],
+                    "bbox": ImageBBox(x_min=1, y_min=2, x_max=3, y_max=4).model_dump(),
+                    "orientation": "horizontal",
+                    "confidence": 0.88,
+                }
+            ],
+            "crops": [crop],
+        }
+    )
+
+    text_blocks = [item["text"] for item in content if item["type"] == "text"]
+    assert "abc123" in text_blocks[0]
+    assert "E001" in text_blocks[0]
+    assert sum(item["type"] == "image_url" for item in content) == 2
 
 
 @pytest.mark.asyncio

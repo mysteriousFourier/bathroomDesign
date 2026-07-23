@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     ai_trace_enabled: bool = True
     ai_compare_topology_models: bool = False
     ai_quality_timeout_seconds: int = 35
+    ocr_cache_dir: Path = Path(".tmp/ocr")
+    ocr_cache_ttl_hours: int = 24
 
     @classmethod
     def settings_customise_sources(

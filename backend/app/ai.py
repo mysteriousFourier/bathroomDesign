@@ -776,32 +776,26 @@ def _safe_label_text(text: str) -> str:
 
 def _ocr_overlay(image: Image.Image, tokens: list[dict]) -> Image.Image:
     overlay = image.convert("RGBA")
-    boxes = Image.new("RGBA", overlay.size, (255, 255, 255, 0))
-    draw = ImageDraw.Draw(boxes)
     try:
-        font = ImageFont.load_default(size=max(14, round(min(image.size) * 0.018)))
+        font = ImageFont.load_default(size=max(12, round(min(image.size) * 0.014)))
     except TypeError:
         font = ImageFont.load_default()
     for token in tokens:
         bbox = ImageBBox.model_validate(token["bbox"])
-        rectangle = (
-            round(image.width * bbox.x_min / 1000),
-            round(image.height * bbox.y_min / 1000),
-            round(image.width * bbox.x_max / 1000),
-            round(image.height * bbox.y_max / 1000),
-        )
+        left = max(0, min(image.width - 1, round(image.width * bbox.x_min / 1000)))
+        top = max(0, min(image.height - 1, round(image.height * bbox.y_min / 1000)))
+        right = max(left + 1, min(image.width, round(image.width * bbox.x_max / 1000)))
+        bottom = max(top + 1, min(image.height, round(image.height * bbox.y_max / 1000)))
+        width = right - left
+        height = bottom - top
         color = (37, 99, 235, 210) if token["confidence"] >= 0.75 else (220, 38, 38, 230)
-        draw.rectangle(rectangle, outline=color, width=2)
-        label = f"{token['id']}: {_safe_label_text(token['raw_text'])}"
-        label_x = min(image.width - 1, rectangle[2] + 5)
-        label_y = max(0, rectangle[1] - 18)
-        label_box = draw.textbbox((label_x, label_y), label, font=font)
-        if label_box[2] > image.width:
-            label_x = max(0, rectangle[0] - (label_box[2] - label_box[0]) - 5)
-            label_box = draw.textbbox((label_x, label_y), label, font=font)
-        draw.rectangle(label_box, fill=(255, 255, 255, 205), outline=color, width=1)
-        draw.text((label_box[0], label_box[1]), label, fill=color, font=font)
-    return Image.alpha_composite(overlay, boxes).convert("RGB")
+        patch = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+        draw = ImageDraw.Draw(patch)
+        draw.rectangle((0, 0, width - 1, height - 1), fill=(255, 255, 255, 170), outline=color, width=2)
+        label = f"{token['id']} {_safe_label_text(token['raw_text'])}"
+        draw.text((3, 2), label, fill=color, font=font, stroke_width=1, stroke_fill="white")
+        overlay.alpha_composite(patch, (left, top))
+    return overlay.convert("RGB")
 
 
 def _cleanup_ocr_cache() -> None:
@@ -900,7 +894,8 @@ def _ocr_assist_content(ocr_assist: dict | None) -> list[dict]:
         {
             "type": "text",
             "text": (
-                "OCR 辅助候选已在第一次视觉识别前生成；它们只是候选证据，必须回看原图确认。"
+                "OCR 辅助候选已在第一次视觉识别前生成；叠加图只是原图副本，并且只在 OCR 识别到的文字 bbox 内覆盖标注。"
+                "OCR 不提供线条、墙体或尺寸线重绘能力，必须回看原图确认文字与线条的实际邻接关系。"
                 f"\n图片哈希：{ocr_assist['image_hash']}\nOCR token 清单：\n"
                 + json.dumps(catalog, ensure_ascii=False)
             ),

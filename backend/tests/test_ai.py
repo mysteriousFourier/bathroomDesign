@@ -475,6 +475,28 @@ def test_ocr_assist_writes_hash_isolated_artifacts(tmp_path, monkeypatch) -> Non
     assert bundle["tokens"][0]["coordinate_transform"]["trim_document"] is True
 
 
+def test_ocr_overlay_only_marks_token_bbox() -> None:
+    image = Image.new("RGB", (100, 80), "white")
+    draw = ImageDraw.Draw(image)
+    draw.text((42, 30), "1840", fill="black")
+
+    overlay = ai._ocr_overlay(
+        image,
+        [
+            {
+                "id": "E001",
+                "raw_text": "1840",
+                "bbox": ImageBBox(x_min=400, y_min=300, x_max=700, y_max=500).model_dump(),
+                "confidence": 0.9,
+            }
+        ],
+    )
+
+    assert overlay.getpixel((10, 10)) == image.getpixel((10, 10))
+    assert overlay.getpixel((85, 30)) == image.getpixel((85, 30))
+    assert overlay.getpixel((45, 32)) != image.getpixel((45, 32))
+
+
 def test_ocr_assist_content_includes_overlay_tokens_and_crops(tmp_path, monkeypatch) -> None:
     overlay = tmp_path / "ocr-overlay.png"
     crop = tmp_path / "E001.png"

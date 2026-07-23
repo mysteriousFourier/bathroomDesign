@@ -434,6 +434,78 @@ def test_raster_topology_candidates_keep_non_rectangular_turns(tmp_path) -> None
     assert all(ai._shape_directions(ShapeTraceResult(corners=item.corners, closed=True)) for item in candidates)
 
 
+def test_ocr_assist_writes_hash_isolated_artifacts(tmp_path, monkeypatch) -> None:
+    image = Image.new("RGB", (320, 220), "white")
+    draw = ImageDraw.Draw(image)
+    draw.text((120, 80), "1840", fill="black")
+    path = tmp_path / "plan.jpg"
+    image.save(path)
+    monkeypatch.setattr(settings, "ocr_cache_dir", tmp_path / "ocr-cache")
+
+    def fake_ocr(_image_path, prepared_image, image_hash, rotation):
+        return [
+            {
+                "id": "E001",
+                "raw_text": "1840",
+                "normalized_candidates": ["1840"],
+                "bbox": ImageBBox(x_min=350, y_min=330, x_max=520, y_max=430).model_dump(),
+                "pixel_bbox": {"left": 112, "top": 72, "width": 55, "height": 22},
+                "orientation": "horizontal",
+                "confidence": 0.68,
+                "image_hash": image_hash,
+                "coordinate_transform": {
+                    "exif_transposed": True,
+                    "rotation_degrees": rotation,
+                    "trim_document": True,
+                    "coordinate_space": "oriented-original normalized 0..1000",
+                },
+            }
+        ]
+
+    monkeypatch.setattr(ai, "_run_local_ocr", fake_ocr)
+
+    bundle = ai._prepare_ocr_assist(path, 0)
+    cache_dir = __import__("pathlib").Path(bundle["cache_dir"])
+
+    assert cache_dir.name == bundle["image_hash"]
+    assert (cache_dir / "oriented-original.jpg").exists()
+    assert (cache_dir / "ocr-overlay.png").exists()
+    assert (cache_dir / "ocr-tokens.json").exists()
+    assert (cache_dir / "crops" / "E001.png").exists()
+    assert bundle["tokens"][0]["coordinate_transform"]["trim_document"] is True
+
+
+def test_ocr_assist_content_includes_overlay_tokens_and_crops(tmp_path, monkeypatch) -> None:
+    overlay = tmp_path / "ocr-overlay.png"
+    crop = tmp_path / "E001.png"
+    Image.new("RGB", (20, 20), "white").save(overlay)
+    Image.new("RGB", (20, 20), "white").save(crop)
+    monkeypatch.setattr(ai, "_image_path_data_url", lambda *_args, **_kwargs: "data:image/jpeg;base64,test")
+
+    content = ai._ocr_assist_content(
+        {
+            "image_hash": "abc123",
+            "overlay": overlay,
+            "tokens": [
+                {
+                    "id": "E001",
+                    "raw_text": "1840",
+                    "normalized_candidates": ["1840"],
+                    "bbox": ImageBBox(x_min=1, y_min=2, x_max=3, y_max=4).model_dump(),
+                    "orientation": "horizontal",
+                    "confidence": 0.88,
+                }
+            ],
+            "crops": [crop],
+        }
+    )
+
+    text_blocks = [item["text"] for item in content if item["type"] == "text"]
+    assert "abc123" in text_blocks[0]
+    assert "E001" in text_blocks[0]
+    assert sum(item["type"] == "image_url" for item in content) == 2
+
+
 @pytest.mark.asyncio
 async def test_quality_model_decides_between_identical_candidate_inputs(monkeypatch) -> None:
     monkeypatch.setattr(settings, "openai_model", "glm-4.6v-flash")

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import csv
+import hashlib
 import json
 import random
 import re
+import shutil
+import subprocess
 import uuid
 from datetime import UTC, datetime
 from io import BytesIO
@@ -211,6 +215,15 @@ def _oriented_image(path: Path, rotation_degrees: int = 0, trim_document: bool =
         if trim_document:
             image = _trim_document(image)
         return image.copy()
+
+
+def _image_hash(image: Image.Image) -> str:
+    buffer = BytesIO()
+    image.save(buffer, "JPEG", quality=95)
+    digest = hashlib.sha256()
+    digest.update(f"{image.width}x{image.height}:".encode("ascii"))
+    digest.update(buffer.getvalue())
+    return digest.hexdigest()[:24]
 
 
 def _image_data_url(image: Image.Image, max_size: int = 2048) -> str:
@@ -647,6 +660,263 @@ def _crop_data_url(path: Path, rotation_degrees: int, bbox: ImageBBox, enhance: 
     return _image_data_url(crop, max_size=1600)
 
 
+def _normalized_bbox_from_pixels(left: int, top: int, width: int, height: int, image: Image.Image) -> ImageBBox:
+    return ImageBBox(
+        x_min=round(left * 1000 / image.width),
+        y_min=round(top * 1000 / image.height),
+        x_max=round((left + width) * 1000 / image.width),
+        y_max=round((top + height) * 1000 / image.height),
+    )
+
+
+def _ocr_candidates(text: str) -> list[str]:
+    compact = re.sub(r"\s+", "", text)
+    candidates = [compact] if compact else []
+    for token in re.findall(r"\d+(?:[.,]\d+)?", compact):
+        normalized = token.replace(",", ".")
+        if normalized not in candidates:
+            candidates.append(normalized)
+        try:
+            number = float(normalized)
+        except ValueError:
+            continue
+        value = str(round(number * 1000) if "." in normalized and number < 20 else round(number))
+        if value not in candidates:
+            candidates.append(value)
+    return candidates[:4]
+
+
+def _ocr_orientation(width: int, height: int) -> str:
+    if height >= width * 1.45:
+        return "vertical"
+    if width >= height * 1.45:
+        return "horizontal"
+    return "free"
+
+
+def _parse_tesseract_tsv(tsv: str, image: Image.Image, image_hash: str, rotation: int) -> list[dict]:
+    rows = csv.DictReader(tsv.splitlines(), delimiter="\t")
+    tokens: list[dict] = []
+    for row in rows:
+        raw_text = (row.get("text") or "").strip()
+        if not raw_text:
+            continue
+        try:
+            confidence = float(row.get("conf") or 0) / 100
+            left = round(float(row.get("left") or 0))
+            top = round(float(row.get("top") or 0))
+            width = round(float(row.get("width") or 0))
+            height = round(float(row.get("height") or 0))
+        except ValueError:
+            continue
+        if confidence < 0 or width < 2 or height < 2:
+            continue
+        bbox = _normalized_bbox_from_pixels(left, top, width, height, image)
+        token_id = f"E{len(tokens) + 1:03d}"
+        tokens.append(
+            {
+                "id": token_id,
+                "raw_text": raw_text,
+                "normalized_candidates": _ocr_candidates(raw_text),
+                "bbox": bbox.model_dump(),
+                "pixel_bbox": {"left": left, "top": top, "width": width, "height": height},
+                "orientation": _ocr_orientation(width, height),
+                "confidence": max(0.0, min(1.0, confidence)),
+                "image_hash": image_hash,
+                "coordinate_transform": {
+                    "exif_transposed": True,
+                    "rotation_degrees": rotation,
+                    "trim_document": True,
+                    "coordinate_space": "oriented-original normalized 0..1000",
+                },
+            }
+        )
+    return tokens
+
+
+def _run_local_ocr(image_path: Path, image: Image.Image, image_hash: str, rotation: int) -> list[dict]:
+    tesseract = shutil.which("tesseract")
+    if not tesseract:
+        return []
+    try:
+        completed = subprocess.run(
+            [tesseract, str(image_path), "stdout", "-l", "chi_sim+eng", "--psm", "6", "tsv"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if completed.returncode != 0:
+        try:
+            completed = subprocess.run(
+                [tesseract, str(image_path), "stdout", "--psm", "6", "tsv"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+    if completed.returncode != 0:
+        return []
+    return _parse_tesseract_tsv(completed.stdout, image, image_hash, rotation)
+
+
+def _safe_label_text(text: str) -> str:
+    label = text[:28]
+    try:
+        label.encode("latin-1")
+        return label
+    except UnicodeEncodeError:
+        candidate = " ".join(re.findall(r"[A-Za-z0-9.,:/+-]+", label))
+        return candidate or "text"
+
+
+def _ocr_overlay(image: Image.Image, tokens: list[dict]) -> Image.Image:
+    overlay = image.convert("RGBA")
+    boxes = Image.new("RGBA", overlay.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(boxes)
+    try:
+        font = ImageFont.load_default(size=max(14, round(min(image.size) * 0.018)))
+    except TypeError:
+        font = ImageFont.load_default()
+    for token in tokens:
+        bbox = ImageBBox.model_validate(token["bbox"])
+        rectangle = (
+            round(image.width * bbox.x_min / 1000),
+            round(image.height * bbox.y_min / 1000),
+            round(image.width * bbox.x_max / 1000),
+            round(image.height * bbox.y_max / 1000),
+        )
+        color = (37, 99, 235, 210) if token["confidence"] >= 0.75 else (220, 38, 38, 230)
+        draw.rectangle(rectangle, outline=color, width=2)
+        label = f"{token['id']}: {_safe_label_text(token['raw_text'])}"
+        label_x = min(image.width - 1, rectangle[2] + 5)
+        label_y = max(0, rectangle[1] - 18)
+        label_box = draw.textbbox((label_x, label_y), label, font=font)
+        if label_box[2] > image.width:
+            label_x = max(0, rectangle[0] - (label_box[2] - label_box[0]) - 5)
+            label_box = draw.textbbox((label_x, label_y), label, font=font)
+        draw.rectangle(label_box, fill=(255, 255, 255, 205), outline=color, width=1)
+        draw.text((label_box[0], label_box[1]), label, fill=color, font=font)
+    return Image.alpha_composite(overlay, boxes).convert("RGB")
+
+
+def _cleanup_ocr_cache() -> None:
+    ttl_hours = max(1, settings.ocr_cache_ttl_hours)
+    cutoff = datetime.now(UTC).timestamp() - ttl_hours * 3600
+    cache_root = settings.ocr_cache_dir
+    try:
+        if not cache_root.exists():
+            return
+        for item in cache_root.iterdir():
+            if item.is_dir() and item.stat().st_mtime < cutoff:
+                shutil.rmtree(item, ignore_errors=True)
+    except OSError:
+        return
+
+
+def _prepare_ocr_assist(path: Path, rotation: int) -> dict:
+    _cleanup_ocr_cache()
+    image = _oriented_image(path, rotation, trim_document=True)
+    image_hash = _image_hash(image)
+    cache_dir = settings.ocr_cache_dir / image_hash
+    original_path = cache_dir / "oriented-original.jpg"
+    overlay_path = cache_dir / "ocr-overlay.png"
+    tokens_path = cache_dir / "ocr-tokens.json"
+    crops_dir = cache_dir / "crops"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    crops_dir.mkdir(exist_ok=True)
+    image.save(original_path, "JPEG", quality=94, optimize=True)
+    if tokens_path.exists():
+        try:
+            tokens = json.loads(tokens_path.read_text(encoding="utf-8")).get("tokens", [])
+        except (OSError, json.JSONDecodeError):
+            tokens = []
+    else:
+        tokens = _run_local_ocr(original_path, image, image_hash, rotation)
+        tokens_path.write_text(
+            json.dumps(
+                {
+                    "image_hash": image_hash,
+                    "rotation_degrees": rotation,
+                    "image_size": {"width": image.width, "height": image.height},
+                    "tokens": tokens,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    _ocr_overlay(image, tokens).save(overlay_path, "PNG")
+    crop_paths: list[Path] = []
+    for token in tokens[:16]:
+        numeric = bool(token.get("normalized_candidates"))
+        if not numeric and token.get("confidence", 1) >= 0.75:
+            continue
+        bbox = ImageBBox.model_validate(token["bbox"])
+        pad = 18
+        left = max(0, round(image.width * bbox.x_min / 1000) - pad)
+        top = max(0, round(image.height * bbox.y_min / 1000) - pad)
+        right = min(image.width, round(image.width * bbox.x_max / 1000) + pad)
+        bottom = min(image.height, round(image.height * bbox.y_max / 1000) + pad)
+        crop_path = crops_dir / f"{token['id']}.png"
+        image.crop((left, top, max(left + 1, right), max(top + 1, bottom))).save(crop_path, "PNG")
+        crop_paths.append(crop_path)
+    return {
+        "image_hash": image_hash,
+        "cache_dir": str(cache_dir),
+        "oriented_original": original_path,
+        "overlay": overlay_path,
+        "tokens_path": tokens_path,
+        "tokens": tokens,
+        "crops": crop_paths[:8],
+    }
+
+
+def _image_path_data_url(path: Path, max_size: int = 1800) -> str:
+    with Image.open(path) as image:
+        return _image_data_url(image.convert("RGB"), max_size=max_size)
+
+
+def _ocr_assist_content(ocr_assist: dict | None) -> list[dict]:
+    if not ocr_assist:
+        return []
+    tokens = ocr_assist.get("tokens") or []
+    catalog = [
+        {
+            "id": token["id"],
+            "raw_text": token["raw_text"],
+            "normalized_candidates": token.get("normalized_candidates", []),
+            "bbox": token["bbox"],
+            "orientation": token.get("orientation", "free"),
+            "confidence": token.get("confidence", 0),
+        }
+        for token in tokens[:80]
+    ]
+    content: list[dict] = [
+        {
+            "type": "text",
+            "text": (
+                "OCR 辅助候选已在第一次视觉识别前生成；它们只是候选证据，必须回看原图确认。"
+                f"\n图片哈希：{ocr_assist['image_hash']}\nOCR token 清单：\n"
+                + json.dumps(catalog, ensure_ascii=False)
+            ),
+        },
+        {"type": "image_url", "image_url": {"url": _image_path_data_url(Path(ocr_assist["overlay"])), "detail": "high"}},
+    ]
+    for crop in ocr_assist.get("crops", [])[:4]:
+        content.extend(
+            [
+                {"type": "text", "text": f"OCR 局部裁图：{Path(crop).stem}"},
+                {"type": "image_url", "image_url": {"url": _image_path_data_url(Path(crop), max_size=900), "detail": "high"}},
+            ]
+        )
+    return content
+
+
 def _extract_json(content: object) -> dict:
     if isinstance(content, list):
         content = "".join(str(item.get("text", "")) for item in content if isinstance(item, dict))
@@ -992,6 +1262,7 @@ async def _collect_evidence_with_tools(
     rotation: int,
     model: str,
     trace_ids: list[str],
+    ocr_assist: dict | None = None,
 ) -> PlanEvidenceReport:
     messages: list[dict] = [
         {"role": "system", "content": PLAN_EVIDENCE_PROMPT},
@@ -1000,6 +1271,7 @@ async def _collect_evidence_with_tools(
             "content": [
                 {"type": "text", "text": f"程序已将原图顺时针旋转 {rotation} 度。请开始采集证据。"},
                 {"type": "image_url", "image_url": {"url": image_data_url(path, rotation, trim_document=True), "detail": "high"}},
+                *_ocr_assist_content(ocr_assist),
             ],
         },
     ]
@@ -1102,6 +1374,7 @@ async def _collect_evidence_hosted(
     rotation: int,
     model: str,
     trace_ids: list[str],
+    ocr_assist: dict | None = None,
 ) -> PlanEvidenceReport:
     evidence: list[VisualEvidence] = []
     uncertain: list[str] = []
@@ -1117,6 +1390,7 @@ async def _collect_evidence_hosted(
                         "content": [
                             {"type": "text", "text": f"这是视图 {view_id}。逐项读取其中可见证据。"},
                             {"type": "image_url", "image_url": {"url": _crop_data_url(path, rotation, region, enhance=view_id != "full"), "detail": "high"}},
+                            *_ocr_assist_content(ocr_assist),
                         ],
                     },
                 ],
@@ -2155,20 +2429,27 @@ async def analyze_floorplan(
     trace_ids: list[str] = []
     async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
         rotation = rotation_degrees if rotation_degrees is not None else await _detect_plan_rotation(client, endpoint, headers, path, trace_ids)
+        ocr_assist = _prepare_ocr_assist(path, rotation)
         report: PlanEvidenceReport | None = None
         used_model: str | None = None
         for model in _models():
             try:
                 if _supports_visual_tools(model):
                     try:
-                        report = await _collect_evidence_with_tools(client, endpoint, headers, path, rotation, model, trace_ids)
+                        report = await _collect_evidence_with_tools(
+                            client, endpoint, headers, path, rotation, model, trace_ids, ocr_assist=ocr_assist,
+                        )
                     except AIResponseError as tool_error:
                         errors.append(f"{model} 工具采集失败: {tool_error}")
                         if _capacity_error(tool_error):
                             continue
-                        report = await _collect_evidence_hosted(client, endpoint, headers, path, rotation, model, trace_ids)
+                        report = await _collect_evidence_hosted(
+                            client, endpoint, headers, path, rotation, model, trace_ids, ocr_assist=ocr_assist,
+                        )
                 else:
-                    report = await _collect_evidence_hosted(client, endpoint, headers, path, rotation, model, trace_ids)
+                    report = await _collect_evidence_hosted(
+                        client, endpoint, headers, path, rotation, model, trace_ids, ocr_assist=ocr_assist,
+                    )
                 used_model = model
                 break
             except AIAuthenticationError:

@@ -1,6 +1,7 @@
 import pytest
 import httpx
 import numpy as np
+from pathlib import Path
 from PIL import Image, ImageDraw
 
 from backend.app import ai
@@ -34,6 +35,19 @@ def valid_spec() -> RoomSpec:
         boundary=[Point2D(x_mm=0, z_mm=0), Point2D(x_mm=1800, z_mm=0), Point2D(x_mm=1800, z_mm=2400)],
         height_mm=2600,
     )
+
+
+def test_agen17_long_term_real_sample_is_persisted_and_orientable() -> None:
+    sample_dir = Path(__file__).resolve().parents[2] / "evidence" / "samples" / "real" / "agen-17-long-term"
+    image_path = sample_dir / "source.jpg"
+    manifest_path = sample_dir / "manifest.json"
+
+    assert image_path.exists()
+    assert manifest_path.exists()
+
+    oriented = ai._oriented_image(image_path)
+    assert oriented.size == (3024, 4032)
+    assert oriented.mode == "RGB"
 
 
 @pytest.mark.asyncio

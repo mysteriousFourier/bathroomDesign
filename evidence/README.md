@@ -20,6 +20,7 @@ Current mapping note: EV-007 and EV-008 describe implemented W1D3/W1D4 geometry-
 | `registry/threshold-registry.md` | Display summary of threshold rows |
 | `samples/synthetic/*.json` | 5 W1D1-schema-compliant synthetic measurement fixtures |
 | `samples/golden/*.json` | 5 expected geometry/topology golden JSON files |
+| `samples/real/agen-17-long-term/` | Persisted real floorplan image for AGEN-17 OCR annotation and visual-model regression checks |
 | `samples/synthetic-fixtures.md` | Display summary of the synthetic fixture set |
 | `catalog/failure-examples.md` | 40 named failure examples (8 implemented in W1D1, 32 scoped for W1D3–W1D5) |
 | `real-sample-scope.md` | Fixed two-real-sample scope note |

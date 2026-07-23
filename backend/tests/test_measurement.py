@@ -296,7 +296,7 @@ def test_temporary_visual_substitute_real_plan_output_exports_traceable_measurem
                 field="visual_evidence:wall-chain-real-plan",
                 value="1840 x 5530 主墙体轮廓",
                 source=SourceKind.measured,
-                asset_id="019f87f8-2747-75c6-9be1-0e0e19ea5561",
+                asset_id="019f87f8-6b1e-7dd2-857a-60abfe565b31",
                 bbox=ImageBBox(x_min=220, y_min=200, x_max=860, y_max=920),
                 confidence=0.82,
                 confirmed=True,
@@ -306,7 +306,7 @@ def test_temporary_visual_substitute_real_plan_output_exports_traceable_measurem
                 field="visual_evidence:door-800x2100",
                 value="800 x 2100",
                 source=SourceKind.measured,
-                asset_id="019f87f8-2747-75c6-9be1-0e0e19ea5561",
+                asset_id="019f87f8-6b1e-7dd2-857a-60abfe565b31",
                 bbox=ImageBBox(x_min=205, y_min=245, x_max=350, y_max=420),
                 confidence=0.86,
                 confirmed=True,
@@ -316,7 +316,7 @@ def test_temporary_visual_substitute_real_plan_output_exports_traceable_measurem
                 field="visual_evidence:room-height-real-plan",
                 value="门高/高度 2100",
                 source=SourceKind.measured,
-                asset_id="019f87f8-2747-75c6-9be1-0e0e19ea5561",
+                asset_id="019f87f8-6b1e-7dd2-857a-60abfe565b31",
                 bbox=ImageBBox(x_min=735, y_min=385, x_max=835, y_max=560),
                 confidence=0.76,
                 confirmed=True,
@@ -326,7 +326,7 @@ def test_temporary_visual_substitute_real_plan_output_exports_traceable_measurem
                 field="visual_evidence:right-drain",
                 value="右侧地漏 300/200/700 定位",
                 source=SourceKind.measured,
-                asset_id="019f87f8-2747-75c6-9be1-0e0e19ea5561",
+                asset_id="019f87f8-6b1e-7dd2-857a-60abfe565b31",
                 bbox=ImageBBox(x_min=690, y_min=360, x_max=860, y_max=600),
                 confidence=0.78,
                 confirmed=True,
@@ -336,7 +336,7 @@ def test_temporary_visual_substitute_real_plan_output_exports_traceable_measurem
                 field="visual_evidence:bottom-drain",
                 value="下侧地漏 400/450 定位",
                 source=SourceKind.measured,
-                asset_id="019f87f8-2747-75c6-9be1-0e0e19ea5561",
+                asset_id="019f87f8-6b1e-7dd2-857a-60abfe565b31",
                 bbox=ImageBBox(x_min=690, y_min=810, x_max=870, y_max=950),
                 confidence=0.74,
                 confirmed=True,
@@ -352,7 +352,7 @@ def test_temporary_visual_substitute_real_plan_output_exports_traceable_measurem
     assert sufficient
     assert missing == []
     assert not any(issue.severity == "error" for issue in issues)
-    assert measurement.source_asset_ids == ["019f87f8-2747-75c6-9be1-0e0e19ea5561"]
+    assert measurement.source_asset_ids == ["019f87f8-6b1e-7dd2-857a-60abfe565b31"]
     assert all(wall.evidence_ids == ["wall-chain-real-plan"] for wall in measurement.walls)
     assert measurement.openings[0].evidence_ids == ["door-800x2100"]
     assert measurement.heights.evidence_ids != ["room-height-real-plan"]

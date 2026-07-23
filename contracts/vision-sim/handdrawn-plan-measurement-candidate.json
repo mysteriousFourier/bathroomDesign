@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0.0",
+  "candidateId": "vision-sim-handdrawn-plan-001",
+  "source": {
+    "agent": "Vision",
+    "simulation": true,
+    "output": "evidence/vision-sim/handdrawn-plan-vision-output.json",
+    "sourceIssueId": "1e54ced5-1384-4300-8233-30a8f4c999e0",
+    "sourceCommentId": "2123f6d0-866f-4d81-9a96-caa4f1c514ed",
+    "attachmentId": "019f87f8-6b1e-7dd2-857a-60abfe565b31"
+  },
+  "status": "unverified",
+  "notRealAiE2E": true,
+  "unit": "mm",
+  "coordinateSystem": {
+    "origin": "main room top-left candidate",
+    "xAxis": "right",
+    "yAxis": "down",
+    "quality": "candidate_only_not_orthorectified"
+  },
+  "roomOutline": {
+    "widthMm": 1840,
+    "depthMm": 5530,
+    "verticesMm": [
+      { "x": 0, "y": 0 },
+      { "x": 1840, "y": 0 },
+      { "x": 1840, "y": 5530 },
+      { "x": 0, "y": 5530 }
+    ],
+    "sourceMeasurementIds": [
+      "M-outer-width-top-1840",
+      "M-outer-width-bottom-1840",
+      "M-outer-depth-left-5530"
+    ],
+    "confidence": 0.7
+  },
+  "height": {
+    "roomHeightMm": 2100,
+    "sourceMeasurementId": "M-height-2100",
+    "confidence": 0.64,
+    "riskNote": "Moderate confidence handwritten height note; not accepted as production height without confirmation."
+  },
+  "openings": [
+    {
+      "id": "door_01",
+      "type": "door",
+      "wall": "left_or_upper_left_boundary",
+      "widthMm": 800,
+      "heightMm": 2100,
+      "positionMm": null,
+      "sourceMeasurementIds": ["M-door-800x2100"],
+      "confidence": 0.66,
+      "riskNote": "Door size is usable for simulation; exact insertion coordinate remains unresolved."
+    }
+  ],
+  "utilityMarkers": [
+    {
+      "id": "upper_right_marker_01",
+      "typeCandidate": "floor_drain_or_pipe_marker",
+      "positionMm": { "x": 1640, "y": 500 },
+      "sourceMeasurementIds": ["M-right-upper-offset-200"],
+      "confidence": 0.56
+    },
+    {
+      "id": "right_middle_square_01",
+      "typeCandidate": "pipe_or_drain_square_symbol",
+      "positionMm": { "x": 1640, "y": 1200 },
+      "sourceMeasurementIds": ["M-right-middle-square-200-700"],
+      "confidence": 0.48
+    },
+    {
+      "id": "bottom_left_marker_01",
+      "typeCandidate": "pipe_or_drain_marker",
+      "positionMm": { "x": 400, "y": 5230 },
+      "sourceMeasurementIds": ["M-bottom-left-notch-400-300"],
+      "confidence": 0.51
+    },
+    {
+      "id": "bottom_right_marker_01",
+      "typeCandidate": "pipe_or_drain_square_symbol",
+      "positionMm": { "x": 1440, "y": 5380 },
+      "sourceMeasurementIds": ["M-bottom-right-marker-400-150"],
+      "confidence": 0.52
+    }
+  ],
+  "acceptanceBoundary": {
+    "usableForW1SimulationValidation": true,
+    "requiresHumanConfirmation": true,
+    "cannotReplaceRealAiApi": true,
+    "cannotReplaceReferenceDwgQa": true
+  }
+}

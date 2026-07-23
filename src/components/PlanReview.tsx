@@ -86,8 +86,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove }: {
         }}
       >
         <defs>
-          <pattern id="minor-grid" width="18" height="18" patternUnits="userSpaceOnUse"><path d="M 18 0 L 0 0 0 18" fill="none" stroke="#d9dcd5" strokeWidth="0.7" /></pattern>
-          <pattern id="major-grid" width="90" height="90" patternUnits="userSpaceOnUse"><rect width="90" height="90" fill="url(#minor-grid)" /><path d="M 90 0 L 0 0 0 90" fill="none" stroke="#c4c8bf" strokeWidth="1" /></pattern>
+          <pattern id="minor-grid" width="18" height="18" patternUnits="userSpaceOnUse"><path d="M 18 0 L 0 0 0 18" fill="none" style={{ stroke: 'var(--grid-minor)' }} strokeWidth="0.7" /></pattern>
+          <pattern id="major-grid" width="90" height="90" patternUnits="userSpaceOnUse"><rect width="90" height="90" fill="url(#minor-grid)" /><path d="M 90 0 L 0 0 0 90" fill="none" style={{ stroke: 'var(--grid-major)' }} strokeWidth="1" /></pattern>
         </defs>
         <rect width={canvasWidth} height={canvasHeight} fill="url(#major-grid)" data-pan-surface="true" />
         <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>

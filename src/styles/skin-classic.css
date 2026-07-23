@@ -1,0 +1,144 @@
+/* 版式 B · 经典：沿用原有工程工具风格（未使用设计 skill），补齐深色变量。 */
+
+:root, :root[data-skin='classic'] {
+  --font-display: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-body: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: Consolas, "Noto Sans Mono CJK SC", monospace;
+
+  --header-h: 58px;
+  --rail-w: 248px;
+  --inspector-w: 292px;
+  --rail-w-mid: 218px;
+  --inspector-w-mid: 260px;
+
+  --radius-s: 3px;
+  --radius-m: 4px;
+  --motion-dur: 180ms;
+  --motion-ease: ease;
+
+  --paper: #f4f3ef;
+  --surface: #faf9f6;
+  --surface-2: #ecece7;
+  --surface-3: #dddeda;
+  --surface-hover: #ffffff;
+  --rail-bg: #f7f6f2;
+  --sheet: #faf9f6;
+  --canvas-bg: #ecece7;
+  --glass: rgb(250 249 246 / 94%);
+
+  --ink: #20231f;
+  --ink-soft: #424741;
+  --muted: #696e67;
+  --faint: #92978e;
+  --on-ink: #ffffff;
+
+  --line: #d9dcd5;
+  --line-strong: #bfc3ba;
+  --line-hot: #8f958b;
+
+  --accent: #2d6650;
+  --accent-strong: #245341;
+  --accent-soft: #dce9e2;
+  --accent-ink: #ffffff;
+  --accent-line: #9fbaab;
+
+  --ok: #2d6650;
+  --ok-soft: #dce9e2;
+  --ok-line: #a8bfaf;
+  --ok-glass: rgb(239 247 243 / 95%);
+  --warn: #9a6815;
+  --warn-soft: #f1e4c7;
+  --warn-line: #d1b77d;
+  --warn-glass: rgb(249 242 224 / 96%);
+  --err: #a7473d;
+  --err-soft: #f0dbd7;
+  --err-line: #cf9e97;
+  --err-glass: rgb(249 239 237 / 96%);
+
+  --brand-bg: #20231f;
+  --brand-color: #f4f3ef;
+
+  --shadow-1: 0 2px 8px rgb(32 35 31 / 7%);
+  --shadow-2: 0 12px 36px rgb(32 35 31 / 12%);
+
+  --grid-minor: #d9dcd5;
+  --grid-major: #c4c8bf;
+  --room-fill: rgb(244 243 239 / 72%);
+  --room-stroke: #4d534c;
+  --dim-faint: #b7bbb3;
+  --opening: #b78022;
+  --opening-strong: #7e5010;
+  --fixture-fill: #dce9e2;
+  --fixture-stroke: #3e715c;
+  --fixture-selected-fill: #f1e4c7;
+  --fixture-selected-stroke: #9a6815;
+  --fixture-text: #2d4d40;
+
+  --badge-derived-color: #536052;
+  --badge-derived-bg: #e1e5df;
+  --object-icon-bg: #dddeda;
+}
+
+:root[data-skin='classic'][data-theme='dark'] {
+  --paper: #1b1d1a;
+  --surface: #22241f;
+  --surface-2: #2a2c27;
+  --surface-3: #34372f;
+  --surface-hover: #2e302a;
+  --rail-bg: #1f211c;
+  --sheet: #24261f;
+  --canvas-bg: #151714;
+  --glass: rgb(34 36 31 / 93%);
+
+  --ink: #e8eae3;
+  --ink-soft: #c9ccc2;
+  --muted: #9a9f94;
+  --faint: #6d7266;
+  --on-ink: #10120e;
+
+  --line: #34372f;
+  --line-strong: #45493f;
+  --line-hot: #5c6154;
+
+  --accent: #5ea887;
+  --accent-strong: #74b898;
+  --accent-soft: #2c3f36;
+  --accent-ink: #0f1511;
+  --accent-line: #3f6355;
+
+  --ok: #63a884;
+  --ok-soft: #26382f;
+  --ok-line: #3c5d4c;
+  --ok-glass: rgb(34 48 40 / 93%);
+  --warn: #cfa14e;
+  --warn-soft: #3d331f;
+  --warn-line: #6b5a33;
+  --warn-glass: rgb(52 44 26 / 93%);
+  --err: #d07c70;
+  --err-soft: #412622;
+  --err-line: #6e3f39;
+  --err-glass: rgb(56 32 29 / 93%);
+
+  --brand-bg: #e8eae3;
+  --brand-color: #1b1d1a;
+
+  --shadow-1: 0 2px 8px rgb(0 0 0 / 35%);
+  --shadow-2: 0 12px 36px rgb(0 0 0 / 45%);
+
+  --grid-minor: #2e3028;
+  --grid-major: #3a3d33;
+  --room-fill: rgb(36 38 31 / 72%);
+  --room-stroke: #8b9084;
+  --dim-faint: #5c6155;
+  --opening: #c99840;
+  --opening-strong: #e0b264;
+  --fixture-fill: #2c3f36;
+  --fixture-stroke: #5ea887;
+  --fixture-selected-fill: #3d331f;
+  --fixture-selected-stroke: #cfa14e;
+  --fixture-text: #a8cbb9;
+
+  --badge-derived-color: #9aa596;
+  --badge-derived-bg: #33362e;
+  --object-icon-bg: #3a3d35;
+}

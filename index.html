@@ -3,9 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#20231f" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f3ec" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1b1a16" />
     <link rel="icon" href="data:," />
     <title>量界 · 卫生间建模工作台</title>
+    <script>
+      // 首帧前恢复外观设置，避免深浅色/版式闪烁。
+      (function () {
+        try {
+          var theme = localStorage.getItem('liangjie-theme') || 'system'
+          var skin = localStorage.getItem('liangjie-skin') || 'atelier'
+          if (['light', 'dark', 'system'].indexOf(theme) < 0) theme = 'system'
+          if (['atelier', 'classic'].indexOf(skin) < 0) skin = 'atelier'
+          var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          var root = document.documentElement
+          root.dataset.themeSetting = theme
+          root.dataset.theme = dark ? 'dark' : 'light'
+          root.dataset.skin = skin
+          root.style.colorScheme = dark ? 'dark' : 'light'
+        } catch (error) {
+          document.documentElement.dataset.theme = 'light'
+          document.documentElement.dataset.skin = 'atelier'
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

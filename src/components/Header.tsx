@@ -1,4 +1,5 @@
-import { Box, Check, Download, FileJson, Redo2, Save, Undo2 } from 'lucide-react'
+import { Box, Check, Download, FileJson, Monitor, Moon, Redo2, Save, Sun, Undo2 } from 'lucide-react'
+import { appearance, useSkin, useThemeSetting, type Skin, type ThemeSetting } from '../appearance'
 
 interface HeaderProps {
   projectName?: string
@@ -15,6 +16,55 @@ interface HeaderProps {
   onConfirm: () => void
   onExportMeasurement: () => void
   onExport: () => void
+}
+
+const themeOptions: Array<{ value: ThemeSetting; label: string; hint: string; icon: typeof Sun }> = [
+  { value: 'light', label: '浅色', hint: '浅色模式', icon: Sun },
+  { value: 'dark', label: '深色', hint: '深色模式', icon: Moon },
+  { value: 'system', label: '系统', hint: '跟随系统外观设置', icon: Monitor },
+]
+
+const skinOptions: Array<{ value: Skin; label: string; hint: string }> = [
+  { value: 'atelier', label: '绘所', hint: '绘所版式 · 设计版' },
+  { value: 'classic', label: '经典', hint: '经典版式 · 实用版' },
+]
+
+function ThemeSwitcher() {
+  const setting = useThemeSetting()
+  return (
+    <div className="segmented" role="group" aria-label="外观模式">
+      {themeOptions.map(({ value, label, hint, icon: Icon }) => (
+        <button
+          key={value}
+          className={setting === value ? 'segment active' : 'segment'}
+          title={hint}
+          aria-pressed={setting === value}
+          onClick={() => appearance.setThemeSetting(value)}
+        >
+          <Icon size={15} /><span className="segment-label">{label}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function SkinSwitcher() {
+  const skin = useSkin()
+  return (
+    <div className="segmented" role="group" aria-label="界面版式">
+      {skinOptions.map(({ value, label, hint }) => (
+        <button
+          key={value}
+          className={skin === value ? 'segment active' : 'segment'}
+          title={hint}
+          aria-pressed={skin === value}
+          onClick={() => appearance.setSkin(value)}
+        >
+          <span>{label}</span>
+        </button>
+      ))}
+    </div>
+  )
 }
 
 export function Header({ projectName, dirty, canUndo, canRedo, canConfirm, canModel, canExportMeasurement, saving, onUndo, onRedo, onSave, onConfirm, onExportMeasurement, onExport }: HeaderProps) {
@@ -36,6 +86,11 @@ export function Header({ projectName, dirty, canUndo, canRedo, canConfirm, canMo
         <button className="button secondary" onClick={onConfirm} disabled={!canConfirm}><Check size={16} />确认数据</button>
         <button className="button secondary" onClick={onExportMeasurement} disabled={!canExportMeasurement} title="下载当前已保存的量房数据"><FileJson size={16} />量房 JSON</button>
         <button className="button primary" onClick={onExport} disabled={!canModel}><Download size={16} />导出 GLB</button>
+        <span className="toolbar-separator" />
+        <div className="header-switchers">
+          <ThemeSwitcher />
+          <SkinSwitcher />
+        </div>
       </div>
     </header>
   )

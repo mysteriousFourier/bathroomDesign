@@ -38,8 +38,11 @@ def _measurement_status(source: SourceKind, confidence: float, confirmed: bool =
 
 
 def _evidence_id(observation: Observation, index: int, used: set[str]) -> str:
-    prefix = "visual_evidence:"
-    candidate = observation.field[len(prefix):] if observation.field.startswith(prefix) else f"EV{index + 1}"
+    prefixes = ("visual_evidence:", "ocr:")
+    candidate = next(
+        (observation.field[len(prefix):] for prefix in prefixes if observation.field.startswith(prefix)),
+        f"EV{index + 1}",
+    )
     candidate = re.sub(r"[^A-Za-z0-9_.:-]", "-", candidate).strip("-") or f"EV{index + 1}"
     base = candidate[:100]
     suffix = 2

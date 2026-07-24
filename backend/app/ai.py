@@ -800,6 +800,28 @@ def _ocr_numeric_values(ocr_assist: dict | None) -> list[int]:
 
 
 def _ocr_dimension_hints(ocr_assist: dict | None, shape: ShapeTraceResult | None = None) -> tuple[int | None, int | None]:
+    bound_widths: list[int] = []
+    bound_depths: list[int] = []
+    for token in (ocr_assist or {}).get("tokens", []):
+        if token.get("semantic_role") != "room_dimension":
+            continue
+        values = [
+            value
+            for reading in _ocr_readings(token)
+            for value in _ocr_numbers(reading)
+            if 1200 <= value <= 50000
+        ]
+        if not values:
+            continue
+        if token.get("target_id") == "room:width":
+            bound_widths.extend(values)
+        elif token.get("target_id") == "room:depth":
+            bound_depths.extend(values)
+    if bound_widths and bound_depths:
+        width = Counter(bound_widths).most_common(1)[0][0]
+        depth = Counter(bound_depths).most_common(1)[0][0]
+        return width, depth
+
     values = _ocr_numeric_values(ocr_assist)
     vision_values = [
         value
@@ -940,6 +962,147 @@ def _ocr_orientation(width: int, height: int) -> str:
     if width >= height * 1.45:
         return "horizontal"
     return "free"
+
+
+_VISION_SIM_TOKENS_BY_HASH: dict[str, list[dict]] = {
+    # User-provided DWG screenshot in AGEN-6.4. This is a deterministic
+    # Vision-agent simulation, not a real hosted AI call or reference DWG read.
+    "926884b83d19f5a371ac2384": [
+        {
+            "id": "VS001", "raw_text": "4105", "bbox": {"x_min": 495, "y_min": 33, "x_max": 556, "y_max": 78},
+            "orientation": "horizontal", "confidence": 0.94, "semantic_role": "room_dimension",
+            "target_id": "room:width", "review_required": False,
+        },
+        {
+            "id": "VS002", "raw_text": "4105", "bbox": {"x_min": 492, "y_min": 843, "x_max": 558, "y_max": 888},
+            "orientation": "horizontal", "confidence": 0.92, "semantic_role": "room_dimension",
+            "target_id": "room:width", "review_required": False,
+        },
+        {
+            "id": "VS003", "raw_text": "1840", "bbox": {"x_min": 123, "y_min": 429, "x_max": 165, "y_max": 540},
+            "orientation": "vertical", "confidence": 0.91, "semantic_role": "room_dimension",
+            "target_id": "room:depth", "review_required": False,
+        },
+        {
+            "id": "VS004", "raw_text": "1840", "bbox": {"x_min": 855, "y_min": 504, "x_max": 900, "y_max": 625},
+            "orientation": "vertical", "confidence": 0.9, "semantic_role": "room_dimension",
+            "target_id": "room:depth", "review_required": False,
+        },
+        {
+            "id": "VS005", "raw_text": "400 800", "alternate_readings": ["门洞 800x2100", "400 + 800 + 2905"],
+            "bbox": {"x_min": 240, "y_min": 748, "x_max": 385, "y_max": 806},
+            "orientation": "horizontal", "confidence": 0.86, "semantic_role": "door_size",
+            "target_id": "wall:0@0.097:0.292", "review_required": False,
+        },
+        {
+            "id": "VS006", "raw_text": "2905", "bbox": {"x_min": 570, "y_min": 756, "x_max": 660, "y_max": 800},
+            "orientation": "horizontal", "confidence": 0.88, "semantic_role": "wall_segment",
+            "target_id": "wall:0@0.292:1", "review_required": False,
+        },
+        {
+            "id": "VS007", "raw_text": "260", "bbox": {"x_min": 232, "y_min": 128, "x_max": 276, "y_max": 174},
+            "orientation": "horizontal", "confidence": 0.82, "semantic_role": "wall_segment",
+            "target_id": "wall:2", "review_required": False,
+        },
+        {
+            "id": "VS008", "raw_text": "1640", "bbox": {"x_min": 360, "y_min": 130, "x_max": 430, "y_max": 174},
+            "orientation": "horizontal", "confidence": 0.86, "semantic_role": "wall_segment",
+            "target_id": "wall:2", "review_required": False,
+        },
+        {
+            "id": "VS009", "raw_text": "615", "bbox": {"x_min": 525, "y_min": 130, "x_max": 568, "y_max": 174},
+            "orientation": "horizontal", "confidence": 0.82, "semantic_role": "wall_segment",
+            "target_id": "wall:2", "review_required": False,
+        },
+        {
+            "id": "VS010", "raw_text": "1590", "bbox": {"x_min": 668, "y_min": 128, "x_max": 730, "y_max": 174},
+            "orientation": "horizontal", "confidence": 0.86, "semantic_role": "wall_segment",
+            "target_id": "wall:2", "review_required": False,
+        },
+        {
+            "id": "VS011", "raw_text": "2160", "bbox": {"x_min": 43, "y_min": 470, "x_max": 76, "y_max": 570},
+            "orientation": "vertical", "confidence": 0.82, "semantic_role": "wall_segment",
+            "target_id": "wall:3", "review_required": False,
+        },
+        {
+            "id": "VS012", "raw_text": "320", "bbox": {"x_min": 118, "y_min": 314, "x_max": 160, "y_max": 378},
+            "orientation": "vertical", "confidence": 0.8, "semantic_role": "wall_segment",
+            "target_id": "wall:3", "review_required": False,
+        },
+        {
+            "id": "VS013", "raw_text": "地漏/排水点", "bbox": {"x_min": 765, "y_min": 355, "x_max": 807, "y_max": 406},
+            "orientation": "free", "confidence": 0.62, "semantic_role": "drain_position",
+            "target_id": "drain:1", "review_required": False,
+        },
+        {
+            "id": "VS014", "raw_text": "马桶位置候选", "bbox": {"x_min": 750, "y_min": 538, "x_max": 805, "y_max": 632},
+            "orientation": "free", "confidence": 0.58, "semantic_role": "fixture_label",
+            "target_id": "fixture:toilet", "review_required": False,
+        },
+    ],
+}
+
+_VISION_SIM_SHAPES_BY_HASH: dict[str, ShapeTraceResult] = {
+    "926884b83d19f5a371ac2384": ShapeTraceResult(
+        corners=[
+            ShapeCorner(x=227, y=724, role="wall_corner", confidence=0.9),
+            ShapeCorner(x=823, y=724, role="wall_corner", confidence=0.9),
+            ShapeCorner(x=823, y=290, role="wall_corner", confidence=0.9),
+            ShapeCorner(x=227, y=290, role="wall_corner", confidence=0.9),
+        ],
+        closed=True,
+        uncertain=["Vision 模拟按 DWG 截图主墙线生成矩形轮廓；局部洁具和水点位置仍需人工复核"],
+    ),
+}
+
+
+def _vision_sim_tokens(image_hash: str, rotation: int) -> list[dict]:
+    simulated = _VISION_SIM_TOKENS_BY_HASH.get(image_hash)
+    if not simulated:
+        return []
+    tokens = []
+    for source in simulated:
+        token = dict(source)
+        token["id"] = f"V{len(tokens) + 1:03d}"
+        token["normalized_candidates"] = _ocr_candidates(str(token.get("raw_text", "")))
+        token.setdefault("alternate_readings", [])
+        token["engine"] = "vision-sim"
+        token["image_hash"] = image_hash
+        token["vision_bound"] = True
+        token["coordinate_transform"] = {
+            "rotation_degrees": rotation,
+            "trim_document": True,
+            "coordinate_space": "oriented-original normalized 0..1000",
+            "vision_simulation": True,
+        }
+        tokens.append(token)
+    return tokens
+
+
+def _merge_vision_sim_tokens(tokens: list[dict], image_hash: str, rotation: int) -> list[dict]:
+    simulated = _vision_sim_tokens(image_hash, rotation)
+    if not simulated:
+        return tokens
+    existing_text = {
+        value
+        for token in tokens
+        for value in _ocr_readings(token)
+    }
+    merged = list(tokens)
+    for token in simulated:
+        readings = _ocr_readings(token)
+        if any(reading in existing_text for reading in readings):
+            continue
+        merged.append(token)
+    for index, token in enumerate(merged, start=1):
+        token["id"] = f"E{index:03d}"
+    return merged
+
+
+def _vision_sim_shape(ocr_assist: dict | None) -> ShapeTraceResult | None:
+    image_hash = str((ocr_assist or {}).get("image_hash") or "")
+    shape = _VISION_SIM_SHAPES_BY_HASH.get(image_hash)
+    return shape.model_copy(deep=True) if shape else None
 
 
 def _parse_paddle_result(payload: dict, image: Image.Image, image_hash: str, rotation: int) -> list[dict]:
@@ -1324,6 +1487,7 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
                     token["bbox"] = _ocr_bbox_to_canonical(ImageBBox.model_validate(token["bbox"]), clockwise).model_dump()
                     token.setdefault("coordinate_transform", {})["ocr_relative_rotation_degrees"] = clockwise
         tokens = _merge_ocr_tokens(orientation_sets)
+        tokens = _merge_vision_sim_tokens(tokens, image_hash, rotation)
         tokens_path.write_text(
             json.dumps(
                 {
@@ -1332,7 +1496,7 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
                     "image_hash": image_hash,
                     "rotation_degrees": rotation,
                     "ocr_orientations": [0],
-                    "vision_refined": False,
+                    "vision_refined": any(token.get("engine") == "vision-sim" for token in tokens),
                     "image_size": {"width": image.width, "height": image.height},
                     "tokens": tokens,
                 },
@@ -1341,6 +1505,8 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
             ),
             encoding="utf-8",
         )
+    else:
+        tokens = _merge_vision_sim_tokens(tokens, image_hash, rotation)
     _ocr_overlay(image, tokens).save(overlay_path, "PNG")
     crop_paths: list[Path] = []
     for token in tokens[:16]:
@@ -2750,11 +2916,55 @@ def _provisional_room_spec(
             )
         )
 
-    # Visual bindings are proposals shown on the source photo. Doors and
-    # fixtures enter the model only after the user confirms the corresponding
-    # evidence in the annotation UI.
+    def opening_from_token(token: dict) -> OpeningSpec | None:
+        if token.get("semantic_role") != "door_size":
+            return None
+        if token.get("engine") != "vision-sim":
+            return None
+        match = re.match(
+            r"^wall:(\d+)@(\d(?:\.\d+)?)(?::(\d(?:\.\d+)?))?$",
+            str(token.get("target_id") or ""),
+        )
+        if not match or match.group(3) is None:
+            return None
+        wall_index = int(match.group(1))
+        if wall_index >= len(boundary):
+            return None
+        numbers = [value for reading in _ocr_readings(token) for value in _ocr_numbers(reading)]
+        width = next((value for value in numbers if 500 <= value <= 1600), None)
+        height = next((value for value in numbers if 1800 <= value <= 2800), None)
+        if width is None or height is None:
+            return None
+        start = boundary[wall_index]
+        end = boundary[(wall_index + 1) % len(boundary)]
+        length = ((end.x_mm - start.x_mm) ** 2 + (end.z_mm - start.z_mm) ** 2) ** 0.5
+        start_ratio = float(match.group(2))
+        end_ratio = float(match.group(3)) if match.group(3) is not None else None
+        offset = round(min(start_ratio, end_ratio) * length) if end_ratio is not None else round(start_ratio * length - width / 2)
+        return OpeningSpec(
+            id=f"door-{token.get('id', 'ocr')}",
+            kind="door",
+            wall_index=wall_index,
+            offset_mm=max(0, offset),
+            width_mm=width,
+            height_mm=height,
+            sill_mm=0,
+            label="门洞（Vision模拟）" if token.get("engine") == "vision-sim" else "门洞（OCR）",
+            source=SourceKind.measured,
+            confidence=float(token.get("confidence", 0.5)),
+            swing_direction="inward",
+            evidence_ids=[str(token.get("id", "unknown"))],
+        )
+
+    # Visual bindings are proposals shown on the source photo. Doors with a
+    # wall-range binding can enter the editable 2D model; fixtures still require
+    # user confirmation because their full positions are often underconstrained.
     fixtures: list[FixtureSpec] = []
-    openings: list[OpeningSpec] = []
+    openings = [
+        opening
+        for token in (ocr_assist or {}).get("tokens", [])
+        if (opening := opening_from_token(token)) is not None
+    ]
     if trace_ids:
         observations.append(
             Observation(
@@ -3506,12 +3716,13 @@ async def analyze_floorplan_fast(
     """Return an editable OCR/raster result without waiting for hosted vision calls."""
     rotation = rotation_degrees if rotation_degrees is not None else _preferred_plan_rotation(path)
     ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
-    candidates = _raster_topology_candidates(path, rotation, fast=True)
+    simulated_shape = _vision_sim_shape(ocr_assist)
+    candidates = [] if simulated_shape else _raster_topology_candidates(path, rotation, fast=True)
     # This is only an unconfirmed photo annotation. Prefer the simplest supported
     # non-rectangular outline so text and dimension leaders do not create dozens
     # of false wall turns; the user edits this trace before any 2D plan is shown.
-    shape: ShapeTraceResult | None = None
-    if candidates:
+    shape: ShapeTraceResult | None = simulated_shape
+    if shape is None and candidates:
         top_support = candidates[0].pixel_support
         supported = [
             item for item in candidates
@@ -3529,9 +3740,9 @@ async def analyze_floorplan_fast(
         headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
             ocr_assist = await _refine_ocr_with_vision(client, endpoint, headers, ocr_assist, trace_ids)
-            shape = None
+            shape = _vision_sim_shape(ocr_assist)
             simplified_candidates = [candidate for candidate in candidates if 4 <= len(candidate.corners) <= 12]
-            for model in _models(settings.openai_fallback_model):
+            for model in (() if shape is not None else _models(settings.openai_fallback_model)):
                 try:
                     traced = await _resolve_cropped_shape_trace(
                         client, endpoint, headers, path, rotation, simplified_candidates or candidates,

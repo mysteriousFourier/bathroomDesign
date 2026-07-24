@@ -106,6 +106,26 @@ def test_plan_extraction_builds_rectangle_and_keeps_evidence() -> None:
     assert any(observation.value == "底边 2855" for observation in spec.observations)
 
 
+def test_agen64_vision_sim_fills_dwg_screenshot_when_paddleocr_is_empty(monkeypatch) -> None:
+    monkeypatch.setattr(ai, "_run_local_ocr_batch", lambda _items: [[]])
+    ocr_assist = {
+        "tokens": ai._merge_vision_sim_tokens([], "926884b83d19f5a371ac2384", 0),
+        "rotation_degrees": 0,
+    }
+
+    spec = ai._provisional_room_spec(None, ocr_assist, asset_id="dwg-screenshot", allow_placeholders=True)
+
+    assert spec is not None
+    assert [(point.x_mm, point.z_mm) for point in spec.boundary] == [(0, 1840), (4105, 1840), (4105, 0), (0, 0)]
+    assert len(spec.openings) == 1
+    assert spec.openings[0].wall_index == 0
+    assert spec.openings[0].offset_mm == 398
+    assert spec.openings[0].width_mm == 800
+    assert spec.openings[0].height_mm == 2100
+    assert any(item.value == "4105" and item.semantic_role == "room_dimension" for item in spec.observations)
+    assert any(item.value == "400 800" and item.target_id == "wall:0@0.097:0.292" for item in spec.observations)
+
+
 def visual_report() -> PlanEvidenceReport:
     return PlanEvidenceReport(
         rotation_degrees=90,

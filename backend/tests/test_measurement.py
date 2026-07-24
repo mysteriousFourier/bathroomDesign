@@ -58,6 +58,8 @@ def non_rectangular_spec() -> RoomSpec:
 
 def test_non_rectangular_measurement_round_trip_preserves_topology_and_evidence() -> None:
     source = non_rectangular_spec()
+    source.openings[0].evidence_ids = ["E005"]
+    source.observations[0].field = "ocr:E005"
     measurement = measurement_from_spec(source, "measurement-1")
     issues, sufficient, missing, rebuilt = validate_measurement(measurement)
 
@@ -67,7 +69,7 @@ def test_non_rectangular_measurement_round_trip_preserves_topology_and_evidence(
     assert len(measurement.walls) == len(source.boundary)
     assert measurement.openings[0].wall_id == "wall-5"
     assert measurement.openings[0].thickness_mm == 40
-    assert measurement.openings[0].evidence_ids == ["door-width"]
+    assert measurement.openings[0].evidence_ids == ["E005"]
     assert measurement.evidence[0].bbox == ImageBBox(x_min=100, y_min=700, x_max=180, y_max=760)
     assert measurement.source_asset_ids == ["plan-1"]
     assert rebuilt is not None

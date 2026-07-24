@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import httpx
 import numpy as np
@@ -527,6 +529,139 @@ def test_ocr_assist_writes_hash_isolated_artifacts(tmp_path, monkeypatch) -> Non
     assert (cache_dir / "ocr-tokens.json").exists()
     assert (cache_dir / "crops" / "E001.png").exists()
     assert bundle["tokens"][0]["coordinate_transform"]["trim_document"] is True
+
+
+def test_refined_ocr_cache_only_matches_the_same_source_image(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.jpg"
+    other = tmp_path / "other.jpg"
+    Image.new("RGB", (320, 220), "white").save(source)
+    Image.new("RGB", (320, 220), "black").save(other)
+    cache_root = tmp_path / "ocr-cache"
+    monkeypatch.setattr(settings, "ocr_cache_dir", cache_root)
+
+    image_hash = ai._image_hash(ai._oriented_image(source, 0, trim_document=True))
+    cache_dir = cache_root / image_hash
+    (cache_dir / "crops").mkdir(parents=True)
+    (cache_dir / "oriented-original.jpg").write_bytes(source.read_bytes())
+    (cache_dir / "ocr-overlay.png").write_bytes(source.read_bytes())
+    (cache_dir / "ocr-tokens.json").write_text(json.dumps({
+        "schema_version": 7,
+        "engine": settings.ocr_engine,
+        "image_hash": image_hash,
+        "rotation_degrees": 0,
+        "vision_refined": True,
+        "tokens": [{"id": "E001", "raw_text": "6500"}],
+    }), encoding="utf-8")
+
+    assert ai._load_refined_ocr_cache(source, 0) is not None
+    assert ai._load_refined_ocr_cache(other, 0) is None
+
+
+@pytest.mark.asyncio
+async def test_fast_analysis_returns_editable_placeholder_without_a_detected_contour(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "blank.jpg"
+    Image.new("RGB", (320, 240), "white").save(source)
+    monkeypatch.setattr(ai, "_prepare_ocr_assist", lambda *_args, **_kwargs: {
+        "tokens": [], "rotation_degrees": 0,
+    })
+    monkeypatch.setattr(ai, "_raster_topology_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(settings, "openai_base_url", "")
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr(settings, "openai_model", "")
+
+    spec = await ai.analyze_floorplan_fast(source)
+
+    assert len(spec.boundary) == 4
+    assert max(point.x_mm for point in spec.boundary) == 3000
+    assert max(point.z_mm for point in spec.boundary) == 2000
+    assert any("占位" in issue.message for issue in spec.issues)
+
+
+def test_photo_binding_target_rejects_null_mismatched_and_out_of_range_values() -> None:
+    assert ai._valid_photo_binding_target("room_dimension", "room:width", 8) == "room:width"
+    assert ai._valid_photo_binding_target("room_dimension", "null", 8) is None
+    assert ai._valid_photo_binding_target("room_height", "wall:0", 8) is None
+    assert ai._valid_photo_binding_target("door_size", "wall:2", 8) is None
+    assert ai._valid_photo_binding_target("door_size", "wall:2@0.42", 8) is None
+    assert ai._valid_photo_binding_target("door_size", "wall:2@0.32:0.52", 8) == "wall:2@0.32:0.52"
+    assert ai._valid_photo_binding_target("door_size", "wall:2@0.52:0.32", 8) is None
+    assert ai._valid_photo_binding_target("wall_segment", "wall:8@0.5", 8) is None
+
+
+@pytest.mark.asyncio
+async def test_photo_binding_only_accepts_ids_from_the_current_chunk(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (100, 100), "white").save(source)
+    tokens = [
+        {
+            "id": f"E{index:03d}", "raw_text": str(1000 + index),
+            "bbox": {"x_min": index * 10, "y_min": 10, "x_max": index * 10 + 5, "y_max": 20},
+            "confidence": 0.9, "alternate_readings": [],
+        }
+        for index in range(1, 10)
+    ]
+    ocr_assist = {"tokens": tokens, "oriented_original": str(source), "overlay": str(source)}
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=0, y=0), ShapeCorner(x=1000, y=0),
+        ShapeCorner(x=1000, y=1000), ShapeCorner(x=0, y=1000),
+    ], closed=True)
+    calls = 0
+
+    async def fake_request(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return json.dumps({"bindings": [
+                {"id": "E001", "text": "1001", "semantic_role": "room_dimension", "target_id": "room:width", "confidence": 0.95},
+                {"id": "E009", "text": "1009", "semantic_role": "drain_position", "target_id": "drain:1", "confidence": 0.95},
+            ]})
+        return json.dumps({"bindings": [
+            {"id": "E001", "text": "1001", "semantic_role": "room_dimension", "target_id": "room:width", "confidence": 0.95},
+        ]})
+
+    monkeypatch.setattr(ai, "_request_content", fake_request)
+    monkeypatch.setattr(settings, "openai_model", "vision-test")
+    monkeypatch.setattr(settings, "openai_quality_model", "")
+    monkeypatch.setattr(settings, "openai_fallback_model", "")
+    await ai._refine_photo_annotation_bindings(None, "", {}, ocr_assist, shape, [])
+
+    assert tokens[0]["target_id"] == "room:width"
+    assert tokens[8].get("target_id") is None
+
+
+def test_provisional_photo_annotation_does_not_materialize_ai_objects() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
+        ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
+    ], closed=True)
+    tokens = [
+        {"id": "E001", "raw_text": "2855", "bbox": [100, 100, 180, 140], "confidence": 0.99},
+        {"id": "E002", "raw_text": "1840", "bbox": [800, 200, 850, 300], "confidence": 0.99},
+        {
+            "id": "E003", "raw_text": "洗衣机地漏", "bbox": [400, 400, 520, 470],
+            "confidence": 0.99, "semantic_role": "drain_position", "target_id": "drain:1", "vision_bound": True,
+        },
+        {
+            "id": "E004", "raw_text": "800x2055x120", "bbox": [200, 700, 400, 780],
+            "confidence": 0.99, "semantic_role": "door_size", "target_id": "wall:2@0.5", "vision_bound": True,
+        },
+    ]
+
+    spec = ai._provisional_room_spec(shape, {"tokens": tokens, "rotation_degrees": 270})
+
+    assert spec is not None
+    assert len(spec.plan_annotation.boundary) == 4
+    assert spec.height_mm is None
+    assert spec.openings == []
+    assert spec.fixtures == []
+
+
+def test_ceiling_display_prefers_plausible_paddle_alternative() -> None:
+    token = {
+        "raw_text": "吊顶20100",
+        "alternate_readings": ["吊顶2100"],
+    }
+    assert ai._ocr_display_text(token, "ceiling_height", set(), None) == "吊顶2100"
 
 
 def test_ocr_overlay_outlines_bbox_without_obscuring_text() -> None:

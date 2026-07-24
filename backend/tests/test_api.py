@@ -10,6 +10,7 @@ from backend.app.config import settings
 from backend.app import main as main_module
 from backend.app.ai import AIResponseError
 from backend.app.main import app
+from backend.app.models import PlanAnnotation, Point2D, RoomSpec, ShapeCorner
 
 
 def configure_temp_database(tmp_path) -> None:
@@ -24,6 +25,27 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "openai_base_url", "")
     monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "openai_model", "")
+
+    async def editable_analysis(*_args, **_kwargs):
+        return RoomSpec(
+            name="待校正卫生间",
+            boundary=[
+                Point2D(x_mm=0, z_mm=0), Point2D(x_mm=3000, z_mm=0),
+                Point2D(x_mm=3000, z_mm=2000), Point2D(x_mm=0, z_mm=2000),
+            ],
+            height_mm=2100,
+            plan_annotation=PlanAnnotation(
+                rotation_degrees=270,
+                boundary=[
+                    ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
+                    ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
+                ],
+                confirmed=False,
+            ),
+            warnings=["未可靠识别完整总长宽，请在图片或属性面板中补录"],
+        )
+
+    monkeypatch.setattr(main_module, "analyze_floorplan", editable_analysis)
     db.initialize()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         health = await client.get("/api/health")
@@ -48,9 +70,12 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
         assert content.status_code == 200
         assert content.headers["content-type"].startswith("image/jpeg")
 
-        unavailable = await client.post(f"/api/projects/{project_id}/analyze-plan")
-        assert unavailable.status_code == 503
-        assert "OPENAI_BASE_URL" in unavailable.json()["detail"]
+        analyzed = await client.post(f"/api/projects/{project_id}/analyze-plan")
+        assert analyzed.status_code == 200
+        assert analyzed.json()["sufficient"] is True
+        assert len(analyzed.json()["spec"]["boundary"]) == 4
+        assert analyzed.json()["spec"]["plan_annotation"]["rotation_degrees"] == 270
+        assert len(analyzed.json()["spec"]["plan_annotation"]["boundary"]) == 4
 
         spec = {
             "schema_version": "1.0",
@@ -95,7 +120,7 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
         assert imported.status_code == 200
         assert imported.json()["status"] == "review"
         assert imported.json()["spec"]["name"] == "从量房文件重建"
-        assert imported.json()["measurement"]["revision"] == 2
+        assert imported.json()["measurement"]["revision"] == 3
 
 
 @pytest.mark.asyncio

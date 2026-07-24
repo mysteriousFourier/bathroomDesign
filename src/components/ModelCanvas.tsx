@@ -18,6 +18,7 @@ function Wall({ spec, index, selected, onSelect }: { spec: RoomSpec; index: numb
   const end = spec.boundary[(index + 1) % spec.boundary.length]
   const lengthMm = wallLength(spec.boundary, index)
   const heightMm = spec.height_mm ?? 2600
+  const thicknessMm = spec.wall_profiles?.find((profile) => profile.wall_index === index)?.thickness_mm ?? spec.wall_thickness_mm
   const angle = Math.atan2(end.z_mm - start.z_mm, end.x_mm - start.x_mm)
   const openings = spec.openings.filter((opening) => opening.wall_index === index).sort((a, b) => a.offset_mm - b.offset_mm)
   const parts: BoxPart[] = []
@@ -37,13 +38,30 @@ function Wall({ spec, index, selected, onSelect }: { spec: RoomSpec; index: numb
     <group position={[start.x_mm / 1000, 0, start.z_mm / 1000]} rotation={[0, -angle, 0]} onClick={(event) => { event.stopPropagation(); onSelect() }}>
       {parts.map((part, partIndex) => (
         <mesh key={partIndex} position={[part.x / 1000, part.y / 1000, 0]} castShadow receiveShadow>
-          <boxGeometry args={[part.width / 1000, part.height / 1000, spec.wall_thickness_mm / 1000]} />
+          <boxGeometry args={[part.width / 1000, part.height / 1000, thicknessMm / 1000]} />
           <meshStandardMaterial color={selected ? '#d8c8a5' : '#e7e5df'} roughness={0.87} />
           <Edges color={selected ? '#8a6725' : '#b9bcb4'} threshold={20} />
         </mesh>
       ))}
     </group>
   )
+}
+
+function CeilingZoneMesh({ boundary, heightMm }: { boundary: { x_mm: number; z_mm: number }[]; heightMm: number }) {
+  const shape = useMemo(() => {
+    const zone = new Shape()
+    boundary.forEach((point, index) => {
+      if (index === 0) zone.moveTo(point.x_mm / 1000, -point.z_mm / 1000)
+      else zone.lineTo(point.x_mm / 1000, -point.z_mm / 1000)
+    })
+    zone.closePath()
+    return zone
+  }, [boundary])
+  return <mesh position={[0, heightMm / 1000, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+    <shapeGeometry args={[shape]} />
+    <meshStandardMaterial color="#d4c69f" roughness={0.9} side={DoubleSide} />
+    <Edges color="#8a6725" />
+  </mesh>
 }
 
 function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; selected: boolean; onSelect: () => void }) {
@@ -100,6 +118,7 @@ function RoomModel({ spec, selection, showCeiling, cutaway, onSelect, groupRef }
       {showCeiling && <mesh position={[0, height, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <shapeGeometry args={[floorShape]} /><meshStandardMaterial color="#dedfd9" roughness={0.9} side={DoubleSide} transparent opacity={0.72} />
       </mesh>}
+      {showCeiling && (spec.ceiling_zones ?? []).map((zone) => <CeilingZoneMesh key={zone.id} boundary={zone.boundary} heightMm={zone.height_mm} />)}
       {spec.boundary.map((start, index) => {
         const end = spec.boundary[(index + 1) % spec.boundary.length]
         const facesCamera = (start.x_mm + end.x_mm) / 2 > center.x + 1 || (start.z_mm + end.z_mm) / 2 > center.z + 1

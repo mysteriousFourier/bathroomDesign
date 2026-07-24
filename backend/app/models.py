@@ -18,10 +18,13 @@ class SourceKind(str, Enum):
 EvidenceRole = Literal[
     "room_dimension",
     "wall_segment",
+    "wall_thickness",
     "room_height",
+    "ceiling_height",
     "door_size",
     "door_position",
     "drain_position",
+    "pipe_box",
     "fixture_dimension",
     "fixture_label",
     "other",
@@ -46,6 +49,7 @@ class Observation(BaseModel):
     semantic_role: EvidenceRole = "other"
     review_required: bool = False
     rotation_degrees: Literal[0, 90, 180, 270] = 0
+    target_id: str | None = None
 
 
 class OpeningSpec(BaseModel):
@@ -55,6 +59,7 @@ class OpeningSpec(BaseModel):
     offset_mm: int = Field(ge=0)
     width_mm: int = Field(gt=0)
     height_mm: int = Field(gt=0)
+    thickness_mm: int | None = Field(default=None, gt=0)
     sill_mm: int = Field(default=0, ge=0)
     label: str = "门洞"
     source: SourceKind = SourceKind.estimated
@@ -82,6 +87,25 @@ class FixtureSpec(BaseModel):
     depth_mm: int = Field(gt=0)
     height_mm: int = Field(gt=0)
     rotation_deg: int = 0
+    source: SourceKind = SourceKind.estimated
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class WallProfile(BaseModel):
+    wall_index: int = Field(ge=0)
+    kind: Literal["interior", "exterior", "pipe_chase", "other"] = "interior"
+    thickness_mm: int = Field(gt=0)
+    source: SourceKind = SourceKind.estimated
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class CeilingZone(BaseModel):
+    id: str
+    label: str = "吊顶"
+    boundary: list[Point2D] = Field(min_length=3)
+    height_mm: int = Field(gt=0)
     source: SourceKind = SourceKind.estimated
     confidence: float = Field(default=0.5, ge=0, le=1)
     evidence_ids: list[str] = Field(default_factory=list)
@@ -503,23 +527,35 @@ class PlanExtraction(BaseModel):
         return data
 
 
+class PlanAnnotation(BaseModel):
+    rotation_degrees: Literal[0, 90, 180, 270] = 0
+    boundary: list[ShapeCorner] = Field(default_factory=list)
+    confirmed: bool = False
+
+
 class RoomSpec(BaseModel):
     schema_version: Literal["1.0"] = "1.0"
     name: str = "卫生间"
     boundary: list[Point2D] = Field(default_factory=list)
     height_mm: int | None = Field(default=None, gt=0)
     wall_thickness_mm: int = Field(default=100, gt=0)
+    wall_profiles: list[WallProfile] = Field(default_factory=list)
     openings: list[OpeningSpec] = Field(default_factory=list)
     fixtures: list[FixtureSpec] = Field(default_factory=list)
+    ceiling_zones: list[CeilingZone] = Field(default_factory=list)
     observations: list[Observation] = Field(default_factory=list)
+    plan_annotation: PlanAnnotation | None = None
     issues: list[ValidationIssue] = Field(default_factory=list)
     confirmed: bool = False
 
     @model_validator(mode="after")
     def unique_ids(self) -> RoomSpec:
-        ids = [item.id for item in [*self.openings, *self.fixtures]]
+        ids = [item.id for item in [*self.openings, *self.fixtures, *self.ceiling_zones]]
         if len(ids) != len(set(ids)):
-            raise ValueError("opening and fixture ids must be unique")
+            raise ValueError("opening, fixture and ceiling zone ids must be unique")
+        wall_indexes = [item.wall_index for item in self.wall_profiles]
+        if len(wall_indexes) != len(set(wall_indexes)):
+            raise ValueError("wall profile indexes must be unique")
         return self
 
 
@@ -568,6 +604,7 @@ class MeasurementOpening(BaseModel):
     offset_mm: int = Field(ge=0)
     width_mm: int = Field(gt=0)
     height_mm: int = Field(gt=0)
+    thickness_mm: int | None = Field(default=None, gt=0)
     sill_mm: int = Field(default=0, ge=0)
     label: str = "门洞"
     swing_direction: Literal["left", "right", "inward", "outward", "unknown"] = "unknown"
@@ -612,6 +649,7 @@ class MeasurementEvidence(BaseModel):
     semantic_role: EvidenceRole = "other"
     review_required: bool = False
     rotation_degrees: Literal[0, 90, 180, 270] = 0
+    target_id: str | None = None
 
 
 class MeasurementModel(BaseModel):

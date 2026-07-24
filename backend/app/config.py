@@ -21,7 +21,9 @@ class Settings(BaseSettings):
     ai_trace_enabled: bool = True
     ai_compare_topology_models: bool = False
     ai_quality_timeout_seconds: int = 35
-    ocr_cache_dir: Path = Path(".tmp/ocr")
+    # Keep the refined OCR run as the canonical cache. It contains the
+    # vision-corrected alternatives used for the real floorplan sample.
+    ocr_cache_dir: Path = Path(".tmp/ocr-fast")
     ocr_cache_ttl_hours: int = 24
     ocr_engine: str = "paddle"
     paddleocr_python: str = ""

@@ -21,6 +21,7 @@ from .models import (
     RoomSpec,
     SourceKind,
     ValidationIssue,
+    WallProfile,
 )
 from .validation import point_in_polygon, validate_spec, wall_length
 
@@ -277,17 +278,18 @@ def measurement_from_spec(
     max_z = max(point.z_mm for point in spec.boundary)
     wall_status = "verified" if spec.confirmed else "provisional"
     wall_source = SourceKind.user if spec.confirmed else SourceKind.derived
+    wall_profiles = {profile.wall_index: profile for profile in spec.wall_profiles}
     walls = [
         MeasurementWall(
             id=f"wall-{index + 1}",
             index=index,
             start=point,
             end=spec.boundary[(index + 1) % len(spec.boundary)],
-            thickness_mm=spec.wall_thickness_mm,
+            thickness_mm=wall_profiles[index].thickness_mm if index in wall_profiles else spec.wall_thickness_mm,
             length_mm=max(1, round(wall_length(point, spec.boundary[(index + 1) % len(spec.boundary)]))),
-            source=wall_source,
-            confidence=1.0 if spec.confirmed else 0.75,
-            status=wall_status,
+            source=wall_profiles[index].source if index in wall_profiles else wall_source,
+            confidence=wall_profiles[index].confidence if index in wall_profiles else (1.0 if spec.confirmed else 0.75),
+            status=_measurement_status(wall_profiles[index].source, wall_profiles[index].confidence, spec.confirmed) if index in wall_profiles else wall_status,
         )
         for index, point in enumerate(spec.boundary)
     ]
@@ -314,6 +316,7 @@ def measurement_from_spec(
             semantic_role=observation.semantic_role,
             review_required=observation.review_required,
             rotation_degrees=observation.rotation_degrees,
+            target_id=observation.target_id,
         ))
 
     valid_evidence_ids = set(observation_ids)
@@ -391,6 +394,7 @@ def measurement_from_spec(
             offset_mm=item.offset_mm,
             width_mm=item.width_mm,
             height_mm=item.height_mm,
+            thickness_mm=item.thickness_mm,
             sill_mm=item.sill_mm,
             label=item.label,
             swing_direction=item.swing_direction,
@@ -465,6 +469,7 @@ def room_spec_from_measurement(measurement: MeasurementModel) -> RoomSpec:
             semantic_role=item.semantic_role,
             review_required=item.review_required,
             rotation_degrees=item.rotation_degrees,
+            target_id=item.target_id,
         )
         for item in measurement.evidence
     ]
@@ -476,6 +481,7 @@ def room_spec_from_measurement(measurement: MeasurementModel) -> RoomSpec:
             offset_mm=item.offset_mm,
             width_mm=item.width_mm,
             height_mm=item.height_mm,
+            thickness_mm=item.thickness_mm,
             sill_mm=item.sill_mm,
             label=item.label,
             source=item.source,
@@ -507,6 +513,16 @@ def room_spec_from_measurement(measurement: MeasurementModel) -> RoomSpec:
         boundary=boundary,
         height_mm=measurement.heights.room_height_mm,
         wall_thickness_mm=thickness,
+        wall_profiles=[
+            WallProfile(
+                wall_index=index,
+                thickness_mm=wall.thickness_mm,
+                source=wall.source,
+                confidence=wall.confidence,
+                evidence_ids=wall.evidence_ids,
+            )
+            for index, wall in enumerate(walls)
+        ],
         openings=openings,
         fixtures=fixtures,
         observations=observations,

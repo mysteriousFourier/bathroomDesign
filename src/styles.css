@@ -119,6 +119,7 @@ p, h1, h2, figure { margin: 0; }
 .workflow-status.error { color: var(--red); border-color: #d0a29b; background: rgb(249 239 237 / 96%); }
 .workflow-status.warning { color: var(--amber); border-color: #d1b77d; background: rgb(249 242 224 / 96%); }
 .workflow-status.ok { color: var(--green); border-color: #a8bfaf; background: rgb(239 247 243 / 95%); }
+.workspace:has(.photo-annotation) > .workflow-status { display: none; }
 .loading-screen, .no-project, .empty-workspace { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .loading-screen { gap: 10px; color: var(--muted); font-size: 13px; }
 .no-project { gap: 10px; color: var(--muted); }
@@ -147,7 +148,8 @@ p, h1, h2, figure { margin: 0; }
 .solution-meta span { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .solution-list.no-solution p { display: flex; align-items: flex-start; gap: 7px; color: var(--red); font-size: 9px; line-height: 1.55; }
 .solution-list.no-solution p svg { flex: none; margin-top: 1px; }
-.plan-review, .model-canvas-wrap { position: relative; width: 100%; height: 100%; padding-top: 57px; }
+.plan-review, .model-canvas-wrap, .photo-annotation { position: relative; width: 100%; height: 100%; padding-top: 57px; }
+.photo-annotation { padding-top: 139px; }
 .canvas-toolbar { position: absolute; top: 13px; left: 14px; right: 14px; height: 36px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 10px; pointer-events: none; }
 .canvas-toolbar span { display: flex; align-items: center; gap: 6px; }
 .canvas-toolbar .icon-button, .canvas-toolbar > div { pointer-events: auto; }
@@ -157,6 +159,48 @@ p, h1, h2, figure { margin: 0; }
 .plan-canvas:active [data-pan-surface="true"] { cursor: grabbing; }
 .room-polygon { fill: rgb(244 243 239 / 72%); stroke: #4d534c; stroke-width: 6; stroke-linejoin: miter; cursor: pointer; }
 .room-polygon.selected { stroke: var(--green); }
+.ceiling-zone polygon { fill: rgb(202 172 101 / 20%); stroke: #9a782a; stroke-width: 2; stroke-dasharray: 7 4; vector-effect: non-scaling-stroke; }
+.ceiling-zone text { fill: #765b1b; text-anchor: middle; font: 10px Consolas, monospace; pointer-events: none; }
+.ocr-evidence rect { fill: rgb(37 99 235 / 7%); stroke: #3d7bd9; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
+.ocr-evidence.pending rect { fill: rgb(220 38 38 / 13%); stroke: #c4473d; stroke-width: 3; }
+.ocr-evidence text { fill: #a3312a; font: 9px Consolas, monospace; pointer-events: none; }
+.ocr-evidence:hover rect { fill: rgb(154 104 21 / 18%); stroke: #9a6815; }
+.ocr-evidence:focus { outline: none; }
+.ocr-evidence:focus rect { fill: rgb(154 104 21 / 18%); stroke: #9a6815; stroke-width: 4; }
+.annotation-toolbar { position: absolute; z-index: 5; top: 56px; left: 14px; right: 14px; min-height: 74px; display: flex; align-items: stretch; flex-direction: column; gap: 5px; }
+.annotation-tools, .annotation-status { display: flex; align-items: center; gap: 6px; }
+.annotation-tools { flex-wrap: wrap; }
+.annotation-tools > button { flex: none; height: 32px; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border: 1px solid var(--line); background: #f8f8f5; color: var(--muted); font: inherit; white-space: nowrap; cursor: pointer; }
+.annotation-tools > button.active { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+.annotation-tools > button:disabled { cursor: not-allowed; opacity: 0.42; }
+.annotation-status { justify-content: flex-end; }
+.annotation-status > span { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.photo-annotation, .annotation-canvas { user-select: none; -webkit-user-select: none; }
+.photo-annotation img, .annotation-canvas image { -webkit-user-drag: none; user-select: none; }
+.annotation-canvas { display: block; width: 100%; height: 100%; background: #d8d8d3; touch-action: none; }
+.annotation-canvas image { pointer-events: none; }
+.annotation-canvas.tool-add, .annotation-canvas.tool-draw { cursor: crosshair; }
+.annotation-canvas.tool-label, .annotation-canvas.tool-region { cursor: cell; }
+.annotation-background { fill: #d8d8d3; }
+.annotation-boundary { fill: rgb(194 54 45 / 8%); stroke: #c2362d; stroke-width: 4; stroke-linejoin: miter; vector-effect: non-scaling-stroke; pointer-events: none; }
+.annotation-boundary.open { fill: none; stroke-dasharray: 10 7; }
+.annotation-wall line { stroke: transparent; stroke-width: 22; vector-effect: non-scaling-stroke; cursor: crosshair; }
+.annotation-wall text { fill: #7b201b; text-anchor: middle; font: 700 11px Consolas, monospace; paint-order: stroke; stroke: #fff; stroke-width: 4; pointer-events: none; }
+.annotation-wall:hover text, .annotation-wall.selected text { fill: #8a5a00; font-size: 13px; }
+.annotation-wall.selected line { stroke: rgb(243 196 78 / 42%); stroke-width: 12; }
+.annotation-door-range line { stroke: #d79200; stroke-width: 10; stroke-linecap: butt; vector-effect: non-scaling-stroke; }
+.annotation-door-range circle { fill: #fff; stroke: #9a6815; stroke-width: 3; vector-effect: non-scaling-stroke; }
+.annotation-point { cursor: grab; }
+.annotation-point:active { cursor: grabbing; }
+.annotation-point circle { fill: #fff8f6; stroke: #c2362d; stroke-width: 3; vector-effect: non-scaling-stroke; }
+.annotation-point .annotation-point-hit { fill: transparent; stroke: transparent; pointer-events: all; }
+.annotation-point.selected circle { fill: #f3c44e; stroke: #8a5a00; }
+.annotation-point.selected .annotation-point-hit { fill: transparent; stroke: transparent; }
+.annotation-point text { fill: #7b201b; text-anchor: middle; font: 11px Consolas, monospace; paint-order: stroke; stroke: #fff; stroke-width: 3; pointer-events: none; }
+.annotation-evidence { fill: rgb(37 99 235 / 5%); stroke: #2166c2; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
+.annotation-evidence.pending { fill: rgb(202 50 42 / 9%); stroke: #c2362d; stroke-width: 3; }
+.annotation-evidence:hover { fill: rgb(245 183 38 / 18%); stroke: #9a6815; }
+.annotation-selection { fill: rgb(245 183 38 / 12%); stroke: #9a6815; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .dimension-label circle { fill: #faf9f6; stroke: #b7bbb3; stroke-width: 1; }
 .dimension-label text { fill: #656b64; text-anchor: middle; font: 8px Consolas, monospace; pointer-events: none; }
 .opening-line { stroke: #b78022; stroke-width: 11; stroke-linecap: butt; cursor: pointer; }
@@ -182,8 +226,14 @@ p, h1, h2, figure { margin: 0; }
 .evidence-meta { display: flex; justify-content: space-between; margin-bottom: 9px; color: var(--muted); font: 9px Consolas, monospace; }
 .evidence-field { display: grid; gap: 5px; margin-top: 8px; color: var(--muted); font-size: 10px; }
 .evidence-field input, .evidence-field select { width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface); color: var(--ink); font-size: 11px; }
-.evidence-actions { display: grid; grid-template-columns: 34px 1fr auto 34px; align-items: center; gap: 4px; margin-top: 10px; }
-.evidence-actions .button { min-width: 0; }
+.evidence-binding { display: flex; align-items: center; justify-content: space-between; min-height: 32px; margin-top: 8px; padding: 0 9px; border: 1px dashed var(--red); border-radius: 3px; color: var(--muted); font-size: 10px; }
+.evidence-binding strong { color: var(--red); font-size: 10px; }
+.evidence-binding.bound { border-style: solid; border-color: var(--line-strong); background: var(--surface); }
+.evidence-binding.bound strong { color: var(--ink); }
+.evidence-actions { display: grid; gap: 6px; margin-top: 10px; }
+.evidence-nav { display: flex; justify-content: space-between; gap: 5px; }
+.evidence-commands { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.evidence-actions .button { min-width: 0; white-space: nowrap; }
 .inspector-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; font-size: 11px; font-weight: 700; }
 .inspector-title > span:last-child { color: var(--muted); font: 10px Consolas, monospace; }
 .selection-path { display: flex; align-items: center; }
@@ -247,6 +297,10 @@ p, h1, h2, figure { margin: 0; }
   .header-actions .button { width: 34px; padding: 0; font-size: 0; }
   .asset-strip { grid-template-columns: repeat(2, 1fr); }
   .text-field, .number-field { grid-template-columns: 72px 1fr; }
+  .photo-annotation { padding-top: 139px; }
+  .annotation-toolbar { align-items: stretch; flex-direction: column; gap: 5px; }
+  .annotation-tools { flex-wrap: wrap; }
+  .annotation-status { justify-content: space-between; }
 }
 
 @media (max-width: 820px) {

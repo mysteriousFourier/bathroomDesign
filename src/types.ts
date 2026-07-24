@@ -1,9 +1,23 @@
 export type SourceKind = 'measured' | 'derived' | 'estimated' | 'user'
-export type EvidenceRole = 'room_dimension' | 'wall_segment' | 'room_height' | 'door_size' | 'door_position' | 'drain_position' | 'fixture_dimension' | 'fixture_label' | 'other'
+export type EvidenceRole = 'room_dimension' | 'wall_segment' | 'wall_thickness' | 'room_height' | 'ceiling_height' | 'door_size' | 'door_position' | 'drain_position' | 'pipe_box' | 'fixture_dimension' | 'fixture_label' | 'other'
 
 export interface Point2D {
   x_mm: number
   z_mm: number
+}
+
+export interface ImageBoundaryPoint {
+  x: number
+  y: number
+  role?: 'wall_corner' | 'structure_return' | 'door_jamb' | 'other'
+  confidence?: number
+  evidence_ids?: string[]
+}
+
+export interface PlanAnnotation {
+  rotation_degrees: 0 | 90 | 180 | 270
+  boundary: ImageBoundaryPoint[]
+  confirmed: boolean
 }
 
 export interface Observation {
@@ -19,6 +33,7 @@ export interface Observation {
   semantic_role?: EvidenceRole
   review_required?: boolean
   rotation_degrees?: 0 | 90 | 180 | 270
+  target_id?: string | null
 }
 
 export interface OpeningSpec {
@@ -28,6 +43,7 @@ export interface OpeningSpec {
   offset_mm: number
   width_mm: number
   height_mm: number
+  thickness_mm?: number | null
   sill_mm: number
   label: string
   source: SourceKind
@@ -53,6 +69,25 @@ export interface FixtureSpec {
   evidence_ids?: string[]
 }
 
+export interface WallProfile {
+  wall_index: number
+  kind: 'interior' | 'exterior' | 'pipe_chase' | 'other'
+  thickness_mm: number
+  source: SourceKind
+  confidence: number
+  evidence_ids?: string[]
+}
+
+export interface CeilingZone {
+  id: string
+  label: string
+  boundary: Point2D[]
+  height_mm: number
+  source: SourceKind
+  confidence: number
+  evidence_ids?: string[]
+}
+
 export interface ValidationIssue {
   id: string
   severity: 'error' | 'warning' | 'info'
@@ -67,9 +102,12 @@ export interface RoomSpec {
   boundary: Point2D[]
   height_mm: number | null
   wall_thickness_mm: number
+  wall_profiles?: WallProfile[]
   openings: OpeningSpec[]
   fixtures: FixtureSpec[]
+  ceiling_zones?: CeilingZone[]
   observations: Observation[]
+  plan_annotation?: PlanAnnotation | null
   issues: ValidationIssue[]
   confirmed: boolean
 }
@@ -127,6 +165,7 @@ export interface MeasurementEvidence {
   semantic_role: EvidenceRole
   review_required: boolean
   rotation_degrees: 0 | 90 | 180 | 270
+  target_id?: string | null
 }
 
 export interface Asset {

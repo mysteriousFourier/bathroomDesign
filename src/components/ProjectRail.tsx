@@ -99,7 +99,7 @@ export function ProjectRail(props: ProjectRailProps) {
         }} />
         <button className="button secondary wide" disabled={!props.project || !!props.busy} onClick={() => planInput.current?.click()}><Upload size={16} />上传平面图</button>
         <button className="button primary wide" disabled={!plans.length || !!props.busy || !props.health?.ai_configured} onClick={props.onAnalyzePlan}>
-          {props.busy === 'plan' ? <LoaderCircle className="spin" size={16} /> : <ScanLine size={16} />}{props.busy === 'plan' ? '正在解析' : '解析测量图'}
+          {props.busy === 'plan' ? <LoaderCircle className="spin" size={16} /> : <ScanLine size={16} />}{props.busy === 'plan' ? '正在识别' : '识别照片标注'}
         </button>
       </section>
 

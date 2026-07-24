@@ -7,14 +7,15 @@ const canvasWidth = 920
 const canvasHeight = 680
 const pad = 92
 
-export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove }: {
+export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onEvidenceSelect }: {
   spec: RoomSpec
   plan?: Asset
   selection: Selection
   onSelect: (selection: Selection) => void
   onFixtureMove: (id: string, xMm: number, zMm: number) => void
+  onEvidenceSelect?: (id: string) => void
 }) {
-  const [showSource, setShowSource] = useState(false)
+  const [showSource, setShowSource] = useState(true)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const panSession = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null)
@@ -27,6 +28,14 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove }: {
   const mmX = (x: number) => Math.round((x - offsetX) / scale / 10) * 10
   const mmZ = (z: number) => Math.round((z - offsetZ) / scale / 10) * 10
   const points = spec.boundary.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')
+  const sourceRotation = spec.observations.find((item) => item.field.startsWith('ocr:'))?.rotation_degrees ?? 0
+  const sourceImage = sourceRotation === 90
+    ? { width: canvasHeight, height: canvasWidth, transform: `translate(${canvasWidth} 0) rotate(90)` }
+    : sourceRotation === 270
+      ? { width: canvasHeight, height: canvasWidth, transform: `translate(0 ${canvasHeight}) rotate(-90)` }
+      : sourceRotation === 180
+        ? { width: canvasWidth, height: canvasHeight, transform: `translate(${canvasWidth} ${canvasHeight}) rotate(180)` }
+        : { width: canvasWidth, height: canvasHeight, transform: undefined }
 
   const svgPoint = (svg: SVGSVGElement, clientX: number, clientY: number) => {
     const point = svg.createSVGPoint()
@@ -91,8 +100,14 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove }: {
         </defs>
         <rect width={canvasWidth} height={canvasHeight} fill="url(#major-grid)" data-pan-surface="true" />
         <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
-        {plan && showSource && <image href={plan.url} x="0" y="0" width={canvasHeight} height={canvasWidth} transform={`translate(${canvasWidth} 0) rotate(90)`} preserveAspectRatio="xMidYMid meet" opacity="0.14" />}
+        {plan && showSource && <g opacity="0.2" pointerEvents="none"><image href={plan.url} x="0" y="0" width={sourceImage.width} height={sourceImage.height} transform={sourceImage.transform} preserveAspectRatio="none" /></g>}
         <polygon points={points} className={selection.type === 'room' ? 'room-polygon selected' : 'room-polygon'} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'room' }) }} />
+        {(spec.ceiling_zones ?? []).map((zone) => {
+          const zonePoints = zone.boundary.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')
+          const centerX = zone.boundary.reduce((sum, point) => sum + sx(point.x_mm), 0) / zone.boundary.length
+          const centerZ = zone.boundary.reduce((sum, point) => sum + sz(point.z_mm), 0) / zone.boundary.length
+          return <g key={zone.id} className="ceiling-zone"><polygon points={zonePoints} /><text x={centerX} y={centerZ + 4}>吊顶 {zone.height_mm}</text></g>
+        })}
         {spec.boundary.map((start, index) => {
           const end = spec.boundary[(index + 1) % spec.boundary.length]
           const midX = (sx(start.x_mm) + sx(end.x_mm)) / 2
@@ -146,6 +161,21 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove }: {
             </g>
           )
         })}
+        {showSource && <g className="ocr-evidence-layer">
+          {spec.observations.filter((item) => item.field.startsWith('ocr:') && item.bbox).map((item) => {
+            const bbox = item.bbox!
+            const evidenceId = item.field.slice(4)
+            const pending = item.review_required && !item.confirmed
+            const left = bbox.x_min * canvasWidth / 1000
+            const top = bbox.y_min * canvasHeight / 1000
+            const width = Math.max(3, (bbox.x_max - bbox.x_min) * canvasWidth / 1000)
+            const height = Math.max(3, (bbox.y_max - bbox.y_min) * canvasHeight / 1000)
+            return <g key={evidenceId} data-evidence-id={evidenceId} role="button" tabIndex={0} aria-label={`校正 OCR ${evidenceId} ${item.value}`} className={pending ? 'ocr-evidence pending' : 'ocr-evidence'} onClick={(event) => { event.stopPropagation(); onEvidenceSelect?.(evidenceId) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onEvidenceSelect?.(evidenceId) } }}>
+              <rect x={left} y={top} width={width} height={height} />
+              {pending && <text x={left + 3} y={Math.max(12, top - 3)}>{evidenceId} {item.value.slice(0, 12)}</text>}
+            </g>
+          })}
+        </g>}
         </g>
       </svg>
     </div>

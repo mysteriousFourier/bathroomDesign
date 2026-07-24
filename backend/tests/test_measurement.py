@@ -30,7 +30,7 @@ def non_rectangular_spec() -> RoomSpec:
         openings=[
             OpeningSpec(
                 id="door-1", wall_index=4, offset_mm=200, width_mm=800, height_mm=2100,
-                evidence_ids=["door-width"], source=SourceKind.measured, confidence=0.9,
+                thickness_mm=40, evidence_ids=["door-width"], source=SourceKind.measured, confidence=0.9,
             )
         ],
         fixtures=[
@@ -66,12 +66,14 @@ def test_non_rectangular_measurement_round_trip_preserves_topology_and_evidence(
     assert not any(issue.severity == "error" for issue in issues)
     assert len(measurement.walls) == len(source.boundary)
     assert measurement.openings[0].wall_id == "wall-5"
+    assert measurement.openings[0].thickness_mm == 40
     assert measurement.openings[0].evidence_ids == ["door-width"]
     assert measurement.evidence[0].bbox == ImageBBox(x_min=100, y_min=700, x_max=180, y_max=760)
     assert measurement.source_asset_ids == ["plan-1"]
     assert rebuilt is not None
     assert rebuilt.boundary == source.boundary
     assert rebuilt.openings[0].wall_index == 4
+    assert rebuilt.openings[0].thickness_mm == 40
     assert rebuilt.fixtures[0].evidence_ids == ["drain-point"]
     assert room_spec_from_measurement(measurement).confirmed
 

@@ -13,10 +13,15 @@ function SourceBadge({ source, confidence }: { source: SourceKind; confidence: n
   return <span className={`source-badge ${source}`}>{sourceLabels[source]} · {Math.round(confidence * 100)}%</span>
 }
 
-export function Inspector({ spec, assets, selection, onSelect, onChange, onEvidenceApply }: {
+export function Inspector({ spec, assets, selection, onSelect, onChange, onEvidenceApply, onEvidenceDelete, onEvidenceDraftChange, focusEvidenceId, onEvidenceActive, annotationMode = false }: {
   spec: RoomSpec
   assets: Asset[]
-  onEvidenceApply: (id: string, value: string, role: EvidenceRole, ignored?: boolean) => void
+  onEvidenceApply: (id: string, value: string, role: EvidenceRole, targetId?: string | null, ignored?: boolean) => void
+  onEvidenceDelete?: (id: string) => void
+  onEvidenceDraftChange?: (id: string, role: EvidenceRole, targetId: string | null) => void
+  focusEvidenceId?: string | null
+  onEvidenceActive?: (id: string | null) => void
+  annotationMode?: boolean
   selection: Selection
   onSelect: (selection: Selection) => void
   onChange: (spec: RoomSpec) => void
@@ -24,6 +29,10 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
   const selectedFixture = selection.type === 'fixture' ? spec.fixtures.find((item) => item.id === selection.id) : undefined
   const selectedOpening = selection.type === 'opening' ? spec.openings.find((item) => item.id === selection.id) : undefined
   const bounds = roomBounds(spec.boundary)
+
+  if (annotationMode) {
+    return <aside className="inspector"><EvidenceReview spec={spec} assets={assets} onApply={onEvidenceApply} onDelete={onEvidenceDelete} focusId={focusEvidenceId} onActiveChange={onEvidenceActive} onDraftChange={onEvidenceDraftChange} /></aside>
+  }
 
   const edit = (mutate: (draft: RoomSpec) => void) => {
     const draft = cloneSpec(spec)
@@ -71,14 +80,14 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
     const id = `door-${crypto.randomUUID().slice(0, 8)}`
     edit((draft) => draft.openings.push({
       id, kind: 'door', wall_index: 0, offset_mm: 200, width_mm: 800, height_mm: 2100,
-      sill_mm: 0, label: '门洞', source: 'user', confidence: 1,
+      thickness_mm: null, sill_mm: 0, label: '门洞', source: 'user', confidence: 1,
     }))
     onSelect({ type: 'opening', id })
   }
 
   return (
     <aside className="inspector">
-      <EvidenceReview spec={spec} assets={assets} onApply={onEvidenceApply} />
+      <EvidenceReview spec={spec} assets={assets} onApply={onEvidenceApply} onDelete={onEvidenceDelete} focusId={focusEvidenceId} />
       <section className="inspector-section">
         <div className="inspector-title"><span>属性</span><span className="selection-path">{selection.type === 'room' ? '空间' : selection.type === 'fixture' ? '设施' : '洞口'} <ChevronRight size={13} /></span></div>
         {selection.type === 'room' && (
@@ -120,6 +129,7 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             {(['wall_index', 'offset_mm', 'width_mm', 'height_mm', 'sill_mm'] as const).map((field) => (
               <NumberField key={field} label={{ wall_index: '墙面编号', offset_mm: '距墙起点', width_mm: '宽度', height_mm: '高度', sill_mm: '离地高度' }[field]} value={selectedOpening[field]} unit={field === 'wall_index' ? '' : 'mm'} step={field === 'wall_index' ? 1 : 10} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id)!; item[field] = value })} />
             ))}
+            <NumberField label="门厚" value={selectedOpening.thickness_mm ?? 0} min={0} step={5} onChange={(value) => edit((draft) => { draft.openings.find((candidate) => candidate.id === selectedOpening.id)!.thickness_mm = value || null })} />
             <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.openings = draft.openings.filter((item) => item.id !== selectedOpening.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除洞口</button>
           </div>
         )}

@@ -101,8 +101,12 @@ class Database:
                 raise KeyError(project_id)
             assets = connection.execute("SELECT * FROM assets WHERE project_id = ? ORDER BY created_at", (project_id,)).fetchall()
         measurement = MeasurementModel.model_validate_json(row["measurement_json"]) if row["measurement_json"] else None
-        spec = room_spec_from_measurement(measurement) if measurement else (
-            RoomSpec.model_validate_json(row["spec_json"]) if row["spec_json"] else None
+        # RoomSpec carries the editable photo annotation and OCR-to-object
+        # bindings that the normalized measurement contract intentionally does
+        # not represent. Prefer it for the studio UI and only reconstruct older
+        # records that do not have spec_json.
+        spec = RoomSpec.model_validate_json(row["spec_json"]) if row["spec_json"] else (
+            room_spec_from_measurement(measurement) if measurement else None
         )
         return ProjectResponse(
             id=row["id"], name=row["name"], status=row["status"], created_at=row["created_at"], updated_at=row["updated_at"], spec=spec,

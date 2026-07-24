@@ -10,7 +10,7 @@ import { ProjectRail } from './components/ProjectRail'
 import { SolutionList } from './components/SolutionList'
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { clientValidate, cloneSpec, manualRoom } from './spec'
-import type { Health, Project, RoomSpec, Selection } from './types'
+import type { EvidenceRole, Health, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'review' | 'model'
 
@@ -54,6 +54,37 @@ export default function App() {
       setProject(first); setSpec(visibleSpec(first))
     }).catch((error: Error) => showMessage('error', `无法连接后端：${error.message}`)).finally(() => setBusy(null))
   }, [showMessage])
+
+  useEffect(() => {
+    if (!project || project.status !== 'analysis_running') return
+    let stopped = false
+    let timer: number | undefined
+    const poll = async () => {
+      try {
+        const refreshed = await studioApi.project(project.id)
+        if (stopped) return
+        setProject(refreshed)
+        setProjects((items) => items.map((item) => item.id === refreshed.id ? refreshed : item))
+        if (refreshed.status === 'analysis_running') {
+          timer = window.setTimeout(() => void poll(), 3000)
+          return
+        }
+        setSpec(visibleSpec(refreshed))
+        setHistory([]); setFuture([]); setDirty(false)
+        if (refreshed.spec) {
+          const errors = refreshed.spec.issues.filter((issue) => issue.severity === 'error')
+          showMessage(errors.length ? 'info' : 'success', errors.length ? `解析完成，请逐项校正：${errors[0].message}` : '测量图解析完成，请核对尺寸')
+        }
+      } catch {
+        if (!stopped) timer = window.setTimeout(() => void poll(), 5000)
+      }
+    }
+    timer = window.setTimeout(() => void poll(), 3000)
+    return () => {
+      stopped = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [project?.id, project?.status, showMessage])
 
   const selectProject = async (id: string) => {
     if (dirty && !window.confirm('当前修改尚未保存，确定切换项目吗？')) return
@@ -109,13 +140,19 @@ export default function App() {
     try {
       const result = await studioApi.analyzePlan(project.id, planRotation)
       applyAnalysis(result)
-      showMessage(result.sufficient ? 'success' : 'info', result.sufficient ? '测量图解析完成，请核对尺寸' : `仍需补充：${result.missing.join('、')}`)
+      showMessage(
+        result.sufficient ? 'success' : 'info',
+        result.sufficient
+          ? '测量图解析完成，请核对尺寸'
+          : `已生成可编辑模型，请逐项校正：${result.missing.join('、')}`,
+      )
     } catch (error) {
       try {
         const failed = await studioApi.project(project.id)
         setProject(failed); setSpec(visibleSpec(failed)); setHistory([]); setFuture([]); setDirty(false)
       } catch { /* Keep the original API error as the actionable message. */ }
-      showMessage('error', error instanceof Error && error.name === 'TimeoutError' ? error.message : `本次识别失败，旧模型已标记为不可用，原图片无需删除：${(error as Error).message}`)
+      const timedOut = error instanceof Error && error.name === 'TimeoutError'
+      showMessage(timedOut ? 'info' : 'error', timedOut ? error.message : `本次识别失败，旧模型已标记为不可用，原图片无需删除：${(error as Error).message}`)
     }
     finally { setBusy(null) }
   }
@@ -136,6 +173,52 @@ export default function App() {
     setHistory((items) => [...items.slice(-39), cloneSpec(spec)])
     setFuture([]); setSpec(next); setDirty(true)
     setProject((current) => current ? { ...current, spec: next } : current)
+  }
+
+  const applyEvidence = (id: string, value: string, role: EvidenceRole, ignored = false) => {
+    if (!spec) return
+    const next = cloneSpec(spec)
+    const observation = next.observations.find((item) => item.field === `ocr:${id}`)
+    if (!observation) return
+    observation.value = value
+    observation.source = 'user'
+    observation.confidence = 1
+    observation.confirmed = true
+    observation.review_required = false
+    observation.semantic_role = role
+    if (!ignored) {
+      const numbers = [...value.matchAll(/\d+(?:[.,]\d+)?/g)].map((match) => {
+        const raw = match[0].replace(',', '.')
+        const parsed = Number(raw)
+        return raw.includes('.') && parsed < 20 ? Math.round(parsed * 1000) : Math.round(parsed)
+      }).filter((item) => item > 0)
+      if (role === 'room_height' && numbers[0]) next.height_mm = numbers[0]
+      if (role === 'door_size' && numbers.length >= 2) {
+        const width = numbers.find((item) => item >= 500 && item <= 1600) ?? numbers[0]
+        const height = numbers.find((item) => item >= 1800 && item <= 2800) ?? numbers[1]
+        const door = next.openings.find((item) => item.kind === 'door')
+        if (door) { door.width_mm = width; door.height_mm = height; door.source = 'user'; door.confidence = 1; door.evidence_ids = [...new Set([...(door.evidence_ids ?? []), id])] }
+        else next.openings.push({ id: `door-${crypto.randomUUID().slice(0, 8)}`, kind: 'door', wall_index: 0, offset_mm: 0, width_mm: width, height_mm: height, sill_mm: 0, label: '门洞（用户确认）', source: 'user', confidence: 1, evidence_ids: [id] })
+      }
+      if (role === 'door_position' && numbers[0]) {
+        const door = next.openings.find((item) => item.kind === 'door')
+        if (door) door.offset_mm = numbers[0]
+      }
+      if (role === 'drain_position' && numbers.length >= 2) {
+        const fixture = next.fixtures.find((item) => item.kind === 'floor_drain' || item.kind === 'toilet' || item.kind === 'pipe')
+        if (fixture) { fixture.x_mm = numbers[0]; fixture.z_mm = numbers[1]; fixture.source = 'user'; fixture.confidence = 1; fixture.evidence_ids = [...new Set([...(fixture.evidence_ids ?? []), id])] }
+        else next.fixtures.push({ id: `drain-${crypto.randomUUID().slice(0, 8)}`, kind: 'floor_drain', label: '排水点（用户确认）', x_mm: numbers[0], z_mm: numbers[1], width_mm: 75, depth_mm: 75, height_mm: 20, rotation_deg: 0, source: 'user', confidence: 1, evidence_ids: [id] })
+      }
+      if (role === 'fixture_dimension' && numbers.length >= 2) {
+        const fixture = next.fixtures.find((item) => item.evidence_ids?.includes(id)) ?? next.fixtures[0]
+        if (fixture) { fixture.width_mm = numbers[0]; fixture.depth_mm = numbers[1]; fixture.source = 'user'; fixture.confidence = 1 }
+      }
+      if (role === 'fixture_label') {
+        const fixture = next.fixtures.find((item) => item.evidence_ids?.includes(id))
+        if (fixture) fixture.label = value
+      }
+    }
+    commitSpec(next)
   }
 
   const undo = () => {
@@ -207,7 +290,7 @@ export default function App() {
         {busy === 'boot' ? <div className="loading-screen"><LoaderCircle className="spin" size={28} /><span>正在打开工作台</span></div> : !project ? (
           <div className="no-project"><Box size={36} strokeWidth={1.2} /><h1>先创建一个项目</h1><p>项目会在本机保存测量图、现场照片和模型参数。</p></div>
         ) : !spec ? (
-          <EmptyWorkspace hasPlan={!!plan} analysisFailed={project.status === 'analysis_failed'} canAnalyze={!!health?.ai_configured && !busy} onAnalyze={() => void analyzePlan()} onManual={(width, depth, height) => { const next = manualRoom(width, depth, height); setSpec(next); setProject((current) => current ? { ...current, spec: next } : current); setDirty(true) }} />
+          <EmptyWorkspace hasPlan={!!plan} analysisFailed={project.status === 'analysis_failed'} canAnalyze={!!(health?.ocr_configured || health?.ai_configured) && !busy && project.status !== 'analysis_running'} onAnalyze={() => void analyzePlan()} onManual={(width, depth, height) => { const next = manualRoom(width, depth, height); setSpec(next); setProject((current) => current ? { ...current, spec: next } : current); setDirty(true) }} />
         ) : (
           <>
             <div className="view-tabs" role="tablist">
@@ -219,7 +302,7 @@ export default function App() {
           </>
         )}
       </main>
-      {spec && <Inspector spec={spec} selection={selection} onSelect={setSelection} onChange={commitSpec} />}
+      {spec && <Inspector spec={spec} assets={project?.assets ?? []} selection={selection} onSelect={setSelection} onChange={commitSpec} onEvidenceApply={applyEvidence} />}
       {message && <div className={`toast ${message.kind}`} role="status"><span>{message.text}</span><button className="icon-button" onClick={() => setMessage(null)} title="关闭"><X size={15} /></button></div>}
     </div>
   )

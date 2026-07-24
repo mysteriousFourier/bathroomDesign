@@ -311,6 +311,9 @@ def measurement_from_spec(
             status=_measurement_status(observation.source, observation.confidence, observation.confirmed),
             alternatives=observation.alternatives,
             note=observation.note,
+            semantic_role=observation.semantic_role,
+            review_required=observation.review_required,
+            rotation_degrees=observation.rotation_degrees,
         ))
 
     valid_evidence_ids = set(observation_ids)
@@ -459,6 +462,9 @@ def room_spec_from_measurement(measurement: MeasurementModel) -> RoomSpec:
             confirmed=item.status == "verified",
             alternatives=item.alternatives,
             note=item.note,
+            semantic_role=item.semantic_role,
+            review_required=item.review_required,
+            rotation_degrees=item.rotation_degrees,
         )
         for item in measurement.evidence
     ]

@@ -8,11 +8,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
-from .ai import AIConfigurationError, AIResponseError, analyze_floorplan, analyze_photos
+from .ai import AIConfigurationError, AIResponseError, analyze_floorplan_fast as analyze_floorplan, analyze_photos, evidence_crop_png
 from .config import settings
 from .database import db
 from .measurement import measurement_contract_export, validate_measurement
@@ -24,6 +24,7 @@ from .models import (
     ProjectCreate,
     ProjectResponse,
     RoomSpec,
+    ImageBBox,
     ValidationResponse,
 )
 from .validation import validate_spec
@@ -67,6 +68,7 @@ def health() -> dict:
         "model": settings.openai_model or None,
         "quality_model": settings.openai_quality_model or None,
         "fallback_model": settings.openai_fallback_model or None,
+        "ocr_configured": settings.ocr_engine.lower() == "paddle",
     }
 
 
@@ -139,6 +141,27 @@ def asset_content(asset_id: str) -> FileResponse:
     return FileResponse(path, media_type=row["mime_type"], content_disposition_type="inline")
 
 
+@app.get("/api/assets/{asset_id}/crop")
+def evidence_crop(
+    asset_id: str,
+    x_min: int,
+    y_min: int,
+    x_max: int,
+    y_max: int,
+    rotation_degrees: int = 0,
+) -> Response:
+    """Serve a padded OCR evidence crop; source images remain in the asset store."""
+    try:
+        row = db.get_asset_row(asset_id)
+        bbox = ImageBBox(x_min=x_min, y_min=y_min, x_max=x_max, y_max=y_max)
+        if rotation_degrees not in (0, 90, 180, 270):
+            raise ValueError("rotation_degrees")
+        content = evidence_crop_png(db.asset_path(row), rotation_degrees, bbox)
+    except (KeyError, ValueError, OSError) as error:
+        raise HTTPException(status_code=404, detail="证据裁片不存在") from error
+    return Response(content=content, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.post("/api/projects/{project_id}/analyze-plan", response_model=AnalysisResponse)
 async def analyze_plan_endpoint(project_id: str, rotation_degrees: int | None = None) -> AnalysisResponse:
     project = project_or_404(project_id)
@@ -149,8 +172,11 @@ async def analyze_plan_endpoint(project_id: str, rotation_degrees: int | None = 
     try:
         if rotation_degrees not in (None, 0, 90, 180, 270):
             raise HTTPException(status_code=422, detail="rotation_degrees 只能是 0、90、180 或 270")
+        # Persist progress so a browser refresh does not turn an in-flight analysis into an empty state.
+        db.set_status(project_id, "analysis_running")
         spec = await analyze_floorplan(db.asset_path(row), asset_id=plans[-1].id, rotation_degrees=rotation_degrees)
     except AIConfigurationError as error:
+        db.set_status(project_id, "analysis_failed")
         raise ai_http_error(error) from error
     except AIResponseError as error:
         db.set_status(project_id, "analysis_failed")

@@ -15,6 +15,19 @@ class SourceKind(str, Enum):
     user = "user"
 
 
+EvidenceRole = Literal[
+    "room_dimension",
+    "wall_segment",
+    "room_height",
+    "door_size",
+    "door_position",
+    "drain_position",
+    "fixture_dimension",
+    "fixture_label",
+    "other",
+]
+
+
 class Point2D(BaseModel):
     x_mm: int
     z_mm: int
@@ -30,6 +43,9 @@ class Observation(BaseModel):
     confirmed: bool = False
     alternatives: list[str] = Field(default_factory=list)
     note: str = ""
+    semantic_role: EvidenceRole = "other"
+    review_required: bool = False
+    rotation_degrees: Literal[0, 90, 180, 270] = 0
 
 
 class OpeningSpec(BaseModel):
@@ -276,6 +292,33 @@ class BoundaryChainResult(BaseModel):
     door_height_evidence_ids: list[str] = Field(default_factory=list)
     door_height_confidence: float = Field(default=0.5, ge=0, le=1)
     uncertain: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_non_axis_segments(cls, value: object) -> object:
+        if not isinstance(value, dict) or not isinstance(value.get("segments"), list):
+            return value
+        data = dict(value)
+        allowed = {"wall_segment", "door_opening", "gap"}
+        discarded = []
+        segments = []
+        for item in data["segments"]:
+            if isinstance(item, BoundaryChainSegment):
+                segments.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            purpose = str(item.get("purpose", ""))
+            if purpose not in allowed:
+                discarded.append(purpose or "unknown")
+                continue
+            segments.append(item)
+        data["segments"] = segments
+        if discarded:
+            uncertain = list(data.get("uncertain") or [])
+            uncertain.append("门墙结果含非轴向字段，已忽略：" + ", ".join(discarded))
+            data["uncertain"] = uncertain
+        return data
 
     @field_validator("door_height_confidence", mode="before")
     @classmethod
@@ -566,6 +609,9 @@ class MeasurementEvidence(BaseModel):
     status: Literal["verified", "unverified", "provisional"] = "unverified"
     alternatives: list[str] = Field(default_factory=list)
     note: str = ""
+    semantic_role: EvidenceRole = "other"
+    review_required: bool = False
+    rotation_degrees: Literal[0, 90, 180, 270] = 0
 
 
 class MeasurementModel(BaseModel):

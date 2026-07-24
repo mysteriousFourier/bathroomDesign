@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, fixtureDefaults, fixtureLabels, roomBounds, roomCentroid } from '../spec'
-import type { FixtureKind, RoomSpec, Selection, SourceKind } from '../types'
+import { cloneSpec, fixtureDefaults, fixtureLabels, roomBounds, roomCentroid, wallLength } from '../spec'
+import type { Asset, EvidenceRole, FixtureKind, RoomSpec, Selection, SourceKind } from '../types'
+import { EvidenceReview } from './EvidenceReview'
 
 const sourceLabels: Record<SourceKind, string> = { measured: '测量', derived: '推导', estimated: '估算', user: '用户' }
 
@@ -12,8 +13,10 @@ function SourceBadge({ source, confidence }: { source: SourceKind; confidence: n
   return <span className={`source-badge ${source}`}>{sourceLabels[source]} · {Math.round(confidence * 100)}%</span>
 }
 
-export function Inspector({ spec, selection, onSelect, onChange }: {
+export function Inspector({ spec, assets, selection, onSelect, onChange, onEvidenceApply }: {
   spec: RoomSpec
+  assets: Asset[]
+  onEvidenceApply: (id: string, value: string, role: EvidenceRole, ignored?: boolean) => void
   selection: Selection
   onSelect: (selection: Selection) => void
   onChange: (spec: RoomSpec) => void
@@ -39,6 +42,20 @@ export function Inspector({ spec, selection, onSelect, onChange }: {
     }))
   })
 
+  const addBoundaryPoint = () => edit((draft) => {
+    if (draft.boundary.length < 2) return
+    let edgeIndex = 0
+    for (let index = 1; index < draft.boundary.length; index += 1) {
+      if (wallLength(draft.boundary, index) > wallLength(draft.boundary, edgeIndex)) edgeIndex = index
+    }
+    const start = draft.boundary[edgeIndex]
+    const end = draft.boundary[(edgeIndex + 1) % draft.boundary.length]
+    draft.boundary.splice(edgeIndex + 1, 0, {
+      x_mm: Math.round((start.x_mm + end.x_mm) / 2),
+      z_mm: Math.round((start.z_mm + end.z_mm) / 2),
+    })
+  })
+
   const addFixture = (kind: FixtureKind) => {
     const center = roomCentroid(spec.boundary)
     const defaults = fixtureDefaults[kind]
@@ -61,6 +78,7 @@ export function Inspector({ spec, selection, onSelect, onChange }: {
 
   return (
     <aside className="inspector">
+      <EvidenceReview spec={spec} assets={assets} onApply={onEvidenceApply} />
       <section className="inspector-section">
         <div className="inspector-title"><span>属性</span><span className="selection-path">{selection.type === 'room' ? '空间' : selection.type === 'fixture' ? '设施' : '洞口'} <ChevronRight size={13} /></span></div>
         {selection.type === 'room' && (
@@ -70,7 +88,19 @@ export function Inspector({ spec, selection, onSelect, onChange }: {
             <NumberField label="净深" value={bounds.depth} min={500} onChange={(value) => resizeBoundary(bounds.width, value)} />
             <NumberField label="层高" value={spec.height_mm ?? 0} min={1000} onChange={(value) => edit((draft) => { draft.height_mm = value })} />
             <NumberField label="墙厚" value={spec.wall_thickness_mm} min={50} onChange={(value) => edit((draft) => { draft.wall_thickness_mm = value })} />
-            <div className="property-note">调整宽深会等比例缩放当前轮廓与凹角；设施位置保持不变。</div>
+            <div className="boundary-editor">
+              <div className="boundary-editor-heading"><strong>轮廓折点</strong><span>{spec.boundary.length} 点</span></div>
+              {spec.boundary.map((point, index) => (
+                <div className="boundary-point-row" key={`boundary-${index}`}>
+                  <span className="boundary-point-index">P{index + 1}</span>
+                  <NumberField label="X" value={point.x_mm} min={0} onChange={(value) => edit((draft) => { draft.boundary[index].x_mm = value })} />
+                  <NumberField label="Z" value={point.z_mm} min={0} onChange={(value) => edit((draft) => { draft.boundary[index].z_mm = value })} />
+                  <button className="icon-button danger" disabled={spec.boundary.length <= 3} title={`删除折点 P${index + 1}`} onClick={() => edit((draft) => { draft.boundary.splice(index, 1) })}><Trash2 size={14} /></button>
+                </div>
+              ))}
+              <button className="button secondary wide" onClick={addBoundaryPoint}><Plus size={15} />添加折点</button>
+            </div>
+            <div className="property-note">折点按墙体顺序连接；调整净宽或净深会缩放全部折点，设施位置保持不变。</div>
           </div>
         )}
         {selectedFixture && (

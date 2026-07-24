@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     ai_quality_timeout_seconds: int = 35
     ocr_cache_dir: Path = Path(".tmp/ocr")
     ocr_cache_ttl_hours: int = 24
+    ocr_engine: str = "paddle"
+    paddleocr_python: str = ""
+    ocr_timeout_seconds: int = 180
 
     @classmethod
     def settings_customise_sources(

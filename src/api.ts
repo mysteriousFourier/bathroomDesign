@@ -10,7 +10,7 @@ async function request<T>(url: string, init?: RequestInit & { timeoutMs?: number
     response = await fetch(url, { ...init, signal: init?.signal ?? controller.signal })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      const timeoutError = new Error('请求超时，请稍后重试或改用手动录入。')
+      const timeoutError = new Error('本地等待已超时，后台可能仍在解析；请稍后刷新项目查看结果。')
       timeoutError.name = 'TimeoutError'
       throw timeoutError
     }
@@ -53,8 +53,9 @@ export const studioApi = {
   },
   analyzePlan: (id: string, rotationDegrees: number | null = null) => request<AnalysisResponse>(
     `/api/projects/${id}/analyze-plan${rotationDegrees === null ? '' : `?rotation_degrees=${rotationDegrees}`}`,
-    { method: 'POST', timeoutMs: 150_000 },
+    // PaddleOCR plus the visual topology review can legitimately take several minutes.
+    { method: 'POST', timeoutMs: 600_000 },
   ),
-  analyzePhotos: (id: string) => request<AnalysisResponse>(`/api/projects/${id}/analyze-photos`, { method: 'POST', timeoutMs: 150_000 }),
+  analyzePhotos: (id: string) => request<AnalysisResponse>(`/api/projects/${id}/analyze-photos`, { method: 'POST', timeoutMs: 300_000 }),
   measurementDownloadUrl: (id: string) => `/api/projects/${id}/measurement/download`,
 }

@@ -116,8 +116,10 @@ async def test_rejects_non_image_upload(tmp_path) -> None:
 async def test_failed_reanalysis_marks_old_spec_stale_without_deleting_it(tmp_path, monkeypatch) -> None:
     configure_temp_database(tmp_path)
     db.initialize()
+    statuses_during_analysis: list[str] = []
 
     async def fail_analysis(*_args, **_kwargs):
+        statuses_during_analysis.append(db.get_project(project_id).status)
         raise AIResponseError("轮廓未闭合")
 
     monkeypatch.setattr(main_module, "analyze_floorplan", fail_analysis)
@@ -137,6 +139,7 @@ async def test_failed_reanalysis_marks_old_spec_stale_without_deleting_it(tmp_pa
 
         failed = await client.post(f"/api/projects/{project_id}/analyze-plan?rotation_degrees=0")
         assert failed.status_code >= 400
+        assert statuses_during_analysis == ["analysis_running"]
         project = (await client.get(f"/api/projects/{project_id}")).json()
         assert project["status"] == "analysis_failed"
         assert project["spec"]["height_mm"] == 2600

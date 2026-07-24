@@ -174,6 +174,37 @@ def test_glm_46_structured_requests_disable_thinking() -> None:
     assert ai._thinking_payload("glm-4v-flash") == {}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "expected_calls", "expected_max_tokens", "compact_prompt"),
+    [
+        ("glm-4v-flash", 4, 1024, True),
+        ("glm-4.6v-flash", 3, 4096, False),
+    ],
+)
+async def test_hosted_evidence_respects_model_output_limit(
+    monkeypatch, model, expected_calls, expected_max_tokens, compact_prompt,
+) -> None:
+    calls: list[dict] = []
+
+    async def fake_request_content(_client, _endpoint, _headers, messages, _model, **kwargs):
+        calls.append({"messages": messages, **kwargs})
+        return '{"rotation_degrees":0,"evidence":[{"id":"E1","kind":"dimension","text":"1840","bbox":{"x_min":10,"y_min":10,"x_max":80,"y_max":50},"orientation":"horizontal","related_to":"墙长","view_id":"tile","confidence":0.9}],"uncertain":[]}'
+
+    monkeypatch.setattr(ai, "_request_content", fake_request_content)
+    monkeypatch.setattr(ai, "_crop_data_url", lambda *_args, **_kwargs: "data:image/jpeg;base64,AA==")
+
+    report = await ai._collect_evidence_hosted(
+        None, "https://example.test", {}, Path("unused.jpg"), 0, model, [],
+    )
+
+    assert report.evidence
+    assert len(calls) == expected_calls
+    assert all(call["extra_payload"]["max_tokens"] == expected_max_tokens for call in calls)
+    prompts = [call["messages"][0]["content"] for call in calls]
+    assert all(("最多返回 4 条" in prompt) is compact_prompt for prompt in prompts)
+
+
 def test_door_detection_uses_related_to_text() -> None:
     item = VisualEvidence(
         id="door-related", kind="dimension", text="800",
@@ -416,6 +447,29 @@ def test_shape_trace_determines_ordered_edge_directions() -> None:
     assert ai._shape_directions(shape) == ["right", "down", "left", "up"]
 
 
+def test_shape_trace_scales_non_rectangular_boundary_to_measured_span() -> None:
+    shape = ShapeTraceResult(
+        closed=True,
+        corners=[
+            ShapeCorner(x=100, y=100),
+            ShapeCorner(x=900, y=100),
+            ShapeCorner(x=900, y=900),
+            ShapeCorner(x=600, y=900),
+            ShapeCorner(x=600, y=650),
+            ShapeCorner(x=100, y=650),
+        ],
+    )
+
+    boundary = ai._shape_trace_to_boundary(shape, 3200, 2400)
+
+    assert len(boundary) == 6
+    assert max(point.x_mm for point in boundary) == 3200
+    assert max(point.z_mm for point in boundary) == 2400
+    assert {(point.x_mm, point.z_mm) for point in boundary} == {
+        (0, 0), (3200, 0), (3200, 2400), (2000, 2400), (2000, 1650), (0, 1650),
+    }
+
+
 def test_raster_topology_candidates_keep_non_rectangular_turns(tmp_path) -> None:
     image = Image.new("RGB", (1000, 700), "white")
     polygon = [
@@ -475,7 +529,7 @@ def test_ocr_assist_writes_hash_isolated_artifacts(tmp_path, monkeypatch) -> Non
     assert bundle["tokens"][0]["coordinate_transform"]["trim_document"] is True
 
 
-def test_ocr_overlay_only_marks_token_bbox() -> None:
+def test_ocr_overlay_outlines_bbox_without_obscuring_text() -> None:
     image = Image.new("RGB", (100, 80), "white")
     draw = ImageDraw.Draw(image)
     draw.text((42, 30), "1840", fill="black")
@@ -494,7 +548,139 @@ def test_ocr_overlay_only_marks_token_bbox() -> None:
 
     assert overlay.getpixel((10, 10)) == image.getpixel((10, 10))
     assert overlay.getpixel((85, 30)) == image.getpixel((85, 30))
-    assert overlay.getpixel((45, 32)) != image.getpixel((45, 32))
+    assert overlay.getpixel((40, 30)) != image.getpixel((40, 30))
+    assert overlay.getpixel((45, 32)) == image.getpixel((45, 32))
+
+
+def test_ocr_rotated_boxes_map_back_to_canonical_coordinates() -> None:
+    rotated = ImageBBox(x_min=100, y_min=200, x_max=300, y_max=400)
+
+    clockwise = ai._ocr_bbox_to_canonical(rotated, 90)
+    counterclockwise = ai._ocr_bbox_to_canonical(rotated, 270)
+
+    assert clockwise == ImageBBox(x_min=200, y_min=700, x_max=400, y_max=900)
+    assert counterclockwise == ImageBBox(x_min=600, y_min=100, x_max=800, y_max=300)
+
+
+def test_multi_orientation_ocr_merges_overlapping_alternate_readings() -> None:
+    first = {
+        "id": "E001", "raw_text": "0+81", "normalized_candidates": ["0", "81"],
+        "bbox": ImageBBox(x_min=100, y_min=200, x_max=220, y_max=260).model_dump(),
+        "confidence": 0.61,
+    }
+    second = {
+        "id": "E001", "raw_text": "1840", "normalized_candidates": ["1840"],
+        "bbox": ImageBBox(x_min=105, y_min=198, x_max=225, y_max=262).model_dump(),
+        "confidence": 0.93,
+    }
+
+    merged = ai._merge_ocr_tokens([[first], [second]])
+
+    assert len(merged) == 1
+    assert merged[0]["raw_text"] == "1840"
+    assert set(merged[0]["alternate_readings"]) == {"0+81", "1840"}
+    assert "1840" in merged[0]["normalized_candidates"]
+
+
+def test_ocr_dimension_hints_exclude_height_label() -> None:
+    shape = ShapeTraceResult(
+        closed=True,
+        corners=[
+            ShapeCorner(x=0, y=0), ShapeCorner(x=1000, y=0),
+            ShapeCorner(x=1000, y=645), ShapeCorner(x=0, y=645),
+        ],
+    )
+    assist = {
+        "tokens": [
+            {"raw_text": "2855", "normalized_candidates": ["2855"]},
+            {"raw_text": "1840", "normalized_candidates": ["1840"]},
+            {"raw_text": "吊顶2.100", "normalized_candidates": ["2100"]},
+        ]
+    }
+
+    assert ai._ocr_dimension_hints(assist, shape) == (2855, 1840)
+
+
+def test_ocr_dimension_hints_preserve_rooms_larger_than_five_metres() -> None:
+    assist = {
+        "tokens": [
+            {"raw_text": "6500", "normalized_candidates": ["6500"]},
+            {"raw_text": "4800", "normalized_candidates": ["4800"]},
+        ]
+    }
+
+    assert ai._ocr_dimension_hints(assist) == (6500, 4800)
+
+
+def test_ocr_dimension_hints_prefer_vision_corrected_values() -> None:
+    corrected = {"vision_rotation_degrees": 90}
+    assist = {
+        "tokens": [
+            {"raw_text": "5582", "normalized_candidates": ["5582"], "coordinate_transform": {}},
+            {"raw_text": "2855", "normalized_candidates": ["2855"], "coordinate_transform": corrected},
+            {"raw_text": "1840", "normalized_candidates": ["1840"], "coordinate_transform": corrected},
+        ]
+    }
+
+    assert ai._ocr_dimension_hints(assist) == (2855, 1840)
+
+
+def test_ocr_rotation_contact_sheet_includes_vertical_and_uncertain_tokens(tmp_path) -> None:
+    original = tmp_path / "oriented.jpg"
+    Image.new("RGB", (600, 400), "white").save(original)
+    assist = {
+        "oriented_original": original,
+        "tokens": [
+            {
+                "id": "E001", "raw_text": "0781", "confidence": 0.99,
+                "bbox": ImageBBox(x_min=100, y_min=100, x_max=160, y_max=360).model_dump(),
+            },
+            {
+                "id": "E002", "raw_text": "uncertain", "confidence": 0.5,
+                "bbox": ImageBBox(x_min=300, y_min=100, x_max=520, y_max=180).model_dump(),
+            },
+        ],
+    }
+
+    sheet, token_ids = ai._ocr_rotation_contact_sheet(assist)
+
+    assert sheet.startswith("data:image/jpeg;base64,")
+    assert token_ids == ["E001", "E002"]
+
+
+@pytest.mark.asyncio
+async def test_vision_ocr_refinement_updates_rotated_token_and_cache(tmp_path, monkeypatch) -> None:
+    original = tmp_path / "oriented.jpg"
+    overlay = tmp_path / "overlay.png"
+    tokens_path = tmp_path / "tokens.json"
+    Image.new("RGB", (600, 400), "white").save(original)
+    Image.new("RGB", (600, 400), "white").save(overlay)
+    token = {
+        "id": "E001", "raw_text": "0781", "normalized_candidates": ["0781"],
+        "confidence": 0.8,
+        "bbox": ImageBBox(x_min=100, y_min=100, x_max=160, y_max=360).model_dump(),
+        "coordinate_transform": {},
+    }
+    tokens_path.write_text(
+        '{"schema_version":7,"engine":"paddle","tokens":[]}', encoding="utf-8",
+    )
+    assist = {
+        "oriented_original": original, "overlay": overlay, "tokens_path": tokens_path,
+        "tokens": [token], "vision_refined": False,
+    }
+    monkeypatch.setattr(settings, "openai_fallback_model", "glm-4v-flash")
+
+    async def fake_request(*_args, **_kwargs):
+        return '{"tokens":[{"id":"E001","rotation_degrees":90,"text":"1840","confidence":0.95}]}'
+
+    monkeypatch.setattr(ai, "_request_content", fake_request)
+    refined = await ai._refine_ocr_with_vision(
+        httpx.AsyncClient(), "endpoint", {}, assist, [],
+    )
+
+    assert refined["tokens"][0]["raw_text"] == "1840"
+    assert refined["tokens"][0]["coordinate_transform"]["vision_rotation_degrees"] == 90
+    assert '"vision_refined": true' in tokens_path.read_text(encoding="utf-8")
 
 
 def test_ocr_assist_content_includes_overlay_tokens_and_crops(tmp_path, monkeypatch) -> None:
@@ -526,6 +712,17 @@ def test_ocr_assist_content_includes_overlay_tokens_and_crops(tmp_path, monkeypa
     assert "abc123" in text_blocks[0]
     assert "E001" in text_blocks[0]
     assert sum(item["type"] == "image_url" for item in content) == 2
+
+    hosted_content = ai._ocr_assist_content(
+        {
+            "image_hash": "abc123",
+            "overlay": overlay,
+            "tokens": [],
+            "crops": [crop, crop, crop],
+        },
+        include_images=False,
+    )
+    assert sum(item["type"] == "image_url" for item in hosted_content) == 0
 
 
 @pytest.mark.asyncio
@@ -614,6 +811,21 @@ def test_evidence_backed_edge_chain_requires_return_citations() -> None:
     assert ai._edge_chain_is_evidence_backed(edges, report)
     edges[1].evidence_ids = []
     assert not ai._edge_chain_is_evidence_backed(edges, report)
+
+
+def test_boundary_chain_discards_non_axis_dimension_segments() -> None:
+    result = BoundaryChainResult.model_validate(
+        {
+            "segments": [
+                {"value_mm": 400, "purpose": "wall_segment"},
+                {"value_mm": 2055, "purpose": "door_height"},
+                {"value_mm": 120, "purpose": "door_thickness"},
+            ]
+        }
+    )
+
+    assert [segment.value_mm for segment in result.segments] == [400]
+    assert any("door_height" in item and "door_thickness" in item for item in result.uncertain)
 
 
 def test_door_wall_returns_must_exist_in_edge_chain() -> None:

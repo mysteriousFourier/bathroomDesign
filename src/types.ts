@@ -1,4 +1,5 @@
 export type SourceKind = 'measured' | 'derived' | 'estimated' | 'user'
+export type EvidenceRole = 'room_dimension' | 'wall_segment' | 'room_height' | 'door_size' | 'door_position' | 'drain_position' | 'fixture_dimension' | 'fixture_label' | 'other'
 
 export interface Point2D {
   x_mm: number
@@ -15,6 +16,9 @@ export interface Observation {
   confirmed: boolean
   alternatives?: string[]
   note: string
+  semantic_role?: EvidenceRole
+  review_required?: boolean
+  rotation_degrees?: 0 | 90 | 180 | 270
 }
 
 export interface OpeningSpec {
@@ -100,11 +104,29 @@ export interface MeasurementModel {
   }>
   openings: Array<Record<string, unknown>>
   anchors: Array<Record<string, unknown>>
-  evidence: Array<Record<string, unknown>>
+  evidence: Array<MeasurementEvidence>
   source_asset_ids: string[]
   unresolved_fields: string[]
   issues: ValidationIssue[]
   confirmed: boolean
+}
+
+export interface MeasurementEvidence {
+  id: string
+  field: string
+  raw_text: string
+  normalized_value: string
+  unit: 'mm' | 'text'
+  source: SourceKind
+  asset_id?: string | null
+  bbox?: { x_min: number; y_min: number; x_max: number; y_max: number } | null
+  confidence: number
+  status: 'verified' | 'unverified' | 'provisional'
+  alternatives: string[]
+  note: string
+  semantic_role: EvidenceRole
+  review_required: boolean
+  rotation_degrees: 0 | 90 | 180 | 270
 }
 
 export interface Asset {
@@ -142,6 +164,7 @@ export interface Health {
   ai_configured: boolean
   model: string | null
   fallback_model?: string | null
+  ocr_configured?: boolean
 }
 
 export type Selection = { type: 'room' } | { type: 'fixture'; id: string } | { type: 'opening'; id: string }

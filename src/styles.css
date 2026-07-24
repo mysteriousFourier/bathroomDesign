@@ -174,6 +174,16 @@ p, h1, h2, figure { margin: 0; }
 
 .inspector { grid-column: 3; min-height: 0; overflow-y: auto; border-left: 1px solid var(--line-strong); background: #f7f6f2; scrollbar-width: thin; }
 .inspector-section { padding: 15px; border-bottom: 1px solid var(--line); }
+.evidence-review { background: #f1f3ed; }
+.evidence-review.empty { padding-bottom: 12px; }
+.evidence-crop { display: grid; place-items: center; min-height: 112px; margin: -2px 0 8px; border: 1px solid var(--line-strong); background: #fff; overflow: hidden; }
+.evidence-crop img { display: block; width: 100%; height: 132px; object-fit: contain; image-rendering: auto; }
+.evidence-crop svg { color: var(--muted); }
+.evidence-meta { display: flex; justify-content: space-between; margin-bottom: 9px; color: var(--muted); font: 9px Consolas, monospace; }
+.evidence-field { display: grid; gap: 5px; margin-top: 8px; color: var(--muted); font-size: 10px; }
+.evidence-field input, .evidence-field select { width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface); color: var(--ink); font-size: 11px; }
+.evidence-actions { display: grid; grid-template-columns: 34px 1fr auto 34px; align-items: center; gap: 4px; margin-top: 10px; }
+.evidence-actions .button { min-width: 0; }
 .inspector-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; font-size: 11px; font-weight: 700; }
 .inspector-title > span:last-child { color: var(--muted); font: 10px Consolas, monospace; }
 .selection-path { display: flex; align-items: center; }
@@ -185,6 +195,16 @@ p, h1, h2, figure { margin: 0; }
 .number-field input { min-width: 0; width: 100%; height: 29px; padding: 0 3px 0 8px; border: 0; outline: 0; background: transparent; color: var(--ink); font: 11px Consolas, monospace; }
 .number-field em { color: #8b9088; font: normal 9px Consolas, monospace; text-align: center; }
 .property-note { padding: 8px; color: var(--muted); background: var(--surface-2); font-size: 9px; line-height: 1.6; }
+.boundary-editor { display: grid; gap: 6px; padding: 9px; border: 1px solid var(--line); background: var(--surface-2); }
+.boundary-editor-heading { display: flex; align-items: center; justify-content: space-between; color: var(--ink); font-size: 10px; }
+.boundary-editor-heading span { color: var(--muted); font: 9px Consolas, monospace; }
+.boundary-point-row { display: grid; grid-template-columns: 23px minmax(0, 1fr) minmax(0, 1fr) 28px; align-items: center; gap: 4px; }
+.boundary-point-index { color: var(--muted); font: 9px Consolas, monospace; }
+.boundary-point-row .number-field { grid-template-columns: 13px minmax(0, 1fr); gap: 3px; font-size: 9px; }
+.boundary-point-row .number-field > div { height: 28px; grid-template-columns: 1fr; }
+.boundary-point-row .number-field input { height: 26px; padding-left: 5px; font-size: 10px; }
+.boundary-point-row .number-field em { display: none; }
+.boundary-point-row .icon-button { width: 28px; height: 28px; }
 .object-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
 .object-heading strong { font-size: 12px; }
 .source-badge { padding: 3px 5px; border-radius: 3px; font: 8px Consolas, monospace; }

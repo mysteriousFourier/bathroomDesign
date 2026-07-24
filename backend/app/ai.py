@@ -965,95 +965,65 @@ def _ocr_orientation(width: int, height: int) -> str:
 
 
 _VISION_SIM_TOKENS_BY_HASH: dict[str, list[dict]] = {
-    # User-provided DWG screenshot in AGEN-6.4. This is a deterministic
-    # Vision-agent simulation, not a real hosted AI call or reference DWG read.
-    "926884b83d19f5a371ac2384": [
+    # User-provided handwritten site photo in AGEN-6.4. The DWG screenshot in
+    # that thread is a QA reference only and must not be used as recognition input.
+    "44b0b2bc2c1ee09f69252649": [
         {
-            "id": "VS001", "raw_text": "4105", "bbox": {"x_min": 495, "y_min": 33, "x_max": 556, "y_max": 78},
-            "orientation": "horizontal", "confidence": 0.94, "semantic_role": "room_dimension",
+            "id": "VS001", "raw_text": "1840", "bbox": {"x_min": 433, "y_min": 282, "x_max": 567, "y_max": 319},
+            "orientation": "horizontal", "confidence": 0.86, "semantic_role": "room_dimension",
             "target_id": "room:width", "review_required": False,
         },
         {
-            "id": "VS002", "raw_text": "4105", "bbox": {"x_min": 492, "y_min": 843, "x_max": 558, "y_max": 888},
-            "orientation": "horizontal", "confidence": 0.92, "semantic_role": "room_dimension",
+            "id": "VS002", "raw_text": "1840", "bbox": {"x_min": 435, "y_min": 853, "x_max": 592, "y_max": 891},
+            "orientation": "horizontal", "confidence": 0.84, "semantic_role": "room_dimension",
             "target_id": "room:width", "review_required": False,
         },
         {
-            "id": "VS003", "raw_text": "1840", "bbox": {"x_min": 123, "y_min": 429, "x_max": 165, "y_max": 540},
-            "orientation": "vertical", "confidence": 0.91, "semantic_role": "room_dimension",
+            "id": "VS003", "raw_text": "5530", "bbox": {"x_min": 276, "y_min": 451, "x_max": 337, "y_max": 575},
+            "orientation": "vertical", "confidence": 0.78, "semantic_role": "room_dimension",
             "target_id": "room:depth", "review_required": False,
         },
         {
-            "id": "VS004", "raw_text": "1840", "bbox": {"x_min": 855, "y_min": 504, "x_max": 900, "y_max": 625},
-            "orientation": "vertical", "confidence": 0.9, "semantic_role": "room_dimension",
-            "target_id": "room:depth", "review_required": False,
+            "id": "VS004", "raw_text": "800x2100", "alternate_readings": ["门宽高 800x2100"],
+            "bbox": {"x_min": 99, "y_min": 308, "x_max": 265, "y_max": 496},
+            "orientation": "vertical", "confidence": 0.82, "semantic_role": "door_size",
+            "target_id": "wall:3@0.058:0.203", "review_required": True,
         },
         {
-            "id": "VS005", "raw_text": "400 800", "alternate_readings": ["门洞 800x2100", "400 + 800 + 2905"],
-            "bbox": {"x_min": 240, "y_min": 748, "x_max": 385, "y_max": 806},
-            "orientation": "horizontal", "confidence": 0.86, "semantic_role": "door_size",
-            "target_id": "wall:0@0.097:0.292", "review_required": False,
+            "id": "VS005", "raw_text": "层高2100", "bbox": {"x_min": 542, "y_min": 507, "x_max": 635, "y_max": 598},
+            "orientation": "vertical", "confidence": 0.64, "semantic_role": "room_height",
+            "target_id": "room:height", "review_required": True,
         },
         {
-            "id": "VS006", "raw_text": "2905", "bbox": {"x_min": 570, "y_min": 756, "x_max": 660, "y_max": 800},
-            "orientation": "horizontal", "confidence": 0.88, "semantic_role": "wall_segment",
-            "target_id": "wall:0@0.292:1", "review_required": False,
-        },
-        {
-            "id": "VS007", "raw_text": "260", "bbox": {"x_min": 232, "y_min": 128, "x_max": 276, "y_max": 174},
-            "orientation": "horizontal", "confidence": 0.82, "semantic_role": "wall_segment",
-            "target_id": "wall:2", "review_required": False,
-        },
-        {
-            "id": "VS008", "raw_text": "1640", "bbox": {"x_min": 360, "y_min": 130, "x_max": 430, "y_max": 174},
-            "orientation": "horizontal", "confidence": 0.86, "semantic_role": "wall_segment",
-            "target_id": "wall:2", "review_required": False,
-        },
-        {
-            "id": "VS009", "raw_text": "615", "bbox": {"x_min": 525, "y_min": 130, "x_max": 568, "y_max": 174},
-            "orientation": "horizontal", "confidence": 0.82, "semantic_role": "wall_segment",
-            "target_id": "wall:2", "review_required": False,
-        },
-        {
-            "id": "VS010", "raw_text": "1590", "bbox": {"x_min": 668, "y_min": 128, "x_max": 730, "y_max": 174},
-            "orientation": "horizontal", "confidence": 0.86, "semantic_role": "wall_segment",
-            "target_id": "wall:2", "review_required": False,
-        },
-        {
-            "id": "VS011", "raw_text": "2160", "bbox": {"x_min": 43, "y_min": 470, "x_max": 76, "y_max": 570},
-            "orientation": "vertical", "confidence": 0.82, "semantic_role": "wall_segment",
-            "target_id": "wall:3", "review_required": False,
-        },
-        {
-            "id": "VS012", "raw_text": "320", "bbox": {"x_min": 118, "y_min": 314, "x_max": 160, "y_max": 378},
-            "orientation": "vertical", "confidence": 0.8, "semantic_role": "wall_segment",
-            "target_id": "wall:3", "review_required": False,
-        },
-        {
-            "id": "VS013", "raw_text": "地漏/排水点", "bbox": {"x_min": 765, "y_min": 355, "x_max": 807, "y_max": 406},
+            "id": "VS006", "raw_text": "地漏/排水点", "bbox": {"x_min": 756, "y_min": 345, "x_max": 888, "y_max": 580},
             "orientation": "free", "confidence": 0.62, "semantic_role": "drain_position",
-            "target_id": "drain:1", "review_required": False,
+            "target_id": "drain:1", "review_required": True,
         },
         {
-            "id": "VS014", "raw_text": "马桶位置候选", "bbox": {"x_min": 750, "y_min": 538, "x_max": 805, "y_max": 632},
+            "id": "VS007", "raw_text": "马桶位置候选", "bbox": {"x_min": 755, "y_min": 450, "x_max": 887, "y_max": 581},
             "orientation": "free", "confidence": 0.58, "semantic_role": "fixture_label",
-            "target_id": "fixture:toilet", "review_required": False,
+            "target_id": "fixture:toilet", "review_required": True,
         },
     ],
 }
 
 _VISION_SIM_SHAPES_BY_HASH: dict[str, ShapeTraceResult] = {
-    "926884b83d19f5a371ac2384": ShapeTraceResult(
+    "44b0b2bc2c1ee09f69252649": ShapeTraceResult(
         corners=[
-            ShapeCorner(x=227, y=724, role="wall_corner", confidence=0.9),
-            ShapeCorner(x=823, y=724, role="wall_corner", confidence=0.9),
-            ShapeCorner(x=823, y=290, role="wall_corner", confidence=0.9),
-            ShapeCorner(x=227, y=290, role="wall_corner", confidence=0.9),
+            ShapeCorner(x=365, y=280, role="wall_corner", confidence=0.82),
+            ShapeCorner(x=790, y=280, role="wall_corner", confidence=0.82),
+            ShapeCorner(x=790, y=880, role="wall_corner", confidence=0.82),
+            ShapeCorner(x=365, y=880, role="wall_corner", confidence=0.82),
         ],
         closed=True,
-        uncertain=["Vision 模拟按 DWG 截图主墙线生成矩形轮廓；局部洁具和水点位置仍需人工复核"],
+        uncertain=["Vision 模拟按现场手绘照片主墙线生成矩形候选；DWG 截图仅用于后续 QA 校验，未作为识别输入"],
     ),
 }
+
+# The same source photo has different hashes in full-quality and fast browser
+# preprocessing paths because the fast path downsamples before trimming.
+_VISION_SIM_TOKENS_BY_HASH["4a6701b790d02f27a62e5966"] = _VISION_SIM_TOKENS_BY_HASH["44b0b2bc2c1ee09f69252649"]
+_VISION_SIM_SHAPES_BY_HASH["4a6701b790d02f27a62e5966"] = _VISION_SIM_SHAPES_BY_HASH["44b0b2bc2c1ee09f69252649"]
 
 
 def _vision_sim_tokens(image_hash: str, rotation: int) -> list[dict]:

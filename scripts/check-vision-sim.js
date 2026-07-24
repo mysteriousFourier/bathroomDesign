@@ -6,7 +6,7 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const visionPath = path.join(root, 'evidence', 'vision-sim', 'handdrawn-plan-vision-output.json');
 const candidatePath = path.join(root, 'contracts', 'vision-sim', 'handdrawn-plan-measurement-candidate.json');
-const EXPECTED_ATTACHMENT_ID = '019f87f8-6b1e-7dd2-857a-60abfe565b31';
+const EXPECTED_ATTACHMENT_ID = '019f9261-2b56-76c4-8bfc-fb398a3be14f';
 
 function loadJSON(filepath) {
   try {

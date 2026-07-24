@@ -106,24 +106,37 @@ def test_plan_extraction_builds_rectangle_and_keeps_evidence() -> None:
     assert any(observation.value == "底边 2855" for observation in spec.observations)
 
 
-def test_agen64_vision_sim_fills_dwg_screenshot_when_paddleocr_is_empty(monkeypatch) -> None:
+def test_agen64_vision_sim_ignores_reference_dwg_screenshot_hash() -> None:
+    assert ai._merge_vision_sim_tokens([], "926884b83d19f5a371ac2384", 0) == []
+
+
+@pytest.mark.parametrize("image_hash", ["44b0b2bc2c1ee09f69252649", "4a6701b790d02f27a62e5966"])
+def test_agen64_vision_sim_fills_user_photo_when_paddleocr_is_empty(monkeypatch, image_hash) -> None:
     monkeypatch.setattr(ai, "_run_local_ocr_batch", lambda _items: [[]])
     ocr_assist = {
-        "tokens": ai._merge_vision_sim_tokens([], "926884b83d19f5a371ac2384", 0),
+        "tokens": ai._merge_vision_sim_tokens([], image_hash, 0),
         "rotation_degrees": 0,
+        "image_hash": image_hash,
     }
 
-    spec = ai._provisional_room_spec(None, ocr_assist, asset_id="dwg-screenshot", allow_placeholders=True)
+    spec = ai._provisional_room_spec(
+        ai._vision_sim_shape(ocr_assist),
+        ocr_assist,
+        asset_id="wechat-site-photo",
+        allow_placeholders=True,
+    )
 
     assert spec is not None
-    assert [(point.x_mm, point.z_mm) for point in spec.boundary] == [(0, 1840), (4105, 1840), (4105, 0), (0, 0)]
+    assert [(point.x_mm, point.z_mm) for point in spec.boundary] == [(0, 5530), (1840, 5530), (1840, 0), (0, 0)]
+    assert spec.height_mm == 2100
     assert len(spec.openings) == 1
-    assert spec.openings[0].wall_index == 0
-    assert spec.openings[0].offset_mm == 398
+    assert spec.openings[0].wall_index == 3
+    assert spec.openings[0].offset_mm == 321
     assert spec.openings[0].width_mm == 800
     assert spec.openings[0].height_mm == 2100
-    assert any(item.value == "4105" and item.semantic_role == "room_dimension" for item in spec.observations)
-    assert any(item.value == "400 800" and item.target_id == "wall:0@0.097:0.292" for item in spec.observations)
+    assert any(item.value == "1840" and item.semantic_role == "room_dimension" for item in spec.observations)
+    assert any(item.value == "5530" and item.target_id == "room:depth" for item in spec.observations)
+    assert any(item.value == "800x2100" and item.target_id == "wall:3@0.058:0.203" for item in spec.observations)
 
 
 def visual_report() -> PlanEvidenceReport:

@@ -110,6 +110,26 @@ def test_agen64_vision_sim_ignores_reference_dwg_screenshot_hash() -> None:
     assert ai._merge_vision_sim_tokens([], "926884b83d19f5a371ac2384", 0) == []
 
 
+def test_paddleocr_python_falls_back_to_current_interpreter(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "paddleocr_python", "")
+    monkeypatch.delenv("PADDLEOCR_PYTHON", raising=False)
+    monkeypatch.setattr(ai.Path, "is_file", lambda _self: False)
+
+    class Completed:
+        returncode = 0
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        return Completed()
+
+    monkeypatch.setattr(ai.subprocess, "run", fake_run)
+
+    assert ai._paddleocr_python() == ai.sys.executable
+    assert calls == [[ai.sys.executable, "-c", "import paddleocr"]]
+
+
 @pytest.mark.parametrize("image_hash", ["44b0b2bc2c1ee09f69252649", "4a6701b790d02f27a62e5966"])
 def test_agen64_vision_sim_fills_user_photo_when_paddleocr_is_empty(monkeypatch, image_hash) -> None:
     monkeypatch.setattr(ai, "_run_local_ocr_batch", lambda _items: [[]])

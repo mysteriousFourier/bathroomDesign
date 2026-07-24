@@ -9,6 +9,7 @@ import random
 import re
 import shutil
 import subprocess
+import sys
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
@@ -1135,6 +1136,18 @@ def _paddleocr_python() -> str | None:
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
             return candidate
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", "import paddleocr"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode == 0:
+        return sys.executable
     return None
 
 

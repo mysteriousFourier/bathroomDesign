@@ -49,6 +49,10 @@ from .models import (
 from .validation import has_self_intersection, polygon_area, validate_spec
 
 
+WALL_CROP_CACHE_VERSION = 2
+MIN_STANDALONE_WALL_CROP_LENGTH = 30
+
+
 PLAN_EVIDENCE_PROMPT = """
 你是手绘建筑测量图的视觉证据采集员。只读取图中真实可见的笔画、文字、数字和符号，不生成房间模型。
 当前图像已经由程序转正。所有 bbox 坐标必须相对于当前完整图像，使用 0 到 1000 的归一化坐标。
@@ -123,6 +127,17 @@ PLAN_CANDIDATE_SELECTION_PROMPT = """
 必须在所有候选中先找出拓扑最接近的一个。只有它仍遗漏或新增了真实墙体转折时才全部拒绝；missing_features 必须写清“上/下/左/右哪一段、应向房间内还是外回折”，不得只写“外墙转折/凹口结构/细节不符”等泛泛结论。
 复杂度最高不代表正确。选中时返回候选 ID；确实都不匹配时 selected_id=null、accepted=false。
 只输出 JSON：{"selected_id":null,"accepted":false,"confidence":0到1,"missing_features":[]}。
+""".strip()
+
+WALL_CROP_RECOGNITION_PROMPT = """
+你只负责读取已编号墙段附近的手写文字和尺寸线关系，不生成房间模型。
+第一张图是未经标注的原始裁片，第二张是增强裁片，第三张用红线标出当前主墙段，并可能用橙线标出与它直接相连、不值得单独裁切的短回折墙；如果有第四张，它只是便于阅读竖排文字的旋转副本。bbox 必须相对第一张裁片使用 0 到 1000 坐标。
+只记录确实可读的文字。必须结合尺寸界线、箭头、门框和墙角判断归属，禁止仅按文字离红线最近就绑定。
+scope 只能是 single_wall、boundary_span、overall_width、overall_depth、opening、room_height、ceiling_height、fixture 或 unresolved。
+role 只能是 room_dimension、wall_segment、wall_thickness、room_height、ceiling_height、door_size、door_position、drain_position、pipe_box、fixture_dimension、fixture_label 或 other。
+single_wall/opening 且尺寸线端点确实落在某一编号墙段上时，wall_id 填该墙编号，span_start、span_end 填该墙箭头方向 0 到 1 的比例；只有一个明确定位点时两者可相同。跨越转角或看不清端点时不得伪造 span，wall_id 留空。
+总尺寸、跨墙尺寸链、房高、吊顶和设施文字不能强行绑定当前墙。无法判断时 scope=unresolved、confidence 不高于 0.6。
+只输出 JSON：{"observations":[{"text":"原文","bbox":{"x_min":0,"y_min":0,"x_max":1000,"y_max":1000},"role":"other","scope":"unresolved","wall_id":null,"span_start":null,"span_end":null,"confidence":0.5}]}。
 """.strip()
 
 CRITICAL_DIMENSION_PROMPT = """
@@ -934,6 +949,467 @@ def _bind_ocr_tokens_to_boundary(tokens: list[dict], corners: list[ShapeCorner])
         token["target_id"] = f"wall:{edge_index}@{ratio:.3f}"
 
 
+def _shape_signature(shape: ShapeTraceResult) -> str:
+    payload = [corner.model_dump(mode="json") for corner in shape.corners]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:20]
+
+
+def _wall_crop_specs(shape: ShapeTraceResult) -> list[dict]:
+    """Plan overlapping wall bands in the normalized, trimmed image space."""
+    if not shape.closed or len(shape.corners) < 3:
+        return []
+    walls: list[dict] = []
+    for wall_index, start in enumerate(shape.corners):
+        end = shape.corners[(wall_index + 1) % len(shape.corners)]
+        dx, dy = end.x - start.x, end.y - start.y
+        walls.append(
+            {
+                "wall_index": wall_index,
+                "wall_id": f"W{wall_index}",
+                "start": start,
+                "end": end,
+                "orientation": "horizontal" if abs(dx) >= abs(dy) else "vertical",
+                "length": max(abs(dx), abs(dy)),
+            }
+        )
+    primary_indices = {
+        wall["wall_index"]
+        for wall in walls
+        if wall["length"] >= MIN_STANDALONE_WALL_CROP_LENGTH
+    }
+    if not primary_indices:
+        primary_indices = {max(walls, key=lambda wall: wall["length"])["wall_index"]}
+
+    def adjacent_short_walls(wall_index: int) -> list[dict]:
+        related: list[dict] = []
+        count = len(walls)
+        for direction in (-1, 1):
+            cursor = (wall_index + direction) % count
+            while cursor not in primary_indices and cursor != wall_index:
+                related.append(walls[cursor])
+                cursor = (cursor + direction) % count
+        return list({wall["wall_index"]: wall for wall in related}.values())
+
+    specs: list[dict] = []
+    for wall in walls:
+        wall_index = wall["wall_index"]
+        if wall_index not in primary_indices:
+            continue
+        start, end = wall["start"], wall["end"]
+        dx, dy = end.x - start.x, end.y - start.y
+        horizontal = abs(dx) >= abs(dy)
+        along_margin = 65
+        normal_margin = 210
+        if horizontal:
+            x_min = min(start.x, end.x) - along_margin
+            x_max = max(start.x, end.x) + along_margin
+            y_min = min(start.y, end.y) - normal_margin
+            y_max = max(start.y, end.y) + normal_margin
+            orientation = "horizontal"
+        else:
+            x_min = min(start.x, end.x) - normal_margin
+            x_max = max(start.x, end.x) + normal_margin
+            y_min = min(start.y, end.y) - along_margin
+            y_max = max(start.y, end.y) + along_margin
+            orientation = "vertical"
+        context_walls = adjacent_short_walls(wall_index)
+        for context in context_walls:
+            x_min = min(x_min, context["start"].x - along_margin, context["end"].x - along_margin)
+            x_max = max(x_max, context["start"].x + along_margin, context["end"].x + along_margin)
+            y_min = min(y_min, context["start"].y - along_margin, context["end"].y - along_margin)
+            y_max = max(y_max, context["start"].y + along_margin, context["end"].y + along_margin)
+        bbox = ImageBBox(
+            x_min=max(0, x_min),
+            y_min=max(0, y_min),
+            x_max=min(1000, x_max),
+            y_max=min(1000, y_max),
+        )
+        specs.append(
+            {
+                "wall_index": wall_index,
+                "wall_id": f"W{wall_index}",
+                "start": start,
+                "end": end,
+                "orientation": orientation,
+                "bbox": bbox,
+                "context_walls": context_walls,
+            }
+        )
+    return specs
+
+
+def _wall_crop_bundle(path: Path, rotation: int, spec: dict) -> list[str]:
+    source = _oriented_image(path, rotation, trim_document=True)
+    bbox = ImageBBox.model_validate(spec["bbox"])
+    left = max(0, round(source.width * bbox.x_min / 1000))
+    top = max(0, round(source.height * bbox.y_min / 1000))
+    right = min(source.width, max(left + 1, round(source.width * bbox.x_max / 1000)))
+    bottom = min(source.height, max(top + 1, round(source.height * bbox.y_max / 1000)))
+    raw = source.crop((left, top, right, bottom)).convert("RGB")
+    enhanced = ImageEnhance.Sharpness(
+        ImageEnhance.Contrast(ImageOps.autocontrast(raw)).enhance(1.45)
+    ).enhance(1.5)
+    overlay = raw.copy()
+    draw = ImageDraw.Draw(overlay)
+
+    def local_point(corner: ShapeCorner) -> tuple[int, int]:
+        x = round((corner.x - bbox.x_min) * overlay.width / max(1, bbox.x_max - bbox.x_min))
+        y = round((corner.y - bbox.y_min) * overlay.height / max(1, bbox.y_max - bbox.y_min))
+        return max(0, min(overlay.width - 1, x)), max(0, min(overlay.height - 1, y))
+
+    width = max(4, round(min(overlay.size) * 0.012))
+    marked_walls = [spec, *(spec.get("context_walls") or [])]
+    for index, wall in enumerate(marked_walls):
+        start_px = local_point(wall["start"])
+        end_px = local_point(wall["end"])
+        color = "#dc2626" if index == 0 else "#ea580c"
+        text_color = "#991b1b" if index == 0 else "#9a3412"
+        radius = max(6, width * 2) if index == 0 else max(4, width)
+        draw.line((start_px, end_px), fill=color, width=width)
+        for point, label in ((start_px, "A"), (end_px, "B")):
+            marker = (point[0] - radius, point[1] - radius, point[0] + radius, point[1] + radius)
+            if index == 0:
+                draw.ellipse(marker, fill="white", outline=color, width=max(2, width // 2))
+            else:
+                draw.ellipse(marker, outline=color, width=max(2, width // 2))
+            draw.text((point[0] + radius + 2, point[1] - radius), f"{wall['wall_id']}{label}", fill=text_color)
+    label_width = min(overlay.width - 16, max(104, 76 * len(marked_walls)))
+    draw.rectangle((8, 8, 8 + label_width, 38), fill="white", outline="#991b1b", width=2)
+    draw.text((16, 14), " / ".join(wall["wall_id"] for wall in marked_walls), fill="#991b1b")
+    images = [
+        _image_data_url(raw, max_size=1600),
+        _image_data_url(enhanced, max_size=1600),
+        _image_data_url(overlay, max_size=1600),
+    ]
+    if spec["orientation"] == "vertical":
+        images.append(_image_data_url(raw.rotate(90, expand=True), max_size=1600))
+    return images
+
+
+def _map_wall_crop_bbox(crop_bbox: ImageBBox, local_bbox: ImageBBox) -> ImageBBox:
+    width = crop_bbox.x_max - crop_bbox.x_min
+    height = crop_bbox.y_max - crop_bbox.y_min
+    return ImageBBox(
+        x_min=crop_bbox.x_min + round(width * local_bbox.x_min / 1000),
+        y_min=crop_bbox.y_min + round(height * local_bbox.y_min / 1000),
+        x_max=crop_bbox.x_min + round(width * local_bbox.x_max / 1000),
+        y_max=crop_bbox.y_min + round(height * local_bbox.y_max / 1000),
+    )
+
+
+def _wall_crop_target(
+    spec: dict,
+    role: str,
+    scope: str,
+    start: float | None,
+    end: float | None,
+    wall_id: str | None = None,
+) -> str | None:
+    if scope == "overall_width":
+        return "room:width"
+    if scope == "overall_depth":
+        return "room:depth"
+    if scope == "room_height":
+        return "room_height"
+    if scope not in {"single_wall", "opening"}:
+        return None
+    available_walls = [spec, *(spec.get("context_walls") or [])]
+    selected_wall = next(
+        (wall for wall in available_walls if wall["wall_id"] == wall_id),
+        spec if not wall_id else None,
+    )
+    if selected_wall is None:
+        return None
+    wall_index = selected_wall["wall_index"]
+    if start is None and end is None:
+        return None
+    start = max(0.0, min(1.0, start if start is not None else end))
+    end = max(0.0, min(1.0, end if end is not None else start))
+    low, high = sorted((start, end))
+    if role == "door_size":
+        if high - low < 0.01:
+            return None
+        return f"wall:{wall_index}@{low:.3f}:{high:.3f}"
+    return f"wall:{wall_index}@{(low + high) / 2:.3f}"
+
+
+def _wall_crop_observations(payload: object, spec: dict) -> list[dict]:
+    items = payload if isinstance(payload, list) else payload.get("observations", []) if isinstance(payload, dict) else []
+    allowed_roles = {
+        "room_dimension", "wall_segment", "wall_thickness", "room_height", "ceiling_height",
+        "door_size", "door_position", "drain_position", "pipe_box", "fixture_dimension",
+        "fixture_label", "other",
+    }
+    allowed_scopes = {
+        "single_wall", "boundary_span", "overall_width", "overall_depth", "opening",
+        "room_height", "ceiling_height", "fixture", "unresolved",
+    }
+    observations: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text", "")).strip()
+        role = str(item.get("role", "other"))
+        scope = str(item.get("scope", "unresolved"))
+        try:
+            confidence = max(0.0, min(1.0, float(item.get("confidence", 0) or 0)))
+            local_bbox = ImageBBox.model_validate(item.get("bbox"))
+        except (TypeError, ValueError, ValidationError):
+            continue
+        if not text or confidence < 0.5:
+            continue
+        role = role if role in allowed_roles else "other"
+        scope = scope if scope in allowed_scopes else "unresolved"
+        try:
+            span_start = float(item["span_start"]) if item.get("span_start") is not None else None
+            span_end = float(item["span_end"]) if item.get("span_end") is not None else None
+        except (TypeError, ValueError):
+            span_start = span_end = None
+        requested_wall_id = str(item.get("wall_id") or "").strip() or None
+        available_wall_ids = {
+            wall["wall_id"] for wall in [spec, *(spec.get("context_walls") or [])]
+        }
+        valid_wall_id = requested_wall_id if requested_wall_id in available_wall_ids else None
+        target_id = _wall_crop_target(
+            spec,
+            role,
+            scope,
+            span_start,
+            span_end,
+            requested_wall_id if requested_wall_id is not None else valid_wall_id,
+        )
+        target_wall_id = (
+            f"W{target_id.split(':', 1)[1].split('@', 1)[0]}"
+            if target_id and target_id.startswith("wall:")
+            else valid_wall_id or spec["wall_id"]
+        )
+        global_bbox = _map_wall_crop_bbox(ImageBBox.model_validate(spec["bbox"]), local_bbox)
+        observations.append(
+            {
+                "raw_text": text,
+                "normalized_candidates": _ocr_candidates(text),
+                "bbox": global_bbox.model_dump(),
+                "orientation": _ocr_orientation(
+                    global_bbox.x_max - global_bbox.x_min,
+                    global_bbox.y_max - global_bbox.y_min,
+                ),
+                "confidence": confidence,
+                "engine": "wall-crop-vision",
+                "semantic_role": role,
+                "dimension_scope": scope,
+                "target_id": target_id,
+                "wall_crop_candidates": [
+                    {
+                        "wall_id": target_wall_id,
+                        "target_id": target_id,
+                        "role": role,
+                        "scope": scope,
+                        "confidence": confidence,
+                    }
+                ],
+                "review_required": bool(
+                    confidence < 0.85
+                    or scope in {"boundary_span", "unresolved"}
+                    or (role not in {"other", "ceiling_height"} and target_id is None)
+                ),
+                "wall_crop_vision": True,
+            }
+        )
+    return observations
+
+
+def _merge_wall_crop_observations(ocr_assist: dict, observations: list[dict]) -> None:
+    tokens = ocr_assist.setdefault("tokens", [])
+    existing_numbers = [
+        int(match.group(1))
+        for token in tokens
+        if (match := re.fullmatch(r"E(\d+)", str(token.get("id", "")), flags=re.IGNORECASE))
+    ]
+    next_evidence_number = max(existing_numbers, default=0) + 1
+    touched: list[dict] = []
+    for observation in observations:
+        bbox = ImageBBox.model_validate(observation["bbox"])
+        match = next(
+            (
+                token for token in tokens
+                if _ocr_bbox_iou(ImageBBox.model_validate(token["bbox"]), bbox) >= 0.28
+            ),
+            None,
+        )
+        if match is None:
+            observation = dict(observation)
+            observation["id"] = f"E{next_evidence_number:03d}"
+            next_evidence_number += 1
+            observation["alternate_readings"] = []
+            tokens.append(observation)
+            touched.append(observation)
+            continue
+        alternatives = list(dict.fromkeys([
+            *(match.get("alternate_readings") or []),
+            str(match.get("raw_text", "")),
+            observation["raw_text"],
+        ]))
+        match["alternate_readings"] = [item for item in alternatives if item]
+        match["normalized_candidates"] = list(dict.fromkeys([
+            *(match.get("normalized_candidates") or []),
+            *observation.get("normalized_candidates", []),
+        ]))
+        match["wall_crop_candidates"] = [
+            *(match.get("wall_crop_candidates") or []),
+            *observation.get("wall_crop_candidates", []),
+        ]
+        if observation["confidence"] >= match.get("confidence", 0):
+            match["raw_text"] = observation["raw_text"]
+            match["confidence"] = observation["confidence"]
+            match["engine"] = observation["engine"]
+            match["bbox"] = observation["bbox"]
+        match["wall_crop_vision"] = True
+        touched.append(match)
+
+    seen: set[int] = set()
+    for item in touched:
+        if id(item) in seen:
+            continue
+        seen.add(id(item))
+        candidates = sorted(
+            item.get("wall_crop_candidates") or [],
+            key=lambda candidate: candidate.get("confidence", 0),
+            reverse=True,
+        )
+        if not candidates:
+            continue
+        best = candidates[0]
+        competing = {
+            candidate.get("target_id")
+            for candidate in candidates
+            if candidate.get("target_id")
+            and candidate.get("confidence", 0) >= best.get("confidence", 0) - 0.08
+        }
+        conflict = len(competing) > 1
+        item["semantic_role"] = best.get("role", "other")
+        item["dimension_scope"] = best.get("scope", "unresolved")
+        item["target_id"] = None if conflict else best.get("target_id")
+        item["review_required"] = bool(
+            conflict
+            or best.get("confidence", 0) < 0.85
+            or best.get("scope") in {"boundary_span", "unresolved"}
+            or (best.get("role") not in {"other", "ceiling_height"} and not item.get("target_id"))
+        )
+
+
+def _persist_wall_crop_tokens(ocr_assist: dict, shape_signature: str) -> None:
+    tokens_path = Path(ocr_assist["tokens_path"])
+    try:
+        cached = json.loads(tokens_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        cached = {}
+    cached.update(
+        {
+            "schema_version": 9,
+            "engine": settings.ocr_engine,
+            "image_hash": ocr_assist.get("image_hash", ""),
+            "rotation_degrees": ocr_assist.get("rotation_degrees", 0),
+            "wall_crop_refined": True,
+            "wall_crop_shape_hash": shape_signature,
+            "wall_crop_cache_version": WALL_CROP_CACHE_VERSION,
+            "tokens": ocr_assist.get("tokens", []),
+        }
+    )
+    try:
+        tokens_path.write_text(json.dumps(cached, ensure_ascii=False, indent=2), encoding="utf-8")
+        with Image.open(Path(ocr_assist["oriented_original"])) as source:
+            _ocr_overlay(source.convert("RGB"), ocr_assist.get("tokens", [])).save(
+                Path(ocr_assist["overlay"]), "PNG"
+            )
+    except OSError:
+        return
+    ocr_assist["wall_crop_refined"] = True
+    ocr_assist["wall_crop_shape_hash"] = shape_signature
+    ocr_assist["wall_crop_cache_version"] = WALL_CROP_CACHE_VERSION
+
+
+async def _recognize_wall_crops_with_vision(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    headers: dict[str, str],
+    path: Path,
+    rotation: int,
+    shape: ShapeTraceResult | None,
+    ocr_assist: dict,
+    trace_ids: list[str],
+) -> dict:
+    if shape is None:
+        return ocr_assist
+    signature = _shape_signature(shape)
+    if (
+        ocr_assist.get("wall_crop_refined")
+        and ocr_assist.get("wall_crop_shape_hash") == signature
+        and ocr_assist.get("wall_crop_cache_version") == WALL_CROP_CACHE_VERSION
+    ):
+        return ocr_assist
+    specs = _wall_crop_specs(shape)
+    if not specs:
+        return ocr_assist
+    bundles = [(spec, _wall_crop_bundle(path, rotation, spec)) for spec in specs]
+    semaphore = asyncio.Semaphore(max(1, min(8, settings.ai_wall_crop_concurrency)))
+
+    async def recognize(spec: dict, images: list[str]) -> list[dict]:
+        marked_walls = [spec, *(spec.get("context_walls") or [])]
+        wall_description = "；".join(
+            f"{wall['wall_id']} A=({wall['start'].x},{wall['start'].y}) -> B=({wall['end'].x},{wall['end'].y})"
+            for wall in marked_walls
+        )
+        content_items: list[dict] = [
+            {
+                "type": "text",
+                "text": (
+                    f"当前主墙段 {spec['wall_id']}，方向 {spec['orientation']}。"
+                    f"可绑定墙段（各自 A->B）：{wall_description}。"
+                    "bbox 坐标必须相对第一张未标注裁片。"
+                ),
+            }
+        ]
+        labels = ["原始裁片", "增强裁片", "墙段标注裁片", "旋转阅读副本"]
+        for label, image_url in zip(labels, images, strict=False):
+            content_items.extend(
+                [
+                    {"type": "text", "text": label},
+                    {"type": "image_url", "image_url": {"url": image_url, "detail": "high"}},
+                ]
+            )
+        async with semaphore:
+            for model in _models():
+                try:
+                    content = await _request_content(
+                        client,
+                        endpoint,
+                        headers,
+                        [
+                            {"role": "system", "content": WALL_CROP_RECOGNITION_PROMPT},
+                            {"role": "user", "content": content_items},
+                        ],
+                        model,
+                        json_object=True,
+                        stage=f"wall-crop-recognition-{spec['wall_index']}",
+                        extra_payload={"max_tokens": 1200},
+                        trace_ids=trace_ids,
+                        max_retries=1,
+                    )
+                    return _wall_crop_observations(_extract_json(content), spec)
+                except AIAuthenticationError:
+                    raise
+                except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
+                    continue
+        return []
+
+    results = await asyncio.gather(*(recognize(spec, images) for spec, images in bundles))
+    observations = [item for result in results for item in result]
+    if observations:
+        _merge_wall_crop_observations(ocr_assist, observations)
+        _persist_wall_crop_tokens(ocr_assist, signature)
+    return ocr_assist
+
+
 def _ocr_orientation(width: int, height: int) -> str:
     if height >= width * 1.45:
         return "vertical"
@@ -1254,7 +1730,7 @@ def _load_refined_ocr_cache(path: Path, rotation: int) -> dict | None:
         return None
     if not (
         cached.get("engine") == settings.ocr_engine
-        and cached.get("schema_version") in {7, 8}
+        and cached.get("schema_version") in {7, 8, 9}
         and cached.get("vision_refined")
         and cached.get("rotation_degrees") == rotation
         and cached.get("image_hash", cache_dir.name) == image_hash
@@ -1270,6 +1746,9 @@ def _load_refined_ocr_cache(path: Path, rotation: int) -> dict | None:
         "tokens": cached.get("tokens", []),
         "crops": sorted((cache_dir / "crops").glob("*.png"))[:8],
         "vision_refined": True,
+        "wall_crop_refined": bool(cached.get("wall_crop_refined")),
+        "wall_crop_shape_hash": cached.get("wall_crop_shape_hash", ""),
+        "wall_crop_cache_version": cached.get("wall_crop_cache_version", 0),
         "rotation_degrees": rotation,
     }
 
@@ -1297,13 +1776,19 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
     image.save(original_path, "JPEG", quality=94, optimize=True)
     cache_valid = False
     vision_refined = False
+    wall_crop_refined = False
+    wall_crop_shape_hash = ""
+    wall_crop_cache_version = 0
     tokens: list[dict] = []
     if tokens_path.exists():
         try:
             cached = json.loads(tokens_path.read_text(encoding="utf-8"))
-            cache_valid = cached.get("engine") == settings.ocr_engine and cached.get("schema_version") in {7, 8}
+            cache_valid = cached.get("engine") == settings.ocr_engine and cached.get("schema_version") in {7, 8, 9}
             tokens = cached.get("tokens", []) if cache_valid else []
             vision_refined = bool(cached.get("vision_refined")) if cache_valid else False
+            wall_crop_refined = bool(cached.get("wall_crop_refined")) if cache_valid else False
+            wall_crop_shape_hash = str(cached.get("wall_crop_shape_hash", "")) if cache_valid else ""
+            wall_crop_cache_version = cached.get("wall_crop_cache_version", 0) if cache_valid else 0
         except (OSError, json.JSONDecodeError):
             cache_valid = False
     if not cache_valid:
@@ -1365,6 +1850,9 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
         "tokens": tokens,
         "crops": crop_paths[:8],
         "vision_refined": vision_refined,
+        "wall_crop_refined": wall_crop_refined,
+        "wall_crop_shape_hash": wall_crop_shape_hash,
+        "wall_crop_cache_version": wall_crop_cache_version,
         "rotation_degrees": rotation,
     }
 
@@ -1377,6 +1865,12 @@ def _image_path_data_url(path: Path, max_size: int = 1800) -> str:
 def _ocr_rotation_candidates(ocr_assist: dict) -> list[dict]:
     candidates: list[tuple[int, dict]] = []
     for token in ocr_assist.get("tokens") or []:
+        if (
+            token.get("wall_crop_vision")
+            and token.get("confidence", 0) >= 0.85
+            and token.get("target_id")
+        ):
+            continue
         bbox = ImageBBox.model_validate(token["bbox"])
         width = bbox.x_max - bbox.x_min
         height = bbox.y_max - bbox.y_min
@@ -1544,7 +2038,7 @@ async def _refine_ocr_with_vision(
     tokens_path = Path(ocr_assist["tokens_path"])
     try:
         cached = json.loads(tokens_path.read_text(encoding="utf-8"))
-        cached["schema_version"] = 8
+        cached["schema_version"] = 9
         cached["vision_refined"] = True
         cached["vision_model"] = model
         cached["tokens"] = ocr_assist["tokens"]
@@ -3407,6 +3901,11 @@ async def _refine_photo_annotation_bindings(
             "bbox": token.get("bbox"),
         }
         for token in ocr_assist.get("tokens", [])
+        if not (
+            token.get("wall_crop_vision")
+            and token.get("confidence", 0) >= 0.85
+            and token.get("target_id")
+        )
     ]
     boundary_catalog = [corner.model_dump(mode="json") for corner in shape.corners]
     bindings: list[dict] = []
@@ -3503,9 +4002,8 @@ async def analyze_floorplan_fast(
     asset_id: str | None = None,
     rotation_degrees: int | None = None,
 ) -> RoomSpec:
-    """Return an editable OCR/raster result without waiting for hosted vision calls."""
+    """Build pixel topology first, then recognize and bind text around each wall."""
     rotation = rotation_degrees if rotation_degrees is not None else _preferred_plan_rotation(path)
-    ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
     candidates = _raster_topology_candidates(path, rotation, fast=True)
     # This is only an unconfirmed photo annotation. Prefer the simplest supported
     # non-rectangular outline so text and dimension leaders do not create dozens
@@ -3523,12 +4021,13 @@ async def analyze_floorplan_fast(
             closed=True,
             uncertain=[f"程序栅格候选 {candidate.id}；仅作为照片标注草稿，必须人工校正后才能生成二维图"],
         )
+    program_shape = shape
     trace_ids: list[str] = []
+    ocr_assist: dict
     if settings.ai_configured:
         endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
         headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
-            ocr_assist = await _refine_ocr_with_vision(client, endpoint, headers, ocr_assist, trace_ids)
             shape = None
             simplified_candidates = [candidate for candidate in candidates if 4 <= len(candidate.corners) <= 12]
             for model in _models(settings.openai_fallback_model):
@@ -3555,7 +4054,20 @@ async def analyze_floorplan_fast(
                     closed=True,
                     uncertain=["视觉模型未能可靠修正墙线；保留最简单程序候选，仅供照片标注人工修改"],
                 )
+            if shape is None:
+                shape = program_shape
+            # Paddle remains a detector and fallback. Wall crops are the primary
+            # handwriting recognizer once a stable pixel-space topology exists.
+            ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
+            ocr_assist = await _recognize_wall_crops_with_vision(
+                client, endpoint, headers, path, rotation, shape, ocr_assist, trace_ids,
+            )
+            ocr_assist = await _refine_ocr_with_vision(
+                client, endpoint, headers, ocr_assist, trace_ids,
+            )
             await _refine_photo_annotation_bindings(client, endpoint, headers, ocr_assist, shape, trace_ids)
+    else:
+        ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
     provisional = _provisional_room_spec(shape, ocr_assist, asset_id=asset_id, allow_placeholders=True)
     if provisional is None:
         if not settings.ai_configured:

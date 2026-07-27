@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     ai_trace_enabled: bool = True
     ai_compare_topology_models: bool = False
     ai_quality_timeout_seconds: int = 35
+    ai_wall_crop_concurrency: int = 4
     # Keep the refined OCR run as the canonical cache. It contains the
     # vision-corrected alternatives used for the real floorplan sample.
     ocr_cache_dir: Path = Path(".tmp/ocr-fast")

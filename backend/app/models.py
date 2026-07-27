@@ -530,6 +530,7 @@ class PlanExtraction(BaseModel):
 class PlanAnnotation(BaseModel):
     rotation_degrees: Literal[0, 90, 180, 270] = 0
     boundary: list[ShapeCorner] = Field(default_factory=list)
+    edge_chain: list[BoundaryEdge] = Field(default_factory=list)
     confirmed: bool = False
 
 

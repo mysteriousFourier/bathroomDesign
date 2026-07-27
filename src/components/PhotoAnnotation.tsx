@@ -1,7 +1,7 @@
 import { BoxSelect, Check, MousePointer2, PenLine, Plus, ScanText, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cloneSpec } from '../spec'
-import type { Asset, ImageBoundaryPoint, RoomSpec } from '../types'
+import type { Asset, BoundaryEdge, ImageBoundaryPoint, RoomSpec } from '../types'
 
 const canvasWidth = 1000
 const canvasHeight = 750
@@ -35,13 +35,30 @@ function pointAtRatio(start: CanvasPoint, end: CanvasPoint, ratio: number): Canv
   return { x: start.x + (end.x - start.x) * ratio, y: start.y + (end.y - start.y) * ratio }
 }
 
+function edgeDirection(start: ImageBoundaryPoint, end: ImageBoundaryPoint): BoundaryEdge['direction'] {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'right' : 'left'
+  return dy >= 0 ? 'down' : 'up'
+}
+
+function reconcileEdges(points: ImageBoundaryPoint[], current: BoundaryEdge[] = []): BoundaryEdge[] {
+  return points.map((start, index) => {
+    const direction = edgeDirection(start, points[(index + 1) % points.length])
+    const existing = current[index]
+    return existing?.direction === direction
+      ? existing
+      : { direction, length_mm: null, role: 'wall', evidence_ids: [], confidence: 0.5 }
+  })
+}
+
 export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvidenceSelect, onConfirm }: {
   spec: RoomSpec
   plan?: Asset
   activeEvidenceId?: string | null
   onChange: (spec: RoomSpec) => void
   onEvidenceSelect: (id: string) => void
-  onConfirm: (points: ImageBoundaryPoint[]) => void
+  onConfirm: (points: ImageBoundaryPoint[], edgeChain: BoundaryEdge[]) => void
 }) {
   const annotation = spec.plan_annotation
   const [tool, setTool] = useState<AnnotationTool>('edit')
@@ -66,10 +83,15 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
         ? { width: canvasWidth, height: canvasHeight, transform: `translate(${canvasWidth} ${canvasHeight}) rotate(180)` }
         : { width: canvasWidth, height: canvasHeight, transform: undefined }
   const canvasPoints = useMemo(() => points.map(toCanvas), [points])
+  const edgeChain = useMemo(
+    () => reconcileEdges(points, annotation?.edge_chain ?? []),
+    [annotation?.edge_chain, points],
+  )
   const pointString = canvasPoints.map((point) => `${point.x},${point.y}`).join(' ')
   const pendingEvidence = spec.observations.filter((item) => (
     item.field.startsWith('ocr:') && item.review_required && !item.confirmed
   )).length
+  const pendingDimensions = edgeChain.filter((edge) => !edge.length_mm).length
   const activeEvidence = spec.observations.find((item) => item.field === `ocr:${activeEvidenceId}`)
   const activeWallIndex = activeEvidence?.target_id?.match(/^wall:(\d+)/)?.[1]
   const activeDoorRange = activeEvidence?.semantic_role === 'door_size'
@@ -90,7 +112,27 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
 
   const commitBoundary = (next: ImageBoundaryPoint[]) => {
     const draft = cloneSpec(spec)
-    draft.plan_annotation = { rotation_degrees: rotation as 0 | 90 | 180 | 270, boundary: next, confirmed: false }
+    draft.plan_annotation = {
+      rotation_degrees: rotation as 0 | 90 | 180 | 270,
+      boundary: next,
+      edge_chain: reconcileEdges(next, draft.plan_annotation?.edge_chain ?? []),
+      confirmed: false,
+    }
+    onChange(draft)
+  }
+
+  const updateEdgeLength = (wallIndex: number, value: string) => {
+    const draft = cloneSpec(spec)
+    if (!draft.plan_annotation) return
+    const edges = reconcileEdges(points, draft.plan_annotation.edge_chain ?? [])
+    const parsed = Number(value)
+    edges[wallIndex] = {
+      ...edges[wallIndex],
+      length_mm: Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null,
+      confidence: Number.isFinite(parsed) && parsed > 0 ? 1 : 0.5,
+    }
+    draft.plan_annotation.edge_chain = edges
+    draft.plan_annotation.confirmed = false
     onChange(draft)
   }
 
@@ -206,8 +248,14 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
         <button className="icon-button danger" title="删除所选折点" disabled={selectedPoint === null || points.length <= 3} onClick={deletePoint}><Trash2 size={15} /></button>
       </div>
       <div className="annotation-status">
-        <span>AI 初识草稿 · {points.length} 个折点{pendingEvidence ? ` · 待校正 ${pendingEvidence} 项` : ' · 可确认'}</span>
-        <button className="button primary compact" title={pendingEvidence ? '请先处理右侧全部待校正项' : undefined} disabled={points.length < 3 || pendingEvidence > 0} onClick={() => onConfirm(points)}><Check size={15} />确认标注并生成二维图</button>
+        <span>AI 初识草稿 · {points.length} 个折点 · 缺少 {pendingDimensions} 段尺寸{pendingEvidence ? ` · 待校正 ${pendingEvidence} 项` : ''}</span>
+        <button className="button primary compact" title={pendingEvidence ? '请先处理右侧全部待校正项' : pendingDimensions ? '请补全每段墙长' : undefined} disabled={points.length < 3 || pendingEvidence > 0 || pendingDimensions > 0} onClick={() => onConfirm(points, edgeChain)}><Check size={15} />确认标注并生成二维图</button>
+      </div>
+      <div className="annotation-dimensions">
+        {edgeChain.map((edge, index) => <label key={`edge-length-${index}`}>
+          <span>W{index}</span>
+          <input type="number" min="1" step="1" inputMode="numeric" value={edge.length_mm ?? ''} placeholder="mm" aria-label={`W${index} 长度（毫米）`} onChange={(event) => updateEdgeLength(index, event.target.value)} />
+        </label>)}
       </div>
     </div>
     <svg ref={svgRef} className={`annotation-canvas tool-${tool}`} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} aria-label="手绘测量图照片标注画布"

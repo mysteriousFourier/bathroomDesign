@@ -49,7 +49,7 @@ from .models import (
 from .validation import has_self_intersection, polygon_area, validate_spec
 
 
-WALL_CROP_CACHE_VERSION = 2
+WALL_CROP_CACHE_VERSION = 5
 MIN_STANDALONE_WALL_CROP_LENGTH = 30
 
 
@@ -129,15 +129,32 @@ PLAN_CANDIDATE_SELECTION_PROMPT = """
 只输出 JSON：{"selected_id":null,"accepted":false,"confidence":0到1,"missing_features":[]}。
 """.strip()
 
+PLAN_TOPOLOGY_AUDIT_PROMPT = """
+你是手绘建筑平面图的墙体边界复核员。第一张是原图，第二张红线是候选房间内侧边界；你的任务是纠正候选，不读取或填写毫米尺寸。
+先独立找出所有门符号：门扇直线、开启圆弧、合页点和门洞。门扇与圆弧都是可移动构件，绝不是墙，候选红线只要沿着它们就必须纠正。
+再沿固定墙体内侧走一整圈。门洞两侧与墙体连续的短横墙、短竖墙、门垛和高差回折必须分别保留；尺寸线、箭头、文字、洁具、地漏符号和纸张边缘必须排除。
+输出按同一方向排列的全部转折点，不重复首点。相邻点必须构成水平或垂直墙段；看得见的回折不能被矩形化。坐标使用完整原图 0..1000。
+role 只能是 wall_corner、structure_return、door_jamb、other。只有能沿固定墙体和门洞闭合时 closed=true；无法确认时 closed=false，禁止保留明显错误候选。
+只输出 JSON：{"corners":[{"x":整数,"y":整数,"role":"wall_corner","confidence":0到1}],"closed":false,"uncertain":[]}。
+""".strip()
+
 WALL_CROP_RECOGNITION_PROMPT = """
 你只负责读取已编号墙段附近的手写文字和尺寸线关系，不生成房间模型。
 第一张图是未经标注的原始裁片，第二张是增强裁片，第三张用红线标出当前主墙段，并可能用橙线标出与它直接相连、不值得单独裁切的短回折墙；如果有第四张，它只是便于阅读竖排文字的旋转副本。bbox 必须相对第一张裁片使用 0 到 1000 坐标。
 只记录确实可读的文字。必须结合尺寸界线、箭头、门框和墙角判断归属，禁止仅按文字离红线最近就绑定。
-scope 只能是 single_wall、boundary_span、overall_width、overall_depth、opening、room_height、ceiling_height、fixture 或 unresolved。
-role 只能是 room_dimension、wall_segment、wall_thickness、room_height、ceiling_height、door_size、door_position、drain_position、pipe_box、fixture_dimension、fixture_label 或 other。
+scope 只能是 single_wall、boundary_span、opening、room_height、ceiling_height、fixture 或 unresolved。
+role 只能是 wall_segment、wall_thickness、room_height、ceiling_height、door_size、door_position、drain_position、pipe_box、fixture_dimension、fixture_label 或 other。
 single_wall/opening 且尺寸线端点确实落在某一编号墙段上时，wall_id 填该墙编号，span_start、span_end 填该墙箭头方向 0 到 1 的比例；只有一个明确定位点时两者可相同。跨越转角或看不清端点时不得伪造 span，wall_id 留空。
-总尺寸、跨墙尺寸链、房高、吊顶和设施文字不能强行绑定当前墙。无法判断时 scope=unresolved、confidence 不高于 0.6。
+跨墙尺寸链只能标为 boundary_span，不能解释为房间总宽或总长，也不能强行绑定当前墙。房高、吊顶和设施文字同样不能绑定墙段。无法判断时 scope=unresolved、confidence 不高于 0.6。
 只输出 JSON：{"observations":[{"text":"原文","bbox":{"x_min":0,"y_min":0,"x_max":1000,"y_max":1000},"role":"other","scope":"unresolved","wall_id":null,"span_start":null,"span_end":null,"confidence":0.5}]}。
+""".strip()
+
+SEGMENT_EDGE_CHAIN_PROMPT = """
+你只负责把已确认的像素墙角边链与图上逐段尺寸建立对应，不得推断房间总宽、总长或补齐未标尺寸。
+叠加图中的 W0..Wn 分别连接 boundary 中 corner i 到 corner i+1，最后一条回到 corner 0。门扇开启圆弧和门扇线不是墙边；门洞两侧的短横、短竖回折是独立边。
+每条 edge 的 direction 和顺序必须原样保留。length_mm 只有在尺寸界线/箭头明确测量该边，且能引用 OCR 证据 ID 时才填写；跨多个转角的尺寸链不能塞进单条边。看不清或证据冲突时 length_mm=null。
+不得把局部最长数字称为 overall width/depth，也不得通过住宅常识、像素比例或闭合差猜数字。
+只输出 JSON：{"edge_chain":[{"direction":"right|down|left|up","length_mm":null,"role":"wall|door_jamb|structure_return|other","evidence_ids":[],"confidence":0.5}],"uncertain":[]}。
 """.strip()
 
 CRITICAL_DIMENSION_PROMPT = """
@@ -831,8 +848,7 @@ def _ocr_dimension_hints(ocr_assist: dict | None, shape: ShapeTraceResult | None
         return (values[0], None) if values else (None, None)
     # Refined OCR often repeats the same wall span and stores a bad reading as
     # an alternate. Frequency is therefore safer than simply taking the two
-    # largest numbers (which used to promote 5582/20100 as room dimensions),
-    # while still allowing legitimate room spans above five metres.
+    # largest numbers, while still allowing legitimate long room spans.
     counts = Counter(values)
     del shape
     ranked = sorted(counts, key=lambda value: (-counts[value], -value))
@@ -869,14 +885,14 @@ def _ocr_fixture_kind(text: str) -> str | None:
     return None
 
 
-def _classify_ocr_tokens(tokens: list[dict]) -> None:
+def _classify_ocr_tokens(tokens: list[dict], *, infer_room_extents: bool = True) -> None:
     """Attach conservative semantic roles used by the review queue."""
-    room_width, room_depth = _ocr_dimension_hints({"tokens": tokens})
+    room_width, room_depth = _ocr_dimension_hints({"tokens": tokens}) if infer_room_extents else (None, None)
     room_values = {value for value in (room_width, room_depth) if value}
     boxes = [ImageBBox.model_validate(token["bbox"]) for token in tokens]
     centers = [((box.x_min + box.x_max) / 2, (box.y_min + box.y_max) / 2) for box in boxes]
     for index, token in enumerate(tokens):
-        if token.get("vision_bound"):
+        if token.get("vision_bound") or token.get("wall_crop_vision"):
             token["review_required"] = bool(token.get("review_required", False))
             continue
         raw = _normalize_ocr_text(str(token.get("raw_text", "")))
@@ -1151,6 +1167,10 @@ def _wall_crop_observations(payload: object, spec: dict) -> list[dict]:
         text = str(item.get("text", "")).strip()
         role = str(item.get("role", "other"))
         scope = str(item.get("scope", "unresolved"))
+        if role == "room_dimension":
+            role = "wall_segment"
+        if scope in {"overall_width", "overall_depth"}:
+            scope = "boundary_span"
         try:
             confidence = max(0.0, min(1.0, float(item.get("confidence", 0) or 0)))
             local_bbox = ImageBBox.model_validate(item.get("bbox"))
@@ -1202,8 +1222,11 @@ def _wall_crop_observations(payload: object, spec: dict) -> list[dict]:
                     {
                         "wall_id": target_wall_id,
                         "target_id": target_id,
+                        "text": text,
                         "role": role,
                         "scope": scope,
+                        "span_start": span_start,
+                        "span_end": span_end,
                         "confidence": confidence,
                     }
                 ],
@@ -1378,7 +1401,7 @@ async def _recognize_wall_crops_with_vision(
                 ]
             )
         async with semaphore:
-            for model in _models():
+            for model in _models(settings.openai_quality_model or settings.openai_model):
                 try:
                     content = await _request_content(
                         client,
@@ -1408,6 +1431,200 @@ async def _recognize_wall_crops_with_vision(
         _merge_wall_crop_observations(ocr_assist, observations)
         _persist_wall_crop_tokens(ocr_assist, signature)
     return ocr_assist
+
+
+def _shape_wall_overlay(path: Path, rotation: int, shape: ShapeTraceResult) -> str:
+    image = _oriented_image(path, rotation, trim_document=True).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    width = max(4, round(min(image.size) * 0.004))
+    try:
+        font = ImageFont.truetype(str(Path(r"C:\Windows\Fonts\arial.ttf")), max(16, width * 4))
+    except OSError:
+        font = ImageFont.load_default()
+    points = [
+        (round(corner.x * image.width / 1000), round(corner.y * image.height / 1000))
+        for corner in shape.corners
+    ]
+    for index, start in enumerate(points):
+        end = points[(index + 1) % len(points)]
+        draw.line((start, end), fill="#dc2626", width=width)
+        middle = ((start[0] + end[0]) // 2, (start[1] + end[1]) // 2)
+        label = f"W{index}"
+        bounds = draw.textbbox(middle, label, font=font, anchor="mm", stroke_width=2)
+        draw.rectangle((bounds[0] - 4, bounds[1] - 2, bounds[2] + 4, bounds[3] + 2), fill="white")
+        draw.text(middle, label, fill="#991b1b", font=font, anchor="mm", stroke_width=1, stroke_fill="white")
+    return _image_data_url(image, max_size=2000)
+
+
+def _edge_role(shape: ShapeTraceResult, wall_index: int) -> str:
+    start = shape.corners[wall_index]
+    end = shape.corners[(wall_index + 1) % len(shape.corners)]
+    roles = {start.role, end.role}
+    if "door_jamb" in roles:
+        return "door_jamb"
+    if "structure_return" in roles:
+        return "structure_return"
+    return "wall"
+
+
+def _seed_segment_edge_chain(shape: ShapeTraceResult, ocr_assist: dict) -> list[BoundaryEdge]:
+    directions = _shape_directions(shape)
+    if not directions or len(directions) != len(shape.corners):
+        return []
+    values_by_wall: dict[int, list[tuple[int, str, float]]] = {}
+    for token in ocr_assist.get("tokens") or []:
+        if not token.get("wall_crop_vision"):
+            continue
+        token_id = str(token.get("id", ""))
+        for candidate in token.get("wall_crop_candidates") or []:
+            target = str(candidate.get("target_id") or "")
+            match = re.fullmatch(r"wall:(\d+)@[\d.]+", target)
+            if not match or candidate.get("scope") != "single_wall":
+                continue
+            try:
+                span_start = float(candidate.get("span_start"))
+                span_end = float(candidate.get("span_end"))
+                confidence = float(candidate.get("confidence", 0))
+            except (TypeError, ValueError):
+                continue
+            if abs(span_end - span_start) < 0.65 or confidence < 0.82:
+                continue
+            numbers = _ocr_numbers(str(candidate.get("text", "")))
+            if len(numbers) != 1:
+                continue
+            values_by_wall.setdefault(int(match.group(1)), []).append((numbers[0], token_id, confidence))
+
+    edges: list[BoundaryEdge] = []
+    for wall_index, direction in enumerate(directions):
+        candidates = values_by_wall.get(wall_index, [])
+        distinct_values = {value for value, _, _ in candidates}
+        length_mm = next(iter(distinct_values)) if len(distinct_values) == 1 else None
+        evidence_ids = list(dict.fromkeys(token_id for value, token_id, _ in candidates if value == length_mm))
+        confidence = min((item[2] for item in candidates if item[0] == length_mm), default=0.5)
+        edges.append(
+            BoundaryEdge(
+                direction=direction,
+                length_mm=length_mm,
+                role=_edge_role(shape, wall_index),
+                evidence_ids=evidence_ids,
+                confidence=confidence,
+            )
+        )
+    return edges
+
+
+def _validated_segment_edge_chain(
+    raw_edges: list[BoundaryEdge],
+    shape: ShapeTraceResult,
+    ocr_assist: dict,
+) -> list[BoundaryEdge]:
+    directions = _shape_directions(shape)
+    if len(raw_edges) != len(directions):
+        return []
+    tokens = {str(token.get("id", "")): token for token in ocr_assist.get("tokens") or []}
+    validated: list[BoundaryEdge] = []
+    for wall_index, edge in enumerate(raw_edges):
+        if edge.direction != directions[wall_index]:
+            return []
+        length_mm = edge.length_mm
+        evidence_ids = [evidence_id for evidence_id in edge.evidence_ids if evidence_id in tokens]
+        if length_mm is not None:
+            supported = False
+            for evidence_id in evidence_ids:
+                token = tokens[evidence_id]
+                readings = _ocr_readings(token)
+                target_ids = {
+                    str(token.get("target_id") or ""),
+                    *(str(item.get("target_id") or "") for item in token.get("wall_crop_candidates") or []),
+                }
+                if (
+                    any(length_mm in _ocr_numbers(reading) for reading in readings)
+                    and any(target.startswith(f"wall:{wall_index}@") for target in target_ids)
+                ):
+                    supported = True
+                    break
+            if not supported:
+                length_mm = None
+                evidence_ids = []
+        validated.append(
+            BoundaryEdge(
+                direction=edge.direction,
+                length_mm=length_mm,
+                role=_edge_role(shape, wall_index),
+                evidence_ids=evidence_ids,
+                confidence=edge.confidence if length_mm is not None else 0.5,
+            )
+        )
+    return validated
+
+
+async def _resolve_segment_edge_chain(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    headers: dict[str, str],
+    path: Path,
+    rotation: int,
+    shape: ShapeTraceResult,
+    ocr_assist: dict,
+    trace_ids: list[str],
+) -> list[BoundaryEdge]:
+    seed = _seed_segment_edge_chain(shape, ocr_assist)
+    if not seed:
+        return []
+    catalog = [
+        {
+            "id": token.get("id"),
+            "text": token.get("raw_text"),
+            "alternatives": token.get("alternate_readings", []),
+            "bbox": token.get("bbox"),
+            "target_id": token.get("target_id"),
+        }
+        for token in ocr_assist.get("tokens") or []
+        if token.get("normalized_candidates") or _ocr_numbers(str(token.get("raw_text", "")))
+    ]
+    messages = [
+        {"role": "system", "content": SEGMENT_EDGE_CHAIN_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "未标注原图"},
+                {"type": "image_url", "image_url": {"url": image_data_url(path, rotation, trim_document=True), "detail": "high"}},
+                {"type": "text", "text": "墙段编号叠加图"},
+                {"type": "image_url", "image_url": {"url": _shape_wall_overlay(path, rotation, shape), "detail": "high"}},
+                {
+                    "type": "text",
+                    "text": (
+                        "boundary=" + shape.model_dump_json()
+                        + "\n固定方向和当前保守结果=" + json.dumps([edge.model_dump(mode="json") for edge in seed], ensure_ascii=False)
+                        + "\nOCR证据=" + json.dumps(catalog, ensure_ascii=False)
+                    ),
+                },
+            ],
+        },
+    ]
+    for model in _models():
+        try:
+            content = await _request_content(
+                client,
+                endpoint,
+                headers,
+                messages,
+                model,
+                json_object=True,
+                stage="segment-edge-chain",
+                extra_payload={"max_tokens": 1400},
+                trace_ids=trace_ids,
+                max_retries=1,
+            )
+            extraction = PlanExtraction.model_validate(_extract_json(content))
+            validated = _validated_segment_edge_chain(extraction.edge_chain, shape, ocr_assist)
+            if validated:
+                return validated
+        except AIAuthenticationError:
+            raise
+        except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return seed
 
 
 def _ocr_orientation(width: int, height: int) -> str:
@@ -1732,6 +1949,10 @@ def _load_refined_ocr_cache(path: Path, rotation: int) -> dict | None:
         cached.get("engine") == settings.ocr_engine
         and cached.get("schema_version") in {7, 8, 9}
         and cached.get("vision_refined")
+        and (
+            not cached.get("wall_crop_refined")
+            or cached.get("wall_crop_cache_version") == WALL_CROP_CACHE_VERSION
+        )
         and cached.get("rotation_degrees") == rotation
         and cached.get("image_hash", cache_dir.name) == image_hash
         and cached.get("tokens")
@@ -1783,7 +2004,14 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
     if tokens_path.exists():
         try:
             cached = json.loads(tokens_path.read_text(encoding="utf-8"))
-            cache_valid = cached.get("engine") == settings.ocr_engine and cached.get("schema_version") in {7, 8, 9}
+            cache_valid = bool(
+                cached.get("engine") == settings.ocr_engine
+                and cached.get("schema_version") in {7, 8, 9}
+                and (
+                    not cached.get("wall_crop_refined")
+                    or cached.get("wall_crop_cache_version") == WALL_CROP_CACHE_VERSION
+                )
+            )
             tokens = cached.get("tokens", []) if cache_valid else []
             vision_refined = bool(cached.get("vision_refined")) if cache_valid else False
             wall_crop_refined = bool(cached.get("wall_crop_refined")) if cache_valid else False
@@ -3188,41 +3416,58 @@ def _provisional_room_spec(
     *,
     asset_id: str | None = None,
     trace_ids: list[str] | None = None,
-    allow_placeholders: bool = False,
+    allow_incomplete_annotation: bool = False,
+    edge_chain: list[BoundaryEdge] | None = None,
 ) -> RoomSpec | None:
-    width_mm, depth_mm = _ocr_dimension_hints(ocr_assist, shape)
-    missing_width = not width_mm
-    missing_depth = not depth_mm
-    if allow_placeholders:
-        width_mm = width_mm or 3000
-        depth_mm = depth_mm or 2000
-    if not width_mm or not depth_mm:
-        return None
-    boundary = _shape_trace_to_boundary(shape, width_mm, depth_mm) if shape else []
-    if len(boundary) < 4:
-        # Never strand the user in an empty state: a rectangular provisional
-        # room still exposes the source image and all OCR crops for correction.
-        boundary = [
-            Point2D(x_mm=0, z_mm=depth_mm),
-            Point2D(x_mm=width_mm, z_mm=depth_mm),
-            Point2D(x_mm=width_mm, z_mm=0),
-            Point2D(x_mm=0, z_mm=0),
-        ]
+    segment_mode = edge_chain is not None
+    if segment_mode:
+        boundary = _edge_chain_to_boundary(edge_chain or [])
+        if not boundary and not allow_incomplete_annotation:
+            return None
+        missing_edges = [index for index, edge in enumerate(edge_chain or []) if edge.length_mm is None]
+        missing_width = missing_depth = not bool(boundary)
+        width_mm = (
+            max(point.x_mm for point in boundary) - min(point.x_mm for point in boundary)
+            if boundary else None
+        )
+        depth_mm = (
+            max(point.z_mm for point in boundary) - min(point.z_mm for point in boundary)
+            if boundary else None
+        )
+    else:
+        width_mm, depth_mm = _ocr_dimension_hints(ocr_assist, shape)
+        missing_width = not width_mm
+        missing_depth = not depth_mm
+        if not width_mm or not depth_mm:
+            return None
+        boundary = _shape_trace_to_boundary(shape, width_mm, depth_mm) if shape else []
+        if len(boundary) < 4:
+            boundary = [
+                Point2D(x_mm=0, z_mm=depth_mm),
+                Point2D(x_mm=width_mm, z_mm=depth_mm),
+                Point2D(x_mm=width_mm, z_mm=0),
+                Point2D(x_mm=0, z_mm=0),
+            ]
+        missing_edges = []
     annotation_boundary = list(shape.corners) if shape else []
     height_mm = _ocr_room_height_hint(ocr_assist)
-    _classify_ocr_tokens((ocr_assist or {}).get("tokens", []))
-    room_width, room_depth = _ocr_dimension_hints(ocr_assist)
+    _classify_ocr_tokens(
+        (ocr_assist or {}).get("tokens", []),
+        infer_room_extents=not segment_mode,
+    )
+    room_width, room_depth = _ocr_dimension_hints(ocr_assist) if not segment_mode else (None, None)
     room_values = {value for value in (room_width, room_depth) if value}
-    for token in (ocr_assist or {}).get("tokens", []):
-        values = {value for reading in _ocr_readings(token) for value in _ocr_numbers(reading)}
-        if room_width and room_width in values:
-            token["semantic_role"] = "room_dimension"
-            token["target_id"] = "room:width"
-            token["review_required"] = bool(token.get("confidence", 0) < 0.82)
-        elif room_depth and room_depth in values:
-            token["semantic_role"] = "room_dimension"
-            token["target_id"] = "room:depth"
-            token["review_required"] = bool(token.get("confidence", 0) < 0.82)
+    if not segment_mode:
+        for token in (ocr_assist or {}).get("tokens", []):
+            values = {value for reading in _ocr_readings(token) for value in _ocr_numbers(reading)}
+            if room_width and room_width in values:
+                token["semantic_role"] = "room_dimension"
+                token["target_id"] = "room:width"
+                token["review_required"] = bool(token.get("confidence", 0) < 0.82)
+            elif room_depth and room_depth in values:
+                token["semantic_role"] = "room_dimension"
+                token["target_id"] = "room:depth"
+                token["review_required"] = bool(token.get("confidence", 0) < 0.82)
     height_hint = _ocr_room_height_hint(ocr_assist)
     observations: list[Observation] = []
     for token in (ocr_assist or {}).get("tokens", []):
@@ -3236,7 +3481,7 @@ def _provisional_room_spec(
                 bbox=ImageBBox.model_validate(token.get("bbox")),
                 confidence=float(token.get("confidence", 0.5)),
                 alternatives=list(token.get("alternate_readings", [])),
-                note=f"PaddleOCR 结果；语义分类={role}；请对低置信度或归属不明项查看裁片",
+                note=f"文字识别结果；语义分类={role}；请对低置信度或归属不明项查看裁片",
                 semantic_role=role,
                 review_required=bool(token.get("review_required", False)),
                 rotation_degrees=round((ocr_assist or {}).get("rotation_degrees", 0)) % 360,
@@ -3260,12 +3505,16 @@ def _provisional_room_spec(
                 note="本次分析的模型响应记录",
             )
         )
-    warnings = [
-        "未完成视觉证据归一化，已保留临时轮廓作为可编辑结果",
-        "总长宽由 PaddleOCR 证据归一化得到，请在图上确认",
-    ]
-    if missing_width or missing_depth:
-        warnings.append("未可靠识别完整总长宽，暂以 3000 × 2000 mm 占位，请在图片或属性面板中补录")
+    warnings = ["未完成视觉证据归一化，已保留临时轮廓作为可编辑结果"]
+    if segment_mode:
+        if not annotation_boundary:
+            warnings.append("视觉复核未形成可靠墙体边界，未生成任何替代矩形")
+        elif missing_edges:
+            warnings.append("逐段尺寸尚未闭合，缺少墙段：" + "、".join(f"W{index}" for index in missing_edges))
+        elif not boundary:
+            warnings.append("逐段尺寸存在冲突，水平或垂直边链无法闭合")
+    else:
+        warnings.append("总长宽由 OCR 证据归一化得到，请在图上确认")
     if not _ocr_room_height_hint(ocr_assist):
         warnings.append("未可靠识别室内净高；吊顶高度不会代替层高，请在照片上补录")
     issues = [
@@ -3282,6 +3531,7 @@ def _provisional_room_spec(
         plan_annotation=PlanAnnotation(
             rotation_degrees=round((ocr_assist or {}).get("rotation_degrees", 0)) % 360,
             boundary=annotation_boundary,
+            edge_chain=edge_chain or [],
             confirmed=False,
         ),
         issues=issues,
@@ -3338,14 +3588,16 @@ async def _resolve_cropped_shape_trace(
     trace_ids: list[str],
 ) -> ShapeTraceResult:
     corners = [corner for candidate in candidates for corner in candidate.corners]
-    if not corners:
-        return ShapeTraceResult(corners=[], closed=False, uncertain=["没有可用于确定房间绘图区的程序候选"])
     margin = 55
-    region = ImageBBox(
-        x_min=max(0, min(corner.x for corner in corners) - margin),
-        y_min=max(0, min(corner.y for corner in corners) - margin),
-        x_max=min(1000, max(corner.x for corner in corners) + margin),
-        y_max=min(1000, max(corner.y for corner in corners) + margin),
+    region = (
+        ImageBBox(
+            x_min=max(0, min(corner.x for corner in corners) - margin),
+            y_min=max(0, min(corner.y for corner in corners) - margin),
+            x_max=min(1000, max(corner.x for corner in corners) + margin),
+            y_max=min(1000, max(corner.y for corner in corners) + margin),
+        )
+        if corners
+        else ImageBBox(x_min=0, y_min=0, x_max=1000, y_max=1000)
     )
     source = _oriented_image(path, rotation, trim_document=True)
     left = round(source.width * region.x_min / 1000)
@@ -3419,6 +3671,50 @@ async def _resolve_cropped_shape_trace(
         closed=local.closed,
         uncertain=local.uncertain,
     )
+
+
+async def _audit_shape_trace(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    headers: dict[str, str],
+    path: Path,
+    rotation: int,
+    shape: ShapeTraceResult,
+    model: str,
+    trace_ids: list[str],
+) -> ShapeTraceResult:
+    content = await _request_content(
+        client,
+        endpoint,
+        headers,
+        [
+            {"role": "system", "content": PLAN_TOPOLOGY_AUDIT_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "完整转正原图"},
+                    {"type": "image_url", "image_url": {"url": image_data_url(path, rotation, trim_document=True), "detail": "high"}},
+                    {"type": "text", "text": "候选墙线叠加图；必须检查是否误沿门扇/圆弧或漏掉门洞回折"},
+                    {"type": "image_url", "image_url": {"url": _shape_wall_overlay(path, rotation, shape), "detail": "high"}},
+                    {"type": "text", "text": "候选坐标=" + shape.model_dump_json()},
+                ],
+            },
+        ],
+        model,
+        json_object=True,
+        stage="photo-annotation-topology-audit",
+        extra_payload={"max_tokens": 1400},
+        trace_ids=trace_ids,
+        max_retries=1,
+    )
+    audited = ShapeTraceResult.model_validate(_extract_json(content))
+    if not audited.closed or not (4 <= len(audited.corners) <= 16) or not _shape_directions(audited):
+        return ShapeTraceResult(
+            corners=audited.corners,
+            closed=False,
+            uncertain=[*audited.uncertain, "门与墙复核未形成可靠闭合边界"],
+        )
+    return audited
 
 
 async def _resolve_topology_candidate_selection(
@@ -3913,16 +4209,16 @@ async def _refine_photo_annotation_bindings(
         chunk = token_catalog[start:start + 8]
         chunk_ids = {str(item.get("id")) for item in chunk}
         prompt = (
-            "你只负责复核照片标注的数值归属，不生成二维房间或三维模型。"
+            "你只负责复核照片标注的数值归属，不生成二维房间或三维模型，也不推断房间总宽或总长。"
             "候选边界按 boundary 数组顺序闭合，墙段编号 wall:0 到 wall:N-1。"
             "逐个查看 OCR bbox 的尺寸线端点、门扇圆弧、墙线和设施符号，不能只按文字距离猜。"
-            "纯数字只有明确尺寸线连接时才可绑定墙段；门洞组合值必须同时定位门扇/门框及所属墙段；"
+            "纯数字只有明确尺寸线连接时才可绑定墙段；跨越转角的尺寸链必须保持未绑定；门洞组合值必须同时定位门扇/门框及所属墙段；"
             "排水或地漏必须有明确文字/符号及位置。无法确认时 target_id=null、review_required=true。"
             "confidence 必须按实际把握填写 0.5 到 1，无法判断则填写 0.5，禁止固定填 0。"
             "只返回本批每个 id 一次，不要复述 bbox 或 alternatives。返回 JSON："
             "{\"bindings\":[{\"id\":\"E001\",\"text\":\"原文\","
-            "\"semantic_role\":\"room_dimension|wall_segment|wall_thickness|room_height|ceiling_height|door_size|drain_position|pipe_box|fixture_dimension|other\","
-            "\"target_id\":\"room:width|room:depth|wall:3@0.420|wall:3@0.320:0.520|room_height|drain:1|fixture:1|null\","
+            "\"semantic_role\":\"wall_segment|wall_thickness|room_height|ceiling_height|door_size|drain_position|pipe_box|fixture_dimension|other\","
+            "\"target_id\":\"wall:3@0.420|wall:3@0.320:0.520|room_height|drain:1|fixture:1|null\","
             "\"confidence\":0.5,\"review_required\":true}]}。"
             "普通墙尺寸用 wall:N@ratio。door_size 必须用 wall:N@start:end 标出门宽在线段上的起止范围，"
             "start 和 end 是从墙段起点到终点的相对位置且 start<end；门高和门厚属于同一个门对象，不得写成墙厚。"
@@ -3964,7 +4260,7 @@ async def _refine_photo_annotation_bindings(
                 continue
     by_id = {str(token.get("id")): token for token in ocr_assist.get("tokens", [])}
     valid_roles = {
-        "room_dimension", "wall_segment", "wall_thickness", "room_height", "ceiling_height",
+        "wall_segment", "wall_thickness", "room_height", "ceiling_height",
         "door_size", "door_position", "drain_position", "pipe_box",
         "fixture_dimension", "fixture_label", "other",
     }
@@ -4005,57 +4301,39 @@ async def analyze_floorplan_fast(
     """Build pixel topology first, then recognize and bind text around each wall."""
     rotation = rotation_degrees if rotation_degrees is not None else _preferred_plan_rotation(path)
     candidates = _raster_topology_candidates(path, rotation, fast=True)
-    # This is only an unconfirmed photo annotation. Prefer the simplest supported
-    # non-rectangular outline so text and dimension leaders do not create dozens
-    # of false wall turns; the user edits this trace before any 2D plan is shown.
     shape: ShapeTraceResult | None = None
-    if candidates:
-        top_support = candidates[0].pixel_support
-        supported = [
-            item for item in candidates
-            if 4 < len(item.corners) <= 12 and item.pixel_support >= top_support - 0.16
-        ]
-        candidate = min(supported, key=lambda item: (len(item.corners), -item.pixel_support)) if supported else candidates[0]
-        shape = ShapeTraceResult(
-            corners=candidate.corners,
-            closed=True,
-            uncertain=[f"程序栅格候选 {candidate.id}；仅作为照片标注草稿，必须人工校正后才能生成二维图"],
-        )
-    program_shape = shape
     trace_ids: list[str] = []
     ocr_assist: dict
+    edge_chain: list[BoundaryEdge] = []
     if settings.ai_configured:
         endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
         headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
-            shape = None
-            simplified_candidates = [candidate for candidate in candidates if 4 <= len(candidate.corners) <= 12]
-            for model in _models(settings.openai_fallback_model):
+            selectable_candidates = [candidate for candidate in candidates if 4 <= len(candidate.corners) <= 16]
+            selected_shape: ShapeTraceResult | None = None
+            if selectable_candidates:
                 try:
-                    traced = await _resolve_cropped_shape_trace(
-                        client, endpoint, headers, path, rotation, simplified_candidates or candidates,
-                        model, trace_ids,
+                    selected_shape = await _select_raster_topology(
+                        client, endpoint, headers, path, rotation, selectable_candidates, trace_ids,
                     )
-                    generic_rectangle = len(traced.corners) == 4 and any(len(candidate.corners) > 4 for candidate in simplified_candidates)
-                    if traced.closed and 4 <= len(traced.corners) <= 12 and _shape_directions(traced) and not generic_rectangle:
-                        shape = traced
-                        break
+                except AIAuthenticationError:
+                    raise
                 except (AIResponseError, ValidationError):
-                    continue
-            if shape is None and simplified_candidates:
-                try:
-                    shape = await _select_raster_topology(client, endpoint, headers, path, rotation, simplified_candidates, trace_ids)
-                except (AIResponseError, ValidationError):
-                    shape = None
-            if shape is None and simplified_candidates:
-                shape = min(simplified_candidates, key=lambda candidate: (len(candidate.corners), -candidate.pixel_support))
-                shape = ShapeTraceResult(
-                    corners=shape.corners,
-                    closed=True,
-                    uncertain=["视觉模型未能可靠修正墙线；保留最简单程序候选，仅供照片标注人工修改"],
-                )
-            if shape is None:
-                shape = program_shape
+                    selected_shape = None
+            if selected_shape is not None:
+                for model in _models(settings.openai_quality_model or settings.openai_model):
+                    try:
+                        audited = await _audit_shape_trace(
+                            client, endpoint, headers, path, rotation, selected_shape, model, trace_ids,
+                        )
+                        collapsed_to_rectangle = len(selected_shape.corners) > 4 and len(audited.corners) == 4
+                        if audited.closed and not collapsed_to_rectangle:
+                            shape = audited
+                            break
+                    except AIAuthenticationError:
+                        raise
+                    except (AIResponseError, ValidationError):
+                        continue
             # Paddle remains a detector and fallback. Wall crops are the primary
             # handwriting recognizer once a stable pixel-space topology exists.
             ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
@@ -4066,9 +4344,19 @@ async def analyze_floorplan_fast(
                 client, endpoint, headers, ocr_assist, trace_ids,
             )
             await _refine_photo_annotation_bindings(client, endpoint, headers, ocr_assist, shape, trace_ids)
+            if shape is not None:
+                edge_chain = await _resolve_segment_edge_chain(
+                    client, endpoint, headers, path, rotation, shape, ocr_assist, trace_ids,
+                )
     else:
         ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
-    provisional = _provisional_room_spec(shape, ocr_assist, asset_id=asset_id, allow_placeholders=True)
+    provisional = _provisional_room_spec(
+        shape,
+        ocr_assist,
+        asset_id=asset_id,
+        allow_incomplete_annotation=True,
+        edge_chain=edge_chain,
+    )
     if provisional is None:
         if not settings.ai_configured:
             raise AIConfigurationError("尚未配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 OPENAI_MODEL")

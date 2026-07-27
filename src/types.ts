@@ -14,9 +14,18 @@ export interface ImageBoundaryPoint {
   evidence_ids?: string[]
 }
 
+export interface BoundaryEdge {
+  direction: 'right' | 'down' | 'left' | 'up'
+  length_mm: number | null
+  role: 'wall' | 'door_jamb' | 'structure_return' | 'other'
+  evidence_ids: string[]
+  confidence: number
+}
+
 export interface PlanAnnotation {
   rotation_degrees: 0 | 90 | 180 | 270
   boundary: ImageBoundaryPoint[]
+  edge_chain?: BoundaryEdge[]
   confirmed: boolean
 }
 

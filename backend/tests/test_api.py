@@ -124,6 +124,74 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_incomplete_pixel_annotation_saves_without_measurement(tmp_path) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/api/projects", json={"name": "逐段尺寸待补"})
+        project_id = created.json()["id"]
+        spec = RoomSpec(
+            boundary=[],
+            plan_annotation=PlanAnnotation(
+                boundary=[
+                    ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
+                    ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
+                ],
+                edge_chain=[
+                    {"direction": "right", "length_mm": None},
+                    {"direction": "down", "length_mm": None},
+                    {"direction": "left", "length_mm": None},
+                    {"direction": "up", "length_mm": None},
+                ],
+                confirmed=False,
+            ),
+        )
+
+        saved = await client.put(f"/api/projects/{project_id}/spec", json=spec.model_dump(mode="json"))
+
+        assert saved.status_code == 200
+        assert saved.json()["measurement"] is None
+        assert saved.json()["spec"]["boundary"] == []
+        assert len(saved.json()["spec"]["plan_annotation"]["edge_chain"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_closed_segment_annotation_saves_measurement(tmp_path) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/api/projects", json={"name": "逐段尺寸已闭合"})
+        project_id = created.json()["id"]
+        spec = RoomSpec(
+            boundary=[
+                Point2D(x_mm=0, z_mm=0), Point2D(x_mm=2400, z_mm=0),
+                Point2D(x_mm=2400, z_mm=1600), Point2D(x_mm=0, z_mm=1600),
+            ],
+            plan_annotation=PlanAnnotation(
+                boundary=[
+                    ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
+                    ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
+                ],
+                edge_chain=[
+                    {"direction": "right", "length_mm": 2400},
+                    {"direction": "down", "length_mm": 1600},
+                    {"direction": "left", "length_mm": 2400},
+                    {"direction": "up", "length_mm": 1600},
+                ],
+                confirmed=True,
+            ),
+            confirmed=True,
+        )
+
+        saved = await client.put(f"/api/projects/{project_id}/spec", json=spec.model_dump(mode="json"))
+
+        assert saved.status_code == 200
+        assert len(saved.json()["measurement"]["walls"]) == 4
+        assert saved.json()["spec"]["plan_annotation"]["confirmed"] is True
+        assert saved.json()["spec"]["plan_annotation"]["edge_chain"][0]["length_mm"] == 2400
+
+
+@pytest.mark.asyncio
 async def test_rejects_non_image_upload(tmp_path) -> None:
     configure_temp_database(tmp_path)
     db.initialize()

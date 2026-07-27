@@ -11,11 +11,31 @@ import { ProjectRail } from './components/ProjectRail'
 import { SolutionList } from './components/SolutionList'
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { clientValidate, cloneSpec, manualRoom } from './spec'
-import type { EvidenceRole, Health, ImageBoundaryPoint, Project, RoomSpec, Selection } from './types'
+import type { BoundaryEdge, EvidenceRole, Health, ImageBoundaryPoint, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model'
 
 const visibleSpec = (value: Project | null) => value?.status === 'analysis_failed' ? null : value?.spec ?? null
+
+const metricBoundaryFromEdges = (edges: BoundaryEdge[]): Point2D[] | null => {
+  if (edges.length < 4 || edges.some((edge) => !edge.length_mm)) return null
+  const points: Point2D[] = [{ x_mm: 0, z_mm: 0 }]
+  let x = 0
+  let z = 0
+  for (const edge of edges) {
+    const length = edge.length_mm!
+    if (edge.direction === 'right') x += length
+    else if (edge.direction === 'left') x -= length
+    else if (edge.direction === 'down') z += length
+    else z -= length
+    points.push({ x_mm: x, z_mm: z })
+  }
+  if (x !== 0 || z !== 0) return null
+  points.pop()
+  const minX = Math.min(...points.map((point) => point.x_mm))
+  const minZ = Math.min(...points.map((point) => point.z_mm))
+  return points.map((point) => ({ x_mm: point.x_mm - minX, z_mm: point.z_mm - minZ }))
+}
 
 const imagePointToRoom = (spec: RoomSpec, x: number, y: number) => {
   const imageBoundary = spec.plan_annotation?.boundary ?? []
@@ -332,24 +352,19 @@ export default function App() {
     commitSpec(next)
   }
 
-  const confirmAnnotation = (points: ImageBoundaryPoint[]) => {
+  const confirmAnnotation = (points: ImageBoundaryPoint[], edgeChain: BoundaryEdge[]) => {
     if (!spec || points.length < 3) return
+    const metricBoundary = metricBoundaryFromEdges(edgeChain)
+    if (!metricBoundary || metricBoundary.length !== points.length) {
+      showMessage('error', '逐段尺寸无法闭合，请核对相对方向和每段毫米数')
+      return
+    }
     const next = cloneSpec(spec)
-    const minX = Math.min(...points.map((point) => point.x))
-    const maxX = Math.max(...points.map((point) => point.x))
-    const minY = Math.min(...points.map((point) => point.y))
-    const maxY = Math.max(...points.map((point) => point.y))
-    const currentBounds = next.boundary.length ? {
-      width: Math.max(...next.boundary.map((point) => point.x_mm)) - Math.min(...next.boundary.map((point) => point.x_mm)),
-      depth: Math.max(...next.boundary.map((point) => point.z_mm)) - Math.min(...next.boundary.map((point) => point.z_mm)),
-    } : { width: 3000, depth: 2000 }
-    next.boundary = points.map((point) => ({
-      x_mm: Math.round((point.x - minX) * Math.max(currentBounds.width, 1) / Math.max(maxX - minX, 1)),
-      z_mm: Math.round((point.y - minY) * Math.max(currentBounds.depth, 1) / Math.max(maxY - minY, 1)),
-    }))
+    next.boundary = metricBoundary
     next.plan_annotation = {
       rotation_degrees: next.plan_annotation?.rotation_degrees ?? 0,
       boundary: points,
+      edge_chain: edgeChain,
       confirmed: true,
     }
     next.openings.forEach((opening) => {

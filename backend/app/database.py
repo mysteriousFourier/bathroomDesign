@@ -122,10 +122,20 @@ class Database:
             revision = 1
             if row["measurement_json"]:
                 revision = MeasurementModel.model_validate_json(row["measurement_json"]).revision + 1
-            measurement = measurement_from_spec(spec, project_id, revision=revision)
+            measurement = (
+                measurement_from_spec(spec, project_id, revision=revision)
+                if len(spec.boundary) >= 3
+                else None
+            )
             result = connection.execute(
                 "UPDATE projects SET spec_json = ?, measurement_json = ?, status = ?, updated_at = ? WHERE id = ?",
-                (spec.model_dump_json(), measurement.model_dump_json(), status, now_iso(), project_id),
+                (
+                    spec.model_dump_json(),
+                    measurement.model_dump_json() if measurement else None,
+                    status,
+                    now_iso(),
+                    project_id,
+                ),
             )
             if result.rowcount == 0:
                 raise KeyError(project_id)

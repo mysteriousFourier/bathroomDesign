@@ -556,9 +556,14 @@ def test_refined_ocr_cache_only_matches_the_same_source_image(tmp_path, monkeypa
     assert ai._load_refined_ocr_cache(source, 0) is not None
     assert ai._load_refined_ocr_cache(other, 0) is None
 
+    cached = json.loads((cache_dir / "ocr-tokens.json").read_text(encoding="utf-8"))
+    cached.update({"wall_crop_refined": True, "wall_crop_cache_version": ai.WALL_CROP_CACHE_VERSION - 1})
+    (cache_dir / "ocr-tokens.json").write_text(json.dumps(cached), encoding="utf-8")
+    assert ai._load_refined_ocr_cache(source, 0) is None
+
 
 @pytest.mark.asyncio
-async def test_fast_analysis_returns_editable_placeholder_without_a_detected_contour(tmp_path, monkeypatch) -> None:
+async def test_fast_analysis_does_not_invent_placeholder_without_a_detected_contour(tmp_path, monkeypatch) -> None:
     source = tmp_path / "blank.jpg"
     Image.new("RGB", (320, 240), "white").save(source)
     monkeypatch.setattr(ai, "_prepare_ocr_assist", lambda *_args, **_kwargs: {
@@ -571,10 +576,11 @@ async def test_fast_analysis_returns_editable_placeholder_without_a_detected_con
 
     spec = await ai.analyze_floorplan_fast(source)
 
-    assert len(spec.boundary) == 4
-    assert max(point.x_mm for point in spec.boundary) == 3000
-    assert max(point.z_mm for point in spec.boundary) == 2000
-    assert any("占位" in issue.message for issue in spec.issues)
+    assert spec.boundary == []
+    assert spec.plan_annotation is not None
+    assert spec.plan_annotation.boundary == []
+    assert spec.plan_annotation.edge_chain == []
+    assert not any("3000" in issue.message or "2000" in issue.message for issue in spec.issues)
 
 
 def test_photo_binding_target_rejects_null_mismatched_and_out_of_range_values() -> None:
@@ -625,7 +631,7 @@ async def test_photo_binding_only_accepts_ids_from_the_current_chunk(tmp_path, m
     monkeypatch.setattr(settings, "openai_fallback_model", "")
     await ai._refine_photo_annotation_bindings(None, "", {}, ocr_assist, shape, [])
 
-    assert tokens[0]["target_id"] == "room:width"
+    assert tokens[0].get("target_id") is None
     assert tokens[8].get("target_id") is None
 
 

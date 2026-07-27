@@ -363,7 +363,7 @@ async def test_wall_crop_recognition_is_bounded_concurrent_and_cached(tmp_path, 
     )
 
     assert calls == 4
-    assert set(called_models) == {"quality-test"}
+    assert set(called_models) == {"vision-test"}
     assert max_active == 2
     assert len(result["tokens"]) == 4
     assert {token["target_id"].split("@")[0] for token in result["tokens"]} == {

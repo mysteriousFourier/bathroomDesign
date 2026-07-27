@@ -867,7 +867,7 @@ def test_ocr_assist_content_includes_overlay_tokens_and_crops(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_quality_model_decides_between_identical_candidate_inputs(monkeypatch) -> None:
+async def test_fast_topology_selection_does_not_call_quality_model(monkeypatch) -> None:
     monkeypatch.setattr(settings, "openai_model", "glm-4.6v-flash")
     monkeypatch.setattr(settings, "openai_quality_model", "glm-4.6v")
     monkeypatch.setattr(settings, "openai_fallback_model", "glm-4v-flash")
@@ -891,11 +891,8 @@ async def test_quality_model_decides_between_identical_candidate_inputs(monkeypa
     shape = await ai._select_raster_topology(None, "endpoint", {}, __import__("pathlib").Path("unused"), 0, candidates, [])
 
     assert shape is not None
-    assert shape.corners == candidates[1].corners
-    assert calls == [
-        ("glm-4.6v-flash", "original", "enhanced", "sheet"),
-        ("glm-4.6v", "original", "enhanced", "sheet"),
-    ]
+    assert shape.corners == candidates[0].corners
+    assert calls == [("glm-4.6v-flash", "original", "enhanced", "sheet")]
 
 
 def test_orthogonalization_removes_only_two_axis_small_spikes() -> None:

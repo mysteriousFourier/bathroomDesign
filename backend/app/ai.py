@@ -49,7 +49,7 @@ from .models import (
 from .validation import has_self_intersection, polygon_area, validate_spec
 
 
-WALL_CROP_CACHE_VERSION = 5
+WALL_CROP_CACHE_VERSION = 6
 MIN_STANDALONE_WALL_CROP_LENGTH = 30
 
 
@@ -1401,7 +1401,7 @@ async def _recognize_wall_crops_with_vision(
                 ]
             )
         async with semaphore:
-            for model in _models(settings.openai_quality_model or settings.openai_model):
+            for model in _models(settings.openai_model):
                 try:
                     content = await _request_content(
                         client,
@@ -3812,39 +3812,7 @@ async def _select_raster_topology(
         except (AIResponseError, ValidationError) as error:
             failures[model] = str(error)
 
-    quality_model = settings.openai_quality_model
-    primary_selection = selections.get(primary_model)
-    needs_quality = bool(
-        quality_model
-        and quality_model not in attempted_models
-        and (
-            settings.ai_compare_topology_models
-            or primary_selection is None
-            or not primary_selection.accepted
-            or primary_selection.confidence < 0.75
-        )
-    )
-    if needs_quality and quality_model:
-        attempted_models.append(quality_model)
-        try:
-            selections[quality_model] = await asyncio.wait_for(
-                _resolve_topology_candidate_selection(
-                    client, endpoint, headers, original_url, enhanced_url, sheet_url, candidates,
-                    quality_model, trace_ids, max_retries=0,
-                ),
-                timeout=settings.ai_quality_timeout_seconds,
-            )
-        except AIAuthenticationError:
-            raise
-        except TimeoutError:
-            failures[quality_model] = f"质量模型复核超过 {settings.ai_quality_timeout_seconds} 秒"
-        except (AIResponseError, ValidationError) as error:
-            failures[quality_model] = str(error)
-
-    if quality_model and quality_model in selections:
-        decision = selections[quality_model]
-        decision_source = quality_model
-    elif settings.openai_model in selections:
+    if settings.openai_model in selections:
         decision = selections[settings.openai_model]
         decision_source = settings.openai_model
     elif selections:
@@ -4183,7 +4151,6 @@ async def _refine_photo_annotation_bindings(
     models = list(dict.fromkeys(
         model for model in (
             settings.openai_model,
-            settings.openai_quality_model,
             settings.openai_fallback_model,
         ) if model
     ))
@@ -4321,7 +4288,7 @@ async def analyze_floorplan_fast(
                 except (AIResponseError, ValidationError):
                     selected_shape = None
             if selected_shape is not None:
-                for model in _models(settings.openai_quality_model or settings.openai_model):
+                for model in _models(settings.openai_model):
                     try:
                         audited = await _audit_shape_trace(
                             client, endpoint, headers, path, rotation, selected_shape, model, trace_ids,

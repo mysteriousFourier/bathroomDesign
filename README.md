@@ -6,6 +6,14 @@
 
 要求 Node.js 20+、Python 3.11+ 和 `uv`。
 
+Windows 可直接双击仓库根目录的 `start-system.bat`。启动器会检查工具与
+项目依赖、在缺少 `.env` 时复制模板、构建前端、启动后端并打开
+`http://127.0.0.1:8000`。保持启动窗口开启；在窗口中按 Enter 可停止系统。
+
+首次运行可能需要联网安装依赖。API 配置缺失时系统仍可启动，但 AI 识别功能
+不可用，请在 `.env` 中补全 `OPENAI_BASE_URL`、`OPENAI_API_KEY` 和
+`OPENAI_MODEL`。
+
 ```powershell
 Copy-Item .env.example .env
 # 编辑 .env，填写兼容 API 地址、密钥和支持图像输入的模型名

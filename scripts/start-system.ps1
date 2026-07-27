@@ -1,0 +1,277 @@
+param(
+    [switch]$CheckOnly,
+    [switch]$NoBrowser,
+    [switch]$ExitAfterReady
+)
+
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$AppUrl = "http://127.0.0.1:8000"
+$HealthUrl = "$AppUrl/api/health"
+$BackendProcess = $null
+
+function Write-Step {
+    param([string]$Message)
+    Write-Host ""
+    Write-Host "==> $Message" -ForegroundColor Cyan
+}
+
+function Require-Command {
+    param(
+        [string]$Name,
+        [string]$InstallHint
+    )
+    $Command = Get-Command $Name -ErrorAction SilentlyContinue
+    if (-not $Command) {
+        throw "Required command '$Name' was not found. $InstallHint"
+    }
+    return $Command.Source
+}
+
+function Invoke-Checked {
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments,
+        [string]$Description
+    )
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Description failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Test-PortOpen {
+    param([int]$Port)
+    $Client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $Attempt = $Client.BeginConnect("127.0.0.1", $Port, $null, $null)
+        if (-not $Attempt.AsyncWaitHandle.WaitOne(300)) {
+            return $false
+        }
+        $Client.EndConnect($Attempt)
+        return $true
+    }
+    catch {
+        return $false
+    }
+    finally {
+        $Client.Dispose()
+    }
+}
+
+function Get-AppHealth {
+    try {
+        return Invoke-RestMethod -Uri $HealthUrl -Method Get -TimeoutSec 2
+    }
+    catch {
+        return $null
+    }
+}
+
+function Normalize-ProcessPathVariable {
+    # Some Windows hosts inject both PATH and Path. Start-Process treats them
+    # as duplicate dictionary keys even though Windows treats them identically.
+    $Variables = [Environment]::GetEnvironmentVariables("Process")
+    $PathKeys = @(
+        $Variables.Keys |
+            ForEach-Object { [string]$_ } |
+            Where-Object { $_.ToLowerInvariant() -eq "path" }
+    )
+    if ($PathKeys.Count -le 1) {
+        return
+    }
+    $PathValue = $env:PATH
+    foreach ($PathKey in $PathKeys) {
+        [Environment]::SetEnvironmentVariable($PathKey, $null, "Process")
+    }
+    [Environment]::SetEnvironmentVariable("PATH", $PathValue, "Process")
+}
+
+function Open-AppBrowser {
+    if ($NoBrowser) {
+        return
+    }
+    try {
+        Start-Process $AppUrl | Out-Null
+    }
+    catch {
+        Write-Warning "The browser could not be opened automatically. Open $AppUrl manually."
+    }
+}
+
+function Show-BackendFailure {
+    param(
+        [string]$StdoutLog,
+        [string]$StderrLog
+    )
+    foreach ($LogPath in @($StderrLog, $StdoutLog)) {
+        if (Test-Path -LiteralPath $LogPath) {
+            $Lines = Get-Content -LiteralPath $LogPath -Tail 30
+            if ($Lines) {
+                Write-Host ""
+                Write-Host "Last output from $LogPath" -ForegroundColor Yellow
+                $Lines | ForEach-Object { Write-Host $_ }
+            }
+        }
+    }
+}
+
+function Invoke-Startup {
+    Set-Location $ProjectRoot
+    Write-Host "Bathroom Spatial Studio launcher" -ForegroundColor Green
+    Write-Host "Project: $ProjectRoot"
+
+    Write-Step "Checking required tools"
+    $Node = Require-Command "node.exe" "Install Node.js 20 or newer from https://nodejs.org/."
+    $Npm = Require-Command "npm.cmd" "Reinstall Node.js with npm enabled."
+    $Uv = Require-Command "uv.exe" "Install uv from https://docs.astral.sh/uv/."
+
+    $NodeVersionText = (& $Node --version).Trim()
+    if ($NodeVersionText -notmatch '^v(?<major>\d+)\.') {
+        throw "Unable to parse Node.js version '$NodeVersionText'."
+    }
+    if ([int]$Matches.major -lt 20) {
+        throw "Node.js 20 or newer is required; found $NodeVersionText."
+    }
+    $NpmVersion = (& $Npm --version).Trim()
+    $UvVersion = (& $Uv --version).Trim()
+    Write-Host "Node.js $NodeVersionText, npm $NpmVersion, $UvVersion"
+
+    Write-Step "Checking environment configuration"
+    $EnvPath = Join-Path $ProjectRoot ".env"
+    if (-not (Test-Path -LiteralPath $EnvPath)) {
+        Copy-Item -LiteralPath (Join-Path $ProjectRoot ".env.example") -Destination $EnvPath
+        Write-Warning "Created .env from .env.example. AI recognition needs OPENAI_BASE_URL, OPENAI_API_KEY, and OPENAI_MODEL."
+    }
+    $EnvLines = Get-Content -LiteralPath $EnvPath
+    $MissingAiSettings = @()
+    foreach ($SettingName in @("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL")) {
+        $Configured = $EnvLines | Where-Object {
+            $_ -match "^\s*$SettingName\s*=\s*.+$"
+        } | Select-Object -First 1
+        if (-not $Configured) {
+            $MissingAiSettings += $SettingName
+        }
+    }
+    if ($MissingAiSettings.Count -gt 0) {
+        Write-Warning "AI recognition is not fully configured: $($MissingAiSettings -join ', '). The application can still start."
+    }
+    else {
+        Write-Host "AI connection settings are present (values hidden)."
+    }
+
+    Write-Step "Checking frontend dependencies"
+    $FrontendReady = $false
+    if (Test-Path -LiteralPath (Join-Path $ProjectRoot "node_modules")) {
+        & $Npm ls --depth=0 --silent *> $null
+        $FrontendReady = $LASTEXITCODE -eq 0
+    }
+    if (-not $FrontendReady) {
+        Write-Host "Frontend packages are missing or incomplete; restoring the locked dependency tree."
+        Invoke-Checked -FilePath $Npm -Arguments @("ci", "--no-audit", "--no-fund") -Description "Frontend dependency installation"
+    }
+    else {
+        Write-Host "Frontend packages are ready."
+    }
+
+    Write-Step "Checking Python dependencies"
+    $env:UV_CACHE_DIR = Join-Path $ProjectRoot ".uv-cache"
+    Invoke-Checked -FilePath $Uv -Arguments @("sync", "--dev", "--locked") -Description "Python dependency synchronization"
+    $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $Python)) {
+        throw "uv completed but $Python was not created."
+    }
+    $PythonVersion = (& $Python -c "import platform; print(platform.python_version())").Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "The project Python environment could not be executed."
+    }
+    Write-Host "Python $PythonVersion and locked project packages are ready."
+
+    if ($CheckOnly) {
+        Write-Step "Dependency check completed"
+        Write-Host "The system is ready to start."
+        return
+    }
+
+    Write-Step "Building the frontend"
+    Invoke-Checked -FilePath $Npm -Arguments @("run", "build") -Description "Frontend build"
+
+    $ExistingHealth = Get-AppHealth
+    if ($ExistingHealth -and $ExistingHealth.ok) {
+        Write-Step "The system is already running"
+        Write-Host "Open $AppUrl"
+        Open-AppBrowser
+        return
+    }
+    if (Test-PortOpen -Port 8000) {
+        throw "Port 8000 is already in use by another program. Stop it and run this launcher again."
+    }
+
+    Write-Step "Starting the system"
+    $LogDir = Join-Path $ProjectRoot ".tmp\startup"
+    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $StdoutLog = Join-Path $LogDir "backend-$Timestamp.stdout.log"
+    $StderrLog = Join-Path $LogDir "backend-$Timestamp.stderr.log"
+    Normalize-ProcessPathVariable
+    $script:BackendProcess = Start-Process `
+        -FilePath $Python `
+        -ArgumentList @("-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", "8000") `
+        -WorkingDirectory $ProjectRoot `
+        -RedirectStandardOutput $StdoutLog `
+        -RedirectStandardError $StderrLog `
+        -WindowStyle Hidden `
+        -PassThru
+
+    $Health = $null
+    for ($Attempt = 1; $Attempt -le 60; $Attempt++) {
+        if ($script:BackendProcess.HasExited) {
+            Show-BackendFailure -StdoutLog $StdoutLog -StderrLog $StderrLog
+            throw "The backend exited before becoming ready (exit code $($script:BackendProcess.ExitCode))."
+        }
+        $Health = Get-AppHealth
+        if ($Health -and $Health.ok) {
+            break
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not ($Health -and $Health.ok)) {
+        Show-BackendFailure -StdoutLog $StdoutLog -StderrLog $StderrLog
+        throw "The backend did not become ready within 30 seconds."
+    }
+
+    Write-Step "System is ready"
+    Write-Host "URL: $AppUrl" -ForegroundColor Green
+    Write-Host "Backend PID: $($script:BackendProcess.Id)"
+    Write-Host "Logs: $LogDir"
+    if (-not $Health.ai_configured) {
+        Write-Warning "The UI is available, but AI recognition remains disabled until .env is configured."
+    }
+    Open-AppBrowser
+
+    if ($ExitAfterReady) {
+        return
+    }
+    Write-Host ""
+    Read-Host "Press Enter to stop the system and close this window" | Out-Null
+}
+
+try {
+    Invoke-Startup
+}
+catch {
+    Write-Host ""
+    Write-Host "STARTUP ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+finally {
+    if ($BackendProcess -and -not $BackendProcess.HasExited) {
+        Write-Host "Stopping backend process $($BackendProcess.Id)..."
+        Stop-Process -Id $BackendProcess.Id -Force -ErrorAction SilentlyContinue
+        $BackendProcess.WaitForExit()
+    }
+}
+
+exit 0

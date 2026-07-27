@@ -6,5 +6,18 @@ Files:
 
 - `source.jpg`: stable original image copy from the issue attachment.
 - `manifest.json`: source attachment metadata, checksum, dimensions, and annotation policy.
+- `recognized-plan.json`: OCR evidence and the last successful dimension-chain reconstruction.
+
+The AGEN-6.4 diagnostic can run fresh OCR or deterministically replay the saved
+evidence. Generated masks and previews are written below `.tmp/`:
+
+```bash
+python scripts/recognize_floorplan_sample.py
+python scripts/recognize_floorplan_sample.py --replay-json evidence/samples/real/agen-17-long-term/recognized-plan.json
+```
+
+Fresh PaddleOCR output is not deterministic. The script fails closed when a
+critical handwritten dimension such as `615` or the `800` door width is absent;
+use replay mode when validating the reconstruction logic itself.
 
 Annotation rule: use `source.jpg` as the base image. OCR or manual annotation should only cover the handwritten text bbox that was recognized, and must not redraw walls, dimension lines, or room topology.

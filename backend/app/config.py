@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     openai_base_url: str = ""
     openai_api_key: str = ""
     openai_model: str = ""
+    openai_fast_model: str = "glm-4v-flash"
     openai_quality_model: str = ""
     openai_fallback_model: str = ""
     app_data_dir: Path = Path("backend/data")

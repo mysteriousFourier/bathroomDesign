@@ -336,21 +336,17 @@ async def test_wall_crop_recognition_is_bounded_concurrent_and_cached(tmp_path, 
         max_active = max(max_active, active)
         await asyncio.sleep(0.01)
         active -= 1
-        return json.dumps(
+        return json.dumps([
             {
-                "observations": [
-                    {
-                        "text": "1840",
-                        "bbox": {"x_min": 450, "y_min": 450, "x_max": 550, "y_max": 550},
-                        "role": "wall_segment",
-                        "scope": "single_wall",
-                        "span_start": 0.2,
-                        "span_end": 0.4,
-                        "confidence": 0.92,
-                    }
-                ]
+                "text": "1840",
+                "bbox": {"x_min": 450, "y_min": 450, "x_max": 550, "y_max": 550},
+                "role": "wall_segment",
+                "scope": "single_wall",
+                "span_start": 0.2,
+                "span_end": 0.4,
+                "confidence": 0.92,
             }
-        )
+        ])
 
     monkeypatch.setattr(ai, "_request_content", fake_request)
     monkeypatch.setattr(settings, "openai_model", "vision-test")

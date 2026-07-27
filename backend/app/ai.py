@@ -49,7 +49,7 @@ from .models import (
 from .validation import has_self_intersection, polygon_area, validate_spec
 
 
-WALL_CROP_CACHE_VERSION = 6
+WALL_CROP_CACHE_VERSION = 7
 MIN_STANDALONE_WALL_CROP_LENGTH = 30
 
 
@@ -1360,6 +1360,7 @@ async def _recognize_wall_crops_with_vision(
     shape: ShapeTraceResult | None,
     ocr_assist: dict,
     trace_ids: list[str],
+    model_names: list[str] | None = None,
 ) -> dict:
     if shape is None:
         return ocr_assist
@@ -1401,7 +1402,7 @@ async def _recognize_wall_crops_with_vision(
                 ]
             )
         async with semaphore:
-            for model in _models(settings.openai_model):
+            for model in model_names or _models(settings.openai_model):
                 try:
                     content = await _request_content(
                         client,
@@ -1414,11 +1415,12 @@ async def _recognize_wall_crops_with_vision(
                         model,
                         json_object=True,
                         stage=f"wall-crop-recognition-{spec['wall_index']}",
-                        extra_payload={"max_tokens": 1200},
+                        extra_payload={"max_tokens": 1024},
                         trace_ids=trace_ids,
                         max_retries=1,
                     )
-                    return _wall_crop_observations(_extract_json(content), spec)
+                    parsed = json.loads(content) if str(content).lstrip().startswith("[") else _extract_json(content)
+                    return _wall_crop_observations(parsed, spec)
                 except AIAuthenticationError:
                     raise
                 except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
@@ -1567,6 +1569,7 @@ async def _resolve_segment_edge_chain(
     shape: ShapeTraceResult,
     ocr_assist: dict,
     trace_ids: list[str],
+    model_names: list[str] | None = None,
 ) -> list[BoundaryEdge]:
     seed = _seed_segment_edge_chain(shape, ocr_assist)
     if not seed:
@@ -1602,7 +1605,7 @@ async def _resolve_segment_edge_chain(
             ],
         },
     ]
-    for model in _models():
+    for model in model_names or _models():
         try:
             content = await _request_content(
                 client,
@@ -1612,7 +1615,7 @@ async def _resolve_segment_edge_chain(
                 model,
                 json_object=True,
                 stage="segment-edge-chain",
-                extra_payload={"max_tokens": 1400},
+                extra_payload={"max_tokens": 1024},
                 trace_ids=trace_ids,
                 max_retries=1,
             )
@@ -2214,11 +2217,12 @@ async def _refine_ocr_with_vision(
     headers: dict[str, str],
     ocr_assist: dict,
     trace_ids: list[str],
+    model: str | None = None,
 ) -> dict:
     if ocr_assist.get("vision_refined"):
         return ocr_assist
     candidates = _ocr_rotation_candidates(ocr_assist)
-    model = settings.openai_model or settings.openai_fallback_model
+    model = model or settings.openai_model or settings.openai_fallback_model
     if not candidates or not model:
         return ocr_assist
     results: list[dict] = []
@@ -3703,7 +3707,7 @@ async def _audit_shape_trace(
         model,
         json_object=True,
         stage="photo-annotation-topology-audit",
-        extra_payload={"max_tokens": 1400},
+        extra_payload={"max_tokens": 1024},
         trace_ids=trace_ids,
         max_retries=1,
     )
@@ -3779,6 +3783,7 @@ async def _select_raster_topology(
     rotation: int,
     candidates: list[TopologyCandidate],
     trace_ids: list[str],
+    model_names: list[str] | None = None,
 ) -> ShapeTraceResult | None:
     if not candidates:
         return None
@@ -3787,7 +3792,8 @@ async def _select_raster_topology(
     sheet_url = _topology_candidate_sheet(path, rotation, candidates)
     selections: dict[str, TopologyCandidateSelection] = {}
     failures: dict[str, str] = {}
-    primary_model = settings.openai_model
+    available_models = model_names or _models()
+    primary_model = available_models[0] if available_models else ""
     attempted_models: list[str] = []
     if primary_model:
         attempted_models.append(primary_model)
@@ -3800,8 +3806,8 @@ async def _select_raster_topology(
         except (AIResponseError, ValidationError) as error:
             failures[primary_model] = str(error)
 
-    if not selections and settings.openai_fallback_model and settings.openai_fallback_model not in attempted_models:
-        model = settings.openai_fallback_model
+    if not selections and len(available_models) > 1:
+        model = available_models[1]
         attempted_models.append(model)
         try:
             selections[model] = await _resolve_topology_candidate_selection(
@@ -3812,9 +3818,9 @@ async def _select_raster_topology(
         except (AIResponseError, ValidationError) as error:
             failures[model] = str(error)
 
-    if settings.openai_model in selections:
-        decision = selections[settings.openai_model]
-        decision_source = settings.openai_model
+    if primary_model in selections:
+        decision = selections[primary_model]
+        decision_source = primary_model
     elif selections:
         decision_source, decision = next(iter(selections.items()))
     else:
@@ -4145,10 +4151,11 @@ async def _refine_photo_annotation_bindings(
     ocr_assist: dict,
     shape: ShapeTraceResult | None,
     trace_ids: list[str],
+    model_names: list[str] | None = None,
 ) -> None:
     if not shape or len(shape.corners) < 3:
         return
-    models = list(dict.fromkeys(
+    models = model_names or list(dict.fromkeys(
         model for model in (
             settings.openai_model,
             settings.openai_fallback_model,
@@ -4272,6 +4279,7 @@ async def analyze_floorplan_fast(
     trace_ids: list[str] = []
     ocr_assist: dict
     edge_chain: list[BoundaryEdge] = []
+    fast_models = [settings.openai_fast_model] if settings.openai_fast_model else [settings.openai_model]
     if settings.ai_configured:
         endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
         headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
@@ -4281,14 +4289,14 @@ async def analyze_floorplan_fast(
             if selectable_candidates:
                 try:
                     selected_shape = await _select_raster_topology(
-                        client, endpoint, headers, path, rotation, selectable_candidates, trace_ids,
+                        client, endpoint, headers, path, rotation, selectable_candidates, trace_ids, fast_models,
                     )
                 except AIAuthenticationError:
                     raise
                 except (AIResponseError, ValidationError):
                     selected_shape = None
             if selected_shape is not None:
-                for model in _models(settings.openai_model):
+                for model in fast_models:
                     try:
                         audited = await _audit_shape_trace(
                             client, endpoint, headers, path, rotation, selected_shape, model, trace_ids,
@@ -4305,15 +4313,15 @@ async def analyze_floorplan_fast(
             # handwriting recognizer once a stable pixel-space topology exists.
             ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
             ocr_assist = await _recognize_wall_crops_with_vision(
-                client, endpoint, headers, path, rotation, shape, ocr_assist, trace_ids,
+                client, endpoint, headers, path, rotation, shape, ocr_assist, trace_ids, fast_models,
             )
             ocr_assist = await _refine_ocr_with_vision(
-                client, endpoint, headers, ocr_assist, trace_ids,
+                client, endpoint, headers, ocr_assist, trace_ids, fast_models[0],
             )
-            await _refine_photo_annotation_bindings(client, endpoint, headers, ocr_assist, shape, trace_ids)
+            await _refine_photo_annotation_bindings(client, endpoint, headers, ocr_assist, shape, trace_ids, fast_models)
             if shape is not None:
                 edge_chain = await _resolve_segment_edge_chain(
-                    client, endpoint, headers, path, rotation, shape, ocr_assist, trace_ids,
+                    client, endpoint, headers, path, rotation, shape, ocr_assist, trace_ids, fast_models,
                 )
     else:
         ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)

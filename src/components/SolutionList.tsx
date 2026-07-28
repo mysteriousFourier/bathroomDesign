@@ -23,7 +23,7 @@ export function SolutionList({ spec, active, onOpenModel }: {
     return (
       <section className="solution-list no-solution" aria-label="方案列表">
         <div className="solution-title"><span>方案列表</span><strong>无可行方案</strong></div>
-        <p><FileWarning size={15} />当前模型存在错误，三维详情和导出已锁定。请先修正墙体、层高或洞口问题。</p>
+        <p><FileWarning size={15} />当前模型存在错误，三维详情和导出已锁定。请先修正墙体、净高或洞口问题。</p>
       </section>
     )
   }
@@ -33,7 +33,7 @@ export function SolutionList({ spec, active, onOpenModel }: {
       <div className="solution-title"><span>方案列表</span><strong>{active ? '三维详情' : '二维复核'}</strong></div>
       <button className={active ? 'solution-card selected' : 'solution-card'} onClick={onOpenModel}>
         <BoxSelect size={17} />
-        <span><strong>当前量房方案</strong><small>使用同一版房间轮廓、层高和洞口数据生成三维详情。</small></span>
+        <span><strong>当前量房方案</strong><small>使用同一版房间轮廓、净高和洞口数据生成三维详情。</small></span>
       </button>
       <div className="solution-meta">
         <span><Ruler size={14} />{formatFootprint(spec)}</span>

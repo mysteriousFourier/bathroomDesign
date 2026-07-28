@@ -21,7 +21,7 @@ export function EmptyWorkspace({ hasPlan, analysisFailed, canAnalyze, onAnalyze,
       <div className="manual-dimensions">
         <label>宽度 <span><input type="number" min="500" value={width} onChange={(e) => setWidth(Number(e.target.value))} /> mm</span></label>
         <label>深度 <span><input type="number" min="500" value={depth} onChange={(e) => setDepth(Number(e.target.value))} /> mm</span></label>
-        <label>层高 <span><input type="number" min="1000" value={height} onChange={(e) => setHeight(Number(e.target.value))} /> mm</span></label>
+        <label>净高 <span><input type="number" min="1000" value={height} onChange={(e) => setHeight(Number(e.target.value))} /> mm</span></label>
         <button className="icon-button strong" title="建立空间" onClick={() => onManual(width, depth, height)} disabled={width < 500 || depth < 500 || height < 1000}><ArrowRight size={18} /></button>
       </div>
     </div>

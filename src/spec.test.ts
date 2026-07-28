@@ -1,11 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { manualRoom, roomBounds, roomCentroid, wallLength } from './spec'
+import { clientValidate, manualRoom } from './spec'
 
-describe('room helpers', () => {
-  it('creates a millimeter rectangle', () => {
-    const spec = manualRoom(1800, 2600, 2500)
-    expect(roomBounds(spec.boundary)).toEqual({ minX: 0, maxX: 1800, minZ: 0, maxZ: 2600, width: 1800, depth: 2600 })
-    expect(roomCentroid(spec.boundary)).toEqual({ x: 900, z: 1300 })
-    expect(wallLength(spec.boundary, 1)).toBe(2600)
+describe('room boundary validation', () => {
+  it('accepts a closed orthogonal room', () => {
+    expect(clientValidate(manualRoom(2400, 1800, 2600)).filter((issue) => issue.severity === 'error')).toEqual([])
+  })
+
+  it('rejects diagonal edges before modeling', () => {
+    const spec = manualRoom(2400, 1800, 2600)
+    spec.boundary[1].z_mm = 100
+
+    expect(clientValidate(spec).map((issue) => issue.code)).toContain('non_orthogonal_boundary')
+  })
+
+  it('rejects repeated points and self-intersection', () => {
+    const repeated = manualRoom(2400, 1800, 2600)
+    repeated.boundary.splice(2, 0, { ...repeated.boundary[1] })
+    const crossed = manualRoom(2400, 1800, 2600)
+    crossed.boundary = [
+      { x_mm: 0, z_mm: 0 }, { x_mm: 2400, z_mm: 0 },
+      { x_mm: 2400, z_mm: 1800 }, { x_mm: 0, z_mm: 1800 },
+      { x_mm: 0, z_mm: 900 }, { x_mm: 1200, z_mm: 900 },
+      { x_mm: 1200, z_mm: 1800 }, { x_mm: 0, z_mm: 1800 },
+    ]
+
+    expect(clientValidate(repeated).map((issue) => issue.code)).toContain('zero_length_boundary')
+    expect(clientValidate(crossed).map((issue) => issue.code)).toContain('self_intersection')
   })
 })

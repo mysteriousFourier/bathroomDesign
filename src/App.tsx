@@ -10,32 +10,13 @@ import { PhotoAnnotation } from './components/PhotoAnnotation'
 import { ProjectRail } from './components/ProjectRail'
 import { SolutionList } from './components/SolutionList'
 import { WorkflowStatus } from './components/WorkflowStatus'
+import { metricBoundaryFromEdges } from './geometry'
 import { clientValidate, cloneSpec, manualRoom } from './spec'
-import type { BoundaryEdge, EvidenceRole, Health, ImageBoundaryPoint, Point2D, Project, RoomSpec, Selection } from './types'
+import type { BoundaryEdge, EvidenceRole, Health, ImageBoundaryPoint, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model'
 
 const visibleSpec = (value: Project | null) => value?.status === 'analysis_failed' ? null : value?.spec ?? null
-
-const metricBoundaryFromEdges = (edges: BoundaryEdge[]): Point2D[] | null => {
-  if (edges.length < 4 || edges.some((edge) => !edge.length_mm)) return null
-  const points: Point2D[] = [{ x_mm: 0, z_mm: 0 }]
-  let x = 0
-  let z = 0
-  for (const edge of edges) {
-    const length = edge.length_mm!
-    if (edge.direction === 'right') x += length
-    else if (edge.direction === 'left') x -= length
-    else if (edge.direction === 'down') z += length
-    else z -= length
-    points.push({ x_mm: x, z_mm: z })
-  }
-  if (x !== 0 || z !== 0) return null
-  points.pop()
-  const minX = Math.min(...points.map((point) => point.x_mm))
-  const minZ = Math.min(...points.map((point) => point.z_mm))
-  return points.map((point) => ({ x_mm: point.x_mm - minX, z_mm: point.z_mm - minZ }))
-}
 
 const imagePointToRoom = (spec: RoomSpec, x: number, y: number) => {
   const imageBoundary = spec.plan_annotation?.boundary ?? []
@@ -96,6 +77,8 @@ export default function App() {
   const [focusEvidenceId, setFocusEvidenceId] = useState<string | null>(null)
   const [activeEvidenceId, setActiveEvidenceId] = useState<string | null>(null)
   const modelRef = useRef<ModelCanvasHandle>(null)
+  const projectRef = useRef<Project | null>(null)
+  projectRef.current = project
 
   const showMessage = useCallback((kind: 'error' | 'success' | 'info', text: string) => {
     setMessage({ kind, text })
@@ -111,6 +94,7 @@ export default function App() {
     setSpec(nextSpec)
     setMode(nextSpec?.plan_annotation && !nextSpec.plan_annotation.confirmed ? 'annotation' : 'review')
     setHistory([]); setFuture([]); setDirty(false); setSelection({ type: 'room' })
+    setFocusEvidenceId(null); setActiveEvidenceId(null)
   }, [])
 
   useEffect(() => {
@@ -139,6 +123,7 @@ export default function App() {
         }
         setSpec(visibleSpec(refreshed))
         setHistory([]); setFuture([]); setDirty(false)
+        setFocusEvidenceId(null); setActiveEvidenceId(null)
         if (refreshed.spec) {
           const errors = refreshed.spec.issues.filter((issue) => issue.severity === 'error')
           showMessage(errors.length ? 'info' : 'success', errors.length ? `解析完成，请逐项校正：${errors[0].message}` : '测量图解析完成，请核对尺寸')
@@ -161,6 +146,7 @@ export default function App() {
       const next = await studioApi.project(id)
       const nextSpec = visibleSpec(next)
       setProject(next); setSpec(nextSpec); setHistory([]); setFuture([]); setDirty(false); setMode(nextSpec?.plan_annotation && !nextSpec.plan_annotation.confirmed ? 'annotation' : 'review'); setSelection({ type: 'room' })
+      setFocusEvidenceId(null); setActiveEvidenceId(null)
       setPlanRotation(null)
     } catch (error) { showMessage('error', (error as Error).message) }
     finally { setBusy(null) }
@@ -191,7 +177,10 @@ export default function App() {
       for (const file of files) await studioApi.upload(project.id, role, file)
       const refreshed = await studioApi.project(project.id)
       setProject(refreshed); setProjects((items) => items.map((item) => item.id === refreshed.id ? refreshed : item))
-      if (role === 'floorplan') setPlanRotation(null)
+      if (role === 'floorplan') {
+        setSpec(visibleSpec(refreshed)); setHistory([]); setFuture([]); setDirty(false); setMode('annotation')
+        setPlanRotation(null); setFocusEvidenceId(null); setActiveEvidenceId(null)
+      }
       showMessage('success', `${files.length} 张图片已上传`)
     } catch (error) { showMessage('error', (error as Error).message) }
     finally { setBusy(null) }
@@ -201,13 +190,19 @@ export default function App() {
     const next = result.spec
     setSpec(next); setProject((current) => current ? { ...current, spec: next, measurement: result.measurement, status: 'review' } : current)
     setHistory([]); setFuture([]); setDirty(false); setMode(next.plan_annotation?.confirmed ? 'review' : 'annotation'); setSelection({ type: 'room' })
+    setFocusEvidenceId(null); setActiveEvidenceId(null)
   }
 
   const analyzePlan = async () => {
     if (!project) return
+    const requestProjectId = project.id
+    const requestPlanId = project.assets.filter((asset) => asset.role === 'floorplan').at(-1)?.id
     setBusy('plan')
     try {
-      const result = await studioApi.analyzePlan(project.id, planRotation)
+      const result = await studioApi.analyzePlan(requestProjectId, planRotation)
+      const active = projectRef.current
+      const activePlanId = active?.assets.filter((asset) => asset.role === 'floorplan').at(-1)?.id
+      if (active?.id !== requestProjectId || activePlanId !== requestPlanId) return
       applyAnalysis(result)
       showMessage(
         result.sufficient ? 'success' : 'info',
@@ -217,8 +212,10 @@ export default function App() {
       )
     } catch (error) {
       try {
-        const failed = await studioApi.project(project.id)
-        setProject(failed); setSpec(visibleSpec(failed)); setHistory([]); setFuture([]); setDirty(false)
+        const failed = await studioApi.project(requestProjectId)
+        if (projectRef.current?.id === requestProjectId) {
+          setProject(failed); setSpec(visibleSpec(failed)); setHistory([]); setFuture([]); setDirty(false)
+        }
       } catch { /* Keep the original API error as the actionable message. */ }
       const timedOut = error instanceof Error && error.name === 'TimeoutError'
       showMessage(timedOut ? 'info' : 'error', timedOut ? error.message : `本次识别失败，旧模型已标记为不可用，原图片无需删除：${(error as Error).message}`)
@@ -263,6 +260,19 @@ export default function App() {
         return raw.includes('.') && parsed < 20 ? Math.round(parsed * 1000) : Math.round(parsed)
       }).filter((item) => item > 0)
       if (role === 'room_height' && numbers[0]) next.height_mm = numbers[0]
+      if (role === 'wall_segment' && numbers[0] && targetId?.startsWith('wall:') && next.plan_annotation) {
+        const wallIndex = Number(targetId.slice(5).split('@')[0])
+        const edge = next.plan_annotation.edge_chain?.[wallIndex]
+        if (edge && Number.isInteger(wallIndex) && wallIndex >= 0 && wallIndex < next.plan_annotation.boundary.length) {
+          edge.length_mm = numbers[0]
+          edge.measured_length_mm = numbers[0]
+          edge.closure_adjustment_mm = 0
+          edge.source = 'user'
+          edge.confidence = 1
+          edge.evidence_ids = [...new Set([...(edge.evidence_ids ?? []), id])]
+          next.plan_annotation.confirmed = false
+        }
+      }
       if (role === 'wall_thickness' && numbers[0] && targetId?.startsWith('wall:')) {
         const wallIndex = Number(targetId.slice(5).split('@')[0])
         if (Number.isInteger(wallIndex) && wallIndex >= 0 && wallIndex < next.boundary.length) {
@@ -272,23 +282,33 @@ export default function App() {
           else profiles.push({ wall_index: wallIndex, kind: 'interior', thickness_mm: numbers[0], source: 'user', confidence: 1, evidence_ids: [id] })
         }
       }
-      if (role === 'door_size' && numbers.length >= 2) {
-        const width = numbers.find((item) => item >= 500 && item <= 1600) ?? numbers[0]
-        const height = numbers.find((item) => item >= 1800 && item <= 2800) ?? numbers[1]
+      if (role === 'door_size') {
+        const codedValues = Object.fromEntries(
+          [...value.matchAll(/\b(CG|CK|CH)\s*[:：=]?\s*(\d+)/gi)].map((match) => [match[1].toUpperCase(), Number(match[2])]),
+        ) as Partial<Record<'CG' | 'CK' | 'CH', number>>
+        const usesCodedValues = /\b(?:CG|CK|CH)\b/i.test(value)
+        const width = codedValues.CK ?? numbers.find((item) => item >= 500 && item <= 1600)
+        const height = codedValues.CH ?? numbers.find((item) => item >= 1800 && item <= 2800) ?? numbers[1]
+        const sill = codedValues.CG ?? (usesCodedValues ? undefined : 0)
         const target = wallTarget(targetId)
-        if (target && Number.isInteger(target.wallIndex) && target.wallIndex >= 0 && target.wallIndex < next.boundary.length) {
-          const thickness = numbers.find((item) => item >= 20 && item <= 600 && item !== width && item !== height) ?? null
-          const door = next.openings.find((item) => item.evidence_ids?.includes(id))
+        const wallCount = next.plan_annotation?.boundary.length ?? next.boundary.length
+        if (width && height && sill !== undefined && target && Number.isInteger(target.wallIndex) && target.wallIndex >= 0 && target.wallIndex < wallCount) {
+          const openingCode = value.match(/\b([DW][12])\b/i)?.[1].toUpperCase()
+          const openingKind = openingCode?.startsWith('W') ? 'window' : 'door'
+          const opening = next.openings.find((item) => item.evidence_ids?.includes(id))
           const start = next.boundary[target.wallIndex]
-          const end = next.boundary[(target.wallIndex + 1) % next.boundary.length]
-          const length = Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm)
+          const end = next.boundary.length ? next.boundary[(target.wallIndex + 1) % next.boundary.length] : undefined
+          const length = next.plan_annotation?.edge_chain?.[target.wallIndex]?.length_mm
+            ?? (start && end ? Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm) : 0)
           const offset = target.startRatio === null ? 0 : target.endRatio === null
             ? Math.max(0, Math.round(target.startRatio * length - width / 2))
             : Math.max(0, Math.round(Math.min(target.startRatio, target.endRatio) * length))
-          if (door) {
-            door.wall_index = target.wallIndex; door.offset_mm = offset; door.width_mm = width; door.height_mm = height; door.thickness_mm = thickness
-            door.source = 'user'; door.confidence = 1; door.evidence_ids = [...new Set([...(door.evidence_ids ?? []), id])]
-          } else next.openings.push({ id: `door-${crypto.randomUUID().slice(0, 8)}`, kind: 'door', wall_index: target.wallIndex, offset_mm: offset, width_mm: width, height_mm: height, thickness_mm: thickness, sill_mm: 0, label: '门洞（用户确认）', source: 'user', confidence: 1, evidence_ids: [id] })
+          if (opening) {
+            opening.kind = openingKind; opening.wall_index = target.wallIndex; opening.offset_mm = offset
+            opening.width_mm = width; opening.height_mm = height; opening.sill_mm = sill; opening.thickness_mm = null
+            opening.label = openingCode ?? (openingKind === 'window' ? '窗洞' : '门洞')
+            opening.source = 'user'; opening.confidence = 1; opening.evidence_ids = [...new Set([...(opening.evidence_ids ?? []), id])]
+          } else next.openings.push({ id: `${openingKind}-${crypto.randomUUID().slice(0, 8)}`, kind: openingKind, wall_index: target.wallIndex, offset_mm: offset, width_mm: width, height_mm: height, thickness_mm: null, sill_mm: sill, label: openingCode ?? (openingKind === 'window' ? '窗洞' : '门洞'), source: 'user', confidence: 1, evidence_ids: [id] })
         }
       }
       if (role === 'door_position' && numbers[0]) {
@@ -354,17 +374,17 @@ export default function App() {
 
   const confirmAnnotation = (points: ImageBoundaryPoint[], edgeChain: BoundaryEdge[]) => {
     if (!spec || points.length < 3) return
-    const metricBoundary = metricBoundaryFromEdges(edgeChain)
-    if (!metricBoundary || metricBoundary.length !== points.length) {
-      showMessage('error', '逐段尺寸无法闭合，请核对相对方向和每段毫米数')
+    const closure = metricBoundaryFromEdges(edgeChain)
+    if (!closure || closure.boundary.length !== points.length) {
+      showMessage('error', '尺寸链无法唯一闭合，或同一方向测量误差超过允许范围，请核对对应毫米数')
       return
     }
     const next = cloneSpec(spec)
-    next.boundary = metricBoundary
+    next.boundary = closure.boundary
     next.plan_annotation = {
       rotation_degrees: next.plan_annotation?.rotation_degrees ?? 0,
       boundary: points,
-      edge_chain: edgeChain,
+      edge_chain: closure.edges,
       confirmed: true,
     }
     next.openings.forEach((opening) => {
@@ -415,12 +435,20 @@ export default function App() {
 
   const confirm = async () => {
     if (!spec) return
+    if (clientValidate(spec).some((issue) => issue.severity === 'error')) {
+      showMessage('error', '轮廓校验未通过，不能进入建模')
+      return
+    }
     const next = cloneSpec(spec); next.confirmed = true
     setSpec(next); setMode('model'); await save(next)
   }
 
   const exportModel = () => {
     if (!spec) return
+    if (clientValidate(spec).some((issue) => issue.severity === 'error')) {
+      showMessage('error', '轮廓校验未通过，不能生成或导出模型')
+      return
+    }
     if (mode !== 'model') { setPendingExport(true); setMode('model'); return }
     void modelRef.current?.exportGLB(`${project?.name ?? 'bathroom-model'}.glb`).catch((error: Error) => showMessage('error', error.message))
   }
@@ -444,8 +472,9 @@ export default function App() {
   }, [mode, pendingExport, project?.name, showMessage])
 
   const annotationConfirmed = !!spec && (!spec.plan_annotation || spec.plan_annotation.confirmed)
-  const canConfirm = annotationConfirmed && !!spec && !!spec.height_mm && !spec.issues.some((issue) => issue.severity === 'error')
-  const canPreview = annotationConfirmed && !!spec && spec.boundary.length >= 3 && !!spec.height_mm
+  const validationHasErrors = !!spec && clientValidate(spec).some((issue) => issue.severity === 'error')
+  const canConfirm = annotationConfirmed && !!spec && !validationHasErrors
+  const canPreview = annotationConfirmed && !!spec && !validationHasErrors
   const canModel = canConfirm && !!spec?.confirmed
   const canExportMeasurement = !!project?.measurement && project.status !== 'analysis_failed' && !dirty
   const plan = project?.assets.filter((asset) => asset.role === 'floorplan').at(-1)
@@ -469,14 +498,14 @@ export default function App() {
             </div>
             {mode !== 'annotation' && <SolutionList spec={spec} active={mode === 'model'} onOpenModel={() => canPreview && setMode('model')} />}
             {mode === 'annotation'
-              ? <PhotoAnnotation spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
-              : mode === 'review'
-                ? <PlanReview spec={spec} plan={plan} selection={selection} onSelect={setSelection} onEvidenceSelect={setFocusEvidenceId} onFixtureMove={(id, x, z) => { const next = cloneSpec(spec); const fixture = next.fixtures.find((item) => item.id === id); if (fixture) { fixture.x_mm = x; fixture.z_mm = z; fixture.source = 'user'; fixture.confidence = 1; commitSpec(next) } }} />
+              ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
+              : mode === 'review' || !canPreview
+                ? <PlanReview key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} selection={selection} onSelect={setSelection} onEvidenceSelect={setFocusEvidenceId} onFixtureMove={(id, x, z) => { const next = cloneSpec(spec); const fixture = next.fixtures.find((item) => item.id === id); if (fixture) { fixture.x_mm = x; fixture.z_mm = z; fixture.source = 'user'; fixture.confidence = 1; commitSpec(next) } }} />
                 : <ModelCanvas ref={modelRef} spec={spec} selection={selection} onSelect={setSelection} />}
           </>
         )}
       </main>
-      {spec && <Inspector spec={spec} assets={project?.assets ?? []} selection={selection} onSelect={setSelection} onChange={commitSpec} onEvidenceApply={applyEvidence} onEvidenceDelete={deleteEvidence} onEvidenceDraftChange={updateEvidenceDraft} focusEvidenceId={focusEvidenceId} onEvidenceActive={setActiveEvidenceId} annotationMode={mode === 'annotation'} />}
+      {spec && <Inspector key={`${project?.id ?? 'none'}:${plan?.id ?? 'none'}:${project?.updated_at ?? ''}`} spec={spec} assets={project?.assets ?? []} selection={selection} onSelect={setSelection} onChange={commitSpec} onEvidenceApply={applyEvidence} onEvidenceDelete={deleteEvidence} onEvidenceDraftChange={updateEvidenceDraft} focusEvidenceId={focusEvidenceId} onEvidenceActive={setActiveEvidenceId} annotationMode={mode === 'annotation'} />}
       {message && <div className={`toast ${message.kind}`} role="status"><span>{message.text}</span><button className="icon-button" onClick={() => setMessage(null)} title="关闭"><X size={15} /></button></div>}
     </div>
   )

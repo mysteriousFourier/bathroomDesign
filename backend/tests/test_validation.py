@@ -18,7 +18,7 @@ def test_valid_room_is_sufficient() -> None:
 def test_missing_height_blocks_generation() -> None:
     issues, sufficient, missing = validate_spec(RoomSpec(boundary=rectangle()))
     assert sufficient is False
-    assert "房间层高" in missing
+    assert "房间净高" in missing
     assert any(issue.code == "missing_height" for issue in issues)
 
 
@@ -31,6 +31,46 @@ def test_opening_outside_wall_is_error() -> None:
     issues, sufficient, _ = validate_spec(spec)
     assert sufficient is False
     assert any(issue.code == "opening_outside" for issue in issues)
+
+
+def test_diagonal_boundary_is_blocked_before_modeling() -> None:
+    spec = RoomSpec(
+        boundary=[
+            Point2D(x_mm=0, z_mm=0), Point2D(x_mm=2400, z_mm=100),
+            Point2D(x_mm=2400, z_mm=1800), Point2D(x_mm=0, z_mm=1800),
+        ],
+        height_mm=2600,
+    )
+    issues, sufficient, missing = validate_spec(spec)
+
+    assert sufficient is False
+    assert any(issue.code == "non_orthogonal_boundary" for issue in issues)
+    assert "仅由水平和垂直非零线段组成的房间轮廓" in missing
+
+
+def test_zero_length_and_collinear_overlap_are_rejected() -> None:
+    points = rectangle()
+    zero_length = RoomSpec(
+        boundary=[*points[:2], points[1], *points[2:]],
+        height_mm=2600,
+    )
+    overlap = RoomSpec(
+        boundary=[
+            Point2D(x_mm=0, z_mm=0), Point2D(x_mm=2400, z_mm=0),
+            Point2D(x_mm=2400, z_mm=1800), Point2D(x_mm=0, z_mm=1800),
+            Point2D(x_mm=0, z_mm=900), Point2D(x_mm=1200, z_mm=900),
+            Point2D(x_mm=1200, z_mm=1800), Point2D(x_mm=0, z_mm=1800),
+        ],
+        height_mm=2600,
+    )
+
+    zero_issues, zero_sufficient, _ = validate_spec(zero_length)
+    overlap_issues, overlap_sufficient, _ = validate_spec(overlap)
+
+    assert zero_sufficient is False
+    assert any(issue.code == "zero_length_boundary" for issue in zero_issues)
+    assert overlap_sufficient is False
+    assert any(issue.code == "self_intersection" for issue in overlap_issues)
 
 
 def test_fixture_outside_is_warning_only() -> None:

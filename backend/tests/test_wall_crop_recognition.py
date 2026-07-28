@@ -52,9 +52,9 @@ def test_wall_crop_specs_cover_wall_and_both_normal_sides() -> None:
 
     assert [item["wall_id"] for item in specs] == ["W0", "W1", "W2", "W3"]
     assert specs[0]["orientation"] == "horizontal"
-    assert specs[0]["bbox"] == ImageBBox(x_min=35, y_min=0, x_max=965, y_max=310)
+    assert specs[0]["bbox"] == ImageBBox(x_min=35, y_min=0, x_max=965, y_max=235)
     assert specs[1]["orientation"] == "vertical"
-    assert specs[1]["bbox"] == ImageBBox(x_min=690, y_min=35, x_max=1000, y_max=965)
+    assert specs[1]["bbox"] == ImageBBox(x_min=765, y_min=35, x_max=1000, y_max=965)
 
 
 def test_short_returns_are_in_both_neighboring_crop_contexts() -> None:
@@ -132,6 +132,32 @@ def test_cross_wall_dimension_is_not_forced_onto_current_wall() -> None:
     assert observations[1]["dimension_scope"] == "boundary_span"
     assert observations[1]["target_id"] is None
     assert observations[1]["review_required"] is True
+
+
+def test_unresolved_four_digit_wall_crop_stays_local_and_requires_review() -> None:
+    spec = ai._wall_crop_specs(rectangle_shape())[2]
+    observations = ai._wall_crop_observations(
+        [{
+            "text": "2855",
+            "bbox": {"x_min": 300, "y_min": 300, "x_max": 700, "y_max": 500},
+            "role": "other",
+            "scope": "unresolved",
+            "wall_id": None,
+            "span_start": None,
+            "span_end": None,
+            "confidence": 0.6,
+        }],
+        spec,
+    )
+
+    assert observations[0]["semantic_role"] == "wall_segment"
+    assert observations[0]["target_id"] == "wall:2"
+    assert observations[0]["review_required"] is True
+
+
+def test_split_door_composite_keeps_repaired_height_candidate() -> None:
+    assert ai._repair_door_composite("800X205X55X12") == "800X2055X120"
+    assert "800X2055X120" in ai._ocr_candidates("800X205X55X12")
 
 
 def test_conflicting_overlapping_wall_bindings_require_review() -> None:
@@ -307,6 +333,39 @@ def test_segment_chain_rejects_length_without_matching_wall_evidence() -> None:
     assert validated[0].evidence_ids == []
 
 
+def test_explicit_wall_bindings_use_only_unambiguous_full_wall_segments() -> None:
+    shape = rectangle_shape()
+    assist = {"tokens": [
+        {
+            "id": "E001", "raw_text": "1840", "target_id": "wall:0", "confidence": 0.9,
+            "wall_crop_candidates": [{
+                "target_id": "wall:0@0.500", "text": "1840", "role": "wall_segment",
+                "scope": "single_wall", "span_start": 0.0, "span_end": 1.0, "confidence": 0.9,
+            }],
+        },
+        {
+            "id": "E002", "raw_text": "400", "target_id": "wall:1@0.100", "confidence": 0.9,
+            "wall_crop_candidates": [{
+                "target_id": "wall:1@0.500", "text": "400", "role": "wall_thickness",
+                "scope": "single_wall", "span_start": 0.0, "span_end": 1.0, "confidence": 0.9,
+            }],
+        },
+        {
+            "id": "E003", "raw_text": "019", "alternate_readings": ["610"],
+            "wall_crop_candidates": [{
+                "target_id": "wall:2@0.500", "text": "019", "role": "wall_segment",
+                "scope": "single_wall", "span_start": 0.0, "span_end": 1.0, "confidence": 0.8,
+            }],
+        },
+    ]}
+
+    edges = ai._explicit_wall_segment_edge_chain(shape, assist)
+
+    assert edges[0].length_mm == 1840
+    assert edges[1].length_mm is None
+    assert edges[2].length_mm == 610
+
+
 @pytest.mark.asyncio
 async def test_wall_crop_recognition_is_bounded_concurrent_and_cached(tmp_path, monkeypatch) -> None:
     source = tmp_path / "source.jpg"
@@ -349,8 +408,7 @@ async def test_wall_crop_recognition_is_bounded_concurrent_and_cached(tmp_path, 
         ])
 
     monkeypatch.setattr(ai, "_request_content", fake_request)
-    monkeypatch.setattr(settings, "openai_model", "vision-test")
-    monkeypatch.setattr(settings, "openai_quality_model", "quality-test")
+    monkeypatch.setattr(settings, "openai_vision_model", "vision-test")
     monkeypatch.setattr(settings, "openai_fallback_model", "")
     monkeypatch.setattr(settings, "ai_wall_crop_concurrency", 2)
 
@@ -397,7 +455,7 @@ async def test_wall_crop_recognition_propagates_authentication_failure(tmp_path,
         raise ai.AIAuthenticationError("invalid key")
 
     monkeypatch.setattr(ai, "_request_content", reject_request)
-    monkeypatch.setattr(settings, "openai_model", "vision-test")
+    monkeypatch.setattr(settings, "openai_vision_model", "vision-test")
     monkeypatch.setattr(settings, "openai_fallback_model", "")
 
     with pytest.raises(ai.AIAuthenticationError, match="invalid key"):
@@ -429,13 +487,9 @@ async def test_fast_analysis_builds_shape_before_text_recognition(tmp_path, monk
         events.append("ocr")
         return {"tokens": [], "rotation_degrees": 0}
 
-    async def fake_wall(*args, **_kwargs):
-        events.append("wall")
-        return args[-2]
-
     async def fake_global(*args, **_kwargs):
         events.append("global")
-        return args[-2]
+        return next(arg for arg in args if isinstance(arg, dict) and "tokens" in arg)
 
     async def fake_binding(*_args, **_kwargs):
         events.append("bind")
@@ -444,19 +498,73 @@ async def test_fast_analysis_builds_shape_before_text_recognition(tmp_path, monk
         events.append("edges")
         return []
 
+    async def fake_points(*_args, **_kwargs):
+        events.append("points")
+        return []
+
     monkeypatch.setattr(ai, "_select_raster_topology", fake_shape)
     monkeypatch.setattr(ai, "_audit_shape_trace", fake_audit)
     monkeypatch.setattr(ai, "_prepare_ocr_assist", fake_ocr)
-    monkeypatch.setattr(ai, "_recognize_wall_crops_with_vision", fake_wall)
     monkeypatch.setattr(ai, "_refine_ocr_with_vision", fake_global)
     monkeypatch.setattr(ai, "_refine_photo_annotation_bindings", fake_binding)
+    monkeypatch.setattr(ai, "_detect_point_markers", fake_points)
     monkeypatch.setattr(ai, "_resolve_segment_edge_chain", fake_edges)
     monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
     monkeypatch.setattr(settings, "openai_api_key", "key")
-    monkeypatch.setattr(settings, "openai_model", "vision-test")
+    monkeypatch.setattr(settings, "openai_vision_model", "vision-test")
     monkeypatch.setattr(settings, "openai_fallback_model", "")
 
     spec = await ai.analyze_floorplan_fast(source)
 
-    assert events == ["shape", "audit", "ocr", "wall", "global", "bind", "edges"]
+    assert events == ["shape", "audit", "ocr", "global", "bind", "points", "edges"]
+    assert spec.plan_annotation.boundary == shape.corners
+
+
+@pytest.mark.asyncio
+async def test_fast_analysis_uses_cropped_trace_when_candidate_selector_rejects(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (320, 240), "white").save(source)
+    shape = rectangle_shape()
+    candidate = TopologyCandidate(id="C1", corners=shape.corners, pixel_support=0.9)
+    events: list[str] = []
+
+    monkeypatch.setattr(ai, "_preferred_plan_rotation", lambda *_args: 0)
+    monkeypatch.setattr(ai, "_raster_topology_candidates", lambda *_args, **_kwargs: [candidate])
+
+    async def reject_shape(*_args, **_kwargs):
+        events.append("select")
+        return None
+
+    async def cropped_shape(*_args, **_kwargs):
+        events.append("crop")
+        return shape
+
+    async def audit_shape(*_args, **_kwargs):
+        events.append("audit")
+        return shape
+
+    def prepare_ocr(*_args, **_kwargs):
+        events.append("ocr")
+        return {"tokens": [], "rotation_degrees": 0}
+
+    async def pass_assist(*args, **_kwargs):
+        return next(arg for arg in args if isinstance(arg, dict) and "tokens" in arg)
+
+    monkeypatch.setattr(ai, "_select_raster_topology", reject_shape)
+    monkeypatch.setattr(ai, "_resolve_cropped_shape_trace", cropped_shape)
+    monkeypatch.setattr(ai, "_audit_shape_trace", audit_shape)
+    monkeypatch.setattr(ai, "_prepare_ocr_assist", prepare_ocr)
+    monkeypatch.setattr(ai, "_recognize_wall_crops_with_vision", pass_assist)
+    monkeypatch.setattr(ai, "_refine_ocr_with_vision", pass_assist)
+    monkeypatch.setattr(ai, "_refine_photo_annotation_bindings", lambda *_args, **_kwargs: __import__("asyncio").sleep(0))
+    monkeypatch.setattr(ai, "_detect_point_markers", lambda *_args, **_kwargs: __import__("asyncio").sleep(0, result=[]))
+    monkeypatch.setattr(ai, "_resolve_segment_edge_chain", lambda *_args, **_kwargs: __import__("asyncio").sleep(0, result=[]))
+    monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
+    monkeypatch.setattr(settings, "openai_api_key", "key")
+    monkeypatch.setattr(settings, "openai_vision_model", "vision-test")
+    monkeypatch.setattr(settings, "openai_fast_model", "vision-test")
+
+    spec = await ai.analyze_floorplan_fast(source)
+
+    assert events == ["select", "crop", "audit", "ocr"]
     assert spec.plan_annotation.boundary == shape.corners

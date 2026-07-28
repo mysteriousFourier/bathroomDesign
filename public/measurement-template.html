@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>量界 A4 量房纸</title>
+  <style>
+    :root { font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; color: #20231f; background: #e8e8e3; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    .toolbar { height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px; border-bottom: 1px solid #c8cbc4; background: #faf9f6; }
+    .toolbar strong { font-size: 14px; }
+    .toolbar span { color: #696e67; font-size: 11px; }
+    button { min-height: 32px; padding: 0 13px; border: 0; border-radius: 4px; color: white; background: #20231f; font: 600 12px inherit; cursor: pointer; }
+    .sheet-wrap { min-height: calc(100vh - 52px); display: grid; place-items: center; padding: 18px; overflow: auto; }
+    .sheet-stage { width: 297mm; height: 210mm; }
+    .sheet { position: relative; width: 297mm; height: 210mm; display: grid; grid-template: 18mm 1fr / 1fr 78mm; gap: 4mm; padding: 8mm; background: white; box-shadow: 0 8px 28px rgb(32 35 31 / 16%); }
+    .marker { position: absolute; width: 8mm; height: 8mm; border: 1.2mm solid #20231f; }
+    .marker::after { content: ""; position: absolute; inset: 1.2mm; border: 0.7mm solid #20231f; }
+    .m1 { left: 2mm; top: 2mm; } .m2 { right: 2mm; top: 2mm; } .m3 { left: 2mm; bottom: 2mm; } .m4 { right: 2mm; bottom: 2mm; }
+    header { grid-column: 1 / -1; display: grid; grid-template-columns: 50mm 1fr 54mm; align-items: end; gap: 5mm; border-bottom: 0.5mm solid #20231f; padding: 0 4mm 2.5mm; }
+    h1 { margin: 0; font-size: 16pt; letter-spacing: 0; }
+    .meta { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2mm 5mm; }
+    .field { min-height: 6mm; display: flex; align-items: end; gap: 2mm; border-bottom: 0.25mm solid #72766f; font-size: 8pt; }
+    .basis { display: flex; align-items: center; justify-content: flex-end; gap: 3mm; font-size: 8pt; }
+    .box { width: 4mm; height: 4mm; border: 0.35mm solid #20231f; }
+    .drawing { position: relative; overflow: hidden; border: 0.45mm solid #565b54; }
+    .drawing-grid { position: absolute; inset: 8mm 0 0; overflow: hidden; pointer-events: none; }
+    .drawing-grid i { position: absolute; display: block; }
+    .drawing-grid .vertical { top: 0; bottom: 0; border-left: 0.2mm solid #d4d7d1; }
+    .drawing-grid .horizontal { left: 0; right: 0; border-top: 0.2mm solid #d4d7d1; }
+    .drawing-label { position: absolute; z-index: 1; left: 3mm; top: 2mm; padding: 1mm 2mm; color: #6b7068; font-size: 7pt; }
+    aside { display: grid; grid-template-rows: 31mm 31mm minmax(0, 1fr); gap: 2mm; }
+    .panel { border: 0.35mm solid #565b54; }
+    .panel h2 { margin: 0; padding: 2mm; border-bottom: 0.25mm solid #969a92; font-size: 8pt; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 6.5pt; }
+    th, td { height: 6mm; border-right: 0.2mm solid #b7bab4; border-bottom: 0.2mm solid #b7bab4; padding: 1mm; text-align: left; }
+    th:last-child, td:last-child { border-right: 0; }
+    .rules { padding: 2mm 3mm 2mm 5mm; margin: 0; color: #51564f; font-size: 6.5pt; line-height: 1.55; }
+    .legend { padding: 2mm; font-size: 6.5pt; }
+    .point-symbols { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5mm 3mm; margin: 0 3mm 2mm; padding: 2mm 0; border-top: 0.2mm solid #b7bab4; border-bottom: 0.2mm solid #b7bab4; font-size: 7pt; }
+    .point-symbols strong { display: inline-block; min-width: 7mm; font-size: 10pt; }
+    @page { size: A4 landscape; margin: 0; }
+    @media screen and (max-width: 800px) {
+      .toolbar span { display: none; }
+      .sheet-wrap { padding: 18px; overflow: hidden; }
+      .sheet { transform-origin: top left; }
+    }
+    @media print {
+      :root, body { background: white; }
+      .toolbar { display: none; }
+      .sheet-wrap { min-height: 0; height: auto !important; padding: 0; display: block; overflow: visible; }
+      .sheet { box-shadow: none; transform: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar"><div><strong>量界 A4 量房纸</strong><span> · 横向打印，缩放设为 100%</span></div><button onclick="window.print()">打印</button></div>
+  <main class="sheet-wrap">
+    <div class="sheet-stage">
+    <article class="sheet">
+      <i class="marker m1"></i><i class="marker m2"></i><i class="marker m3"></i><i class="marker m4"></i>
+      <header>
+        <h1>单房间量房记录</h1>
+        <div class="meta"><span class="field">项目：</span><span class="field">房间：</span><span class="field">测量人：</span><span class="field">日期：</span></div>
+        <div class="basis"><span>尺寸基准</span><i class="box"></i><span>完成面（默认）</span><i class="box"></i><span>毛坯面</span></div>
+      </header>
+      <section class="drawing"><span class="drawing-label">平面草图 · 墙线无需按比例，实际墙长只看标注数字 · 点位按实际相对位置落点</span><div class="drawing-grid" aria-hidden="true"></div></section>
+      <aside>
+        <section class="panel"><h2>门窗洞口 · CG 距地 / CK 内宽 / CH 内高</h2><table><tr><th>编号</th><th>CG</th><th>CK</th><th>CH</th></tr><tr><td>D1</td><td></td><td></td><td></td></tr><tr><td>W1</td><td></td><td></td><td></td></tr><tr><td>W2</td><td></td><td></td><td></td></tr></table></section>
+        <section class="panel"><h2>高度</h2><table><tr><th>项目</th><th>数值</th></tr><tr><td>净高</td><td></td></tr><tr><td>整屋吊顶</td><td></td></tr><tr><td>局部/梁底</td><td></td></tr></table></section>
+        <section class="panel"><h2>现场规则与点位符号</h2><div class="legend">墙线长短不代表实际尺寸；实际墙长只以标注毫米数为准。点位直接画在草图的实际相对位置，符号旁写简称，不填写 X/Y 表。</div><div class="point-symbols"><span><strong>⊗</strong>地漏</span><span><strong>○</strong>排水</span><span><strong>△</strong>给水</span><span><strong>□</strong>电点</span></div><ol class="rules"><li>一支深色笔，尺寸统一写毫米整数。</li><li>轮廓闭合，短回折全部画出。</li><li>墙线无需按比例，长度只看尺寸数字。</li><li>横纵均写分段链和总尺寸，20 mm 内误差自动闭合。</li><li>点位按房间相对位置落在草图内。</li><li>照片完整保留四角标记。</li></ol></section>
+      </aside>
+    </article>
+    </div>
+  </main>
+  <script>
+    const grid = document.querySelector('.drawing-grid');
+    for (let offset = 10; offset < 210; offset += 10) {
+      const line = document.createElement('i');
+      line.className = 'vertical';
+      line.style.left = `${offset}mm`;
+      grid.appendChild(line);
+    }
+    for (let offset = 10; offset < 180; offset += 10) {
+      const line = document.createElement('i');
+      line.className = 'horizontal';
+      line.style.top = `${offset}mm`;
+      grid.appendChild(line);
+    }
+    const sheet = document.querySelector('.sheet');
+    const sheetStage = document.querySelector('.sheet-stage');
+    const fitSheet = () => {
+      if (!window.matchMedia('(max-width: 800px)').matches) {
+        sheet.style.transform = '';
+        sheetStage.style.width = '';
+        sheetStage.style.height = '';
+        return;
+      }
+      const scale = Math.min(1, (window.innerWidth - 36) / sheet.offsetWidth);
+      sheet.style.transform = `scale(${scale})`;
+      sheetStage.style.width = `${sheet.offsetWidth * scale}px`;
+      sheetStage.style.height = `${sheet.offsetHeight * scale}px`;
+    };
+    fitSheet();
+    window.addEventListener('resize', fitSheet);
+  </script>
+</body>
+</html>

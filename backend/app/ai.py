@@ -25,6 +25,7 @@ from .config import settings
 from .models import (
     BoundaryChainResult,
     BoundaryReturn,
+    CeilingZone,
     FixtureSpec,
     CriticalDimensionRoles,
     DimensionEvidenceRef,
@@ -46,10 +47,10 @@ from .models import (
     ValidationIssue,
     VisualEvidence,
 )
-from .validation import has_self_intersection, polygon_area, validate_spec
+from .validation import has_self_intersection, point_in_polygon, polygon_area, validate_spec
 
 
-WALL_CROP_CACHE_VERSION = 7
+WALL_CROP_CACHE_VERSION = 12
 MIN_STANDALONE_WALL_CROP_LENGTH = 30
 
 
@@ -59,7 +60,32 @@ PLAN_EVIDENCE_PROMPT = """
 你可以调用 inspect_image_region 放大看不清的区域。至少检查外轮廓尺寸、门洞区域、高度文字和所有排水/设备标签。
 最后必须调用 submit_plan_evidence。每条证据必须包含原文、紧贴它的最小 bbox、方向以及它看起来关联的线或对象。
 禁止根据住宅常识补充未画出的洁具、门窗或尺寸；斜线填充默认只是墙体或结构线，除非旁边有明确标签。
+门窗表中的 CG 表示洞口下沿距地高度，CK 表示洞口内侧净宽，CH 表示洞口内侧净高；D1 是门，W1/W2 是窗，必须把同一行作为一条 opening 证据读取。
 同一数字在不同位置出现时分别记录。无法确认的字符写入 uncertain，不得用猜测值替代。
+""".strip()
+
+POINT_MARKER_PROMPT = """
+你只负责识别手绘量房平面草图内部的点位符号，不读取墙长、门窗表或高度表，也不生成房间模型。
+需要识别的标准符号是：⊗ 地漏、○ 排水、△ 给水、□ 电点；符号旁可能有“地漏、排水、给水、冷水、热水、电点、插座”等简称。
+每个真实点位输出一条 evidence，kind 必须为 fixture，text 写符号类型或旁边简称，bbox 必须只紧贴点位符号本身，不能把旁边文字并入 bbox。
+bbox 使用完整转正图片 0 到 1000 的归一化坐标。门扇合页、尺寸箭头、墙角、四角定位标记、表格方框和文字中的圆圈/方框都不是点位。
+看不清时写入 uncertain，禁止补画不存在的点。最多输出 16 个点位。
+只输出 JSON：{"rotation_degrees":0,"evidence":[{"id":"point-1","kind":"fixture","text":"地漏","bbox":{"x_min":0,"y_min":0,"x_max":1000,"y_max":1000},"orientation":"free","related_to":"点位符号","view_id":"full","confidence":0.5}],"uncertain":[]}。
+""".strip()
+
+TEMPLATE_EVIDENCE_PROMPT = """
+你是固定量房模板的视觉抄录员，只提取图中真实可见的数字、门窗表、高度和点位，不生成房间边界，也不按草图线条比例推断长度。
+
+输出 evidence 必须严格按优先级排列：第一是 D1/W1/W2，第二是净高与整屋吊顶，第三是草图内全部点位，最后才是尺寸数字。即使输出额度不足，也必须先完整返回前三类。最多输出 28 条 evidence。
+
+草图墙线只表达连接和转折，线条在照片中画得长或短与实际毫米长度无关。每个尺寸数字必须单独输出一条 evidence，bbox 紧贴数字本身，并用 related_to 标明 dimension_chain:top、dimension_chain:bottom、dimension_chain:left、dimension_chain:right 或 dimension_chain:recess。不要把相邻尺寸线上的数字混为同一链。
+
+D1/W1/W2 每个有填写的行输出一条 opening evidence，text 完整写成如“D1 CG 0 CK 800 CH 2055”，bbox 框住该行。净高、整屋吊顶分别输出 height evidence；米制小数换算成毫米文字，例如“整屋吊顶 2100”。
+
+点位逐个输出 fixture evidence：⊗=地漏、实心点或○=排水、△=给水、□=电点；bbox 只框草图内符号，不得把右侧图例算作点位。
+
+所有 bbox 坐标都相对第一张完整转正图片，使用 0 到 1000。看不清就写入 uncertain，禁止按常识补数。只输出 JSON：
+{"rotation_degrees":0,"evidence":[{"id":"T1","kind":"dimension|height|opening|fixture","text":"原文或规范化字段","bbox":{"x_min":0,"y_min":0,"x_max":1000,"y_max":1000},"orientation":"horizontal|vertical|free","related_to":"dimension_chain:top|opening:D1|overall_ceiling|point","view_id":"full","confidence":0.5}],"uncertain":[]}。
 """.strip()
 
 PLAN_REGION_PROMPT = """
@@ -76,8 +102,8 @@ PLAN_NORMALIZATION_PROMPT = """
 - overall_width_mm: 整数或 null，X 方向总尺寸；overall_depth_mm: 整数或 null，Z 方向总尺寸；height_mm: 整数或 null。
 - boundary: [{"x_mm":整数,"z_mm":整数}]。有可靠完整轮廓时输出按墙顺序排列且不重复首点的坐标；只有总长宽时输出空数组，程序会建立矩形。
 - edge_chain: [{"direction":"right|down|left|up","length_mm":整数,"role":"wall|door_jamb|structure_return|other","evidence_ids":[字符串],"confidence":0到1}]。可从任意一个清晰的墙角开始，按房间内侧轮廓连续逐边输出；这是非矩形轮廓的首选表达，末端必须闭合回起点。
-- openings: [{"kind":"door|window|opening","wall_index":非负整数,"offset_mm":非负整数,"width_mm":正整数,"height_mm":正整数或null,"sill_mm":非负整数,"label":字符串,"confidence":0到1}]。
-- fixtures: [{"kind":"floor_drain|pipe|column|other","label":字符串,"x_mm":整数或null,"z_mm":整数或null,"width_mm":正整数或null,"depth_mm":正整数或null,"height_mm":正整数或null,"confidence":0到1}]。
+- openings: [{"kind":"door|window|opening","wall_index":非负整数,"offset_mm":非负整数,"width_mm":正整数,"height_mm":正整数或null,"sill_mm":非负整数,"label":字符串,"confidence":0到1}]。门窗表中 CG→sill_mm、CK→width_mm、CH→height_mm；D1→door，W1/W2→window。
+- fixtures: [{"kind":"floor_drain|drain|water|electric|pipe|column|other","label":字符串,"x_mm":整数或null,"z_mm":整数或null,"width_mm":正整数或null,"depth_mm":正整数或null,"height_mm":正整数或null,"confidence":0到1}]。
 - evidence: [{"evidence_id":对应候选证据ID,"text":原始读数,"meaning":位置或含义,"bbox":原 bbox 或 null,"confidence":0到1}]。
 - uncertain: [字符串]。
 openings 和 fixtures 必须填写 evidence_ids；没有直接证据 ID 的对象不得生成。
@@ -112,7 +138,8 @@ PLAN_TOPOLOGY_PROMPT = """
 PLAN_SHAPE_PROMPT = """
 你只负责追踪手绘平面图中房间内侧墙线的形状，不读任何尺寸数字，不计算毫米，不分析洁具。
 第二张图是同一平面图的高对比线稿，第三张是程序检测的候选水平/竖直线（青色编号线可能包含尺寸线和噪声，必须结合原图筛选），后续图片是上、下区域放大。忽略纸张边缘、阴影、折痕、尺寸线、延长线、文字、洁具符号和门扇圆弧；只沿手绘房间墙线形成的内侧边界走一整圈。
-特别注意：任何贴着外墙的斜线填充块都是侵入房间的墙体/结构，它朝向房间的每条短边和长边都属于可用空间边界，不能沿它背后的外接矩形直线穿过去。门框旁几十毫米的短回折也一样必须保留。
+拓扑中的“一段墙”只由固定边界的方向变化决定：固定边界没有转向时，无论尺寸线把它标成几段、是否跨过门洞、线条中间是否断开，都仍然只是一段。门洞两侧墙面共线时，边界必须直线跨过门洞，绝不能沿门扇、开启圆弧或门扇端点绕出 U 形凹口。
+特别注意：任何贴着外墙的斜线填充块都是侵入房间的墙体/结构，它朝向房间的边界属于可用空间边界，不能沿它背后的外接矩形直线穿过去。只有固定墙面确实换到另一条平行线时才保留短回折；尺寸界线、门扇线、圆弧，以及透视/手抖造成的同一墙线细小阶梯都不是回折。
 从任意清晰墙角开始，按顺时针或逆时针依次记录每一个真实转折点。墙垛、柱、包管、凹口、门框短回折都必须有独立角点；即使短边很小也不能跳过。不要重复首点。
 坐标是当前转正图 0 到 1000 的归一化图像坐标。role 只能是 wall_corner、structure_return、door_jamb、other。
 只有确认已经沿同一条边界回到起点时 closed=true；看不清时 closed=false 并说明，不得把非矩形简化成四角。
@@ -122,8 +149,8 @@ PLAN_SHAPE_PROMPT = """
 PLAN_CANDIDATE_SELECTION_PROMPT = """
 你是手绘平面图拓扑候选复核员。第一张图是转正原图，第二张是高对比图，第三张候选表中每格红线是程序从同一图生成的一个闭合正交房间内边界。
 你不生成新坐标。先忽略候选红线，单独沿原图房间内侧墙线走一圈，列清所有真实的凸出、凹口、柱、包管和门框短回折；再逐个候选比较这些转折的有序序列和凹凸方向。
-门扇圆弧、门洞空白、尺寸线、文字、箭头、排水孔、地漏、洁具和设备符号都不是房间边界。候选没有描出这些对象是正确的，绝不能因此拒绝。
-手绘线宽、拍摄透视和栅格化会带来少量坐标偏差；只要候选包含相同的墙体转折序列、相同凹凸方向和大致相对位置，就属于拓扑匹配，可 accepted=true。不要因几像素偏移、墙线粗细或门洞处用直线闭合而拒绝。
+先只数固定墙体改变方向的次数，它就是正确角点数。尺寸分段不增加角点：同一条直墙即使标了多个分段数字仍是一条边。门扇圆弧、门扇直线、门洞空白、尺寸线、文字、箭头、排水孔、地漏、洁具和设备符号都不是房间边界。门洞两侧固定墙面共线时必须用一条直边跨过门洞；任何绕着门扇形成 U 形凹口的候选必须拒绝。
+手绘线宽、拍摄透视和栅格化会带来坐标偏差；只要候选包含相同的墙体转折序列和相同凹凸方向，就属于拓扑匹配，可 accepted=true。草图完全不要求按比例，禁止根据某段线画得更长或更短来拒绝候选或推断毫米长度；不要因像素偏移、墙线粗细或门洞处用直线闭合而拒绝。
 必须在所有候选中先找出拓扑最接近的一个。只有它仍遗漏或新增了真实墙体转折时才全部拒绝；missing_features 必须写清“上/下/左/右哪一段、应向房间内还是外回折”，不得只写“外墙转折/凹口结构/细节不符”等泛泛结论。
 复杂度最高不代表正确。选中时返回候选 ID；确实都不匹配时 selected_id=null、accepted=false。
 只输出 JSON：{"selected_id":null,"accepted":false,"confidence":0到1,"missing_features":[]}。
@@ -131,8 +158,8 @@ PLAN_CANDIDATE_SELECTION_PROMPT = """
 
 PLAN_TOPOLOGY_AUDIT_PROMPT = """
 你是手绘建筑平面图的墙体边界复核员。第一张是原图，第二张红线是候选房间内侧边界；你的任务是纠正候选，不读取或填写毫米尺寸。
-先独立找出所有门符号：门扇直线、开启圆弧、合页点和门洞。门扇与圆弧都是可移动构件，绝不是墙，候选红线只要沿着它们就必须纠正。
-再沿固定墙体内侧走一整圈。门洞两侧与墙体连续的短横墙、短竖墙、门垛和高差回折必须分别保留；尺寸线、箭头、文字、洁具、地漏符号和纸张边缘必须排除。
+先独立找出所有门符号：门扇直线、开启圆弧、合页点和门洞。门扇与圆弧都是可移动构件，绝不是墙，候选红线只要沿着它们就必须纠正。门洞两侧固定墙面若在同一直线上，输出一条直边跨过整个门洞，不在门洞分段点增加角点。
+再沿固定墙体内侧走一整圈。只有固定边界方向改变时才增加角点；尺寸数字把一条墙分成多段不改变拓扑。短回折只有在固定墙面确实换到另一条平行线时才保留；透视、线宽或手抖造成的几个连续微小阶梯必须合并为一个真实墙角。尺寸线、箭头、文字、洁具、地漏符号和纸张边缘必须排除。
 输出按同一方向排列的全部转折点，不重复首点。相邻点必须构成水平或垂直墙段；看得见的回折不能被矩形化。坐标使用完整原图 0..1000。
 role 只能是 wall_corner、structure_return、door_jamb、other。只有能沿固定墙体和门洞闭合时 closed=true；无法确认时 closed=false，禁止保留明显错误候选。
 只输出 JSON：{"corners":[{"x":整数,"y":整数,"role":"wall_corner","confidence":0到1}],"closed":false,"uncertain":[]}。
@@ -140,7 +167,7 @@ role 只能是 wall_corner、structure_return、door_jamb、other。只有能沿
 
 WALL_CROP_RECOGNITION_PROMPT = """
 你只负责读取已编号墙段附近的手写文字和尺寸线关系，不生成房间模型。
-第一张图是未经标注的原始裁片，第二张是增强裁片，第三张用红线标出当前主墙段，并可能用橙线标出与它直接相连、不值得单独裁切的短回折墙；如果有第四张，它只是便于阅读竖排文字的旋转副本。bbox 必须相对第一张裁片使用 0 到 1000 坐标。
+第一张图是未经标注的原始裁片，第二张是增强裁片，第三张用红线标出当前主墙段，并可能用橙线标出与它直接相连、不值得单独裁切的短回折墙；第四张是稍宽的上下文，只用于确认被窄裁片截断的完整文字；如果有第五张，它只是便于阅读竖排文字的旋转副本。bbox 必须相对第一张裁片使用 0 到 1000 坐标。
 只记录确实可读的文字。必须结合尺寸界线、箭头、门框和墙角判断归属，禁止仅按文字离红线最近就绑定。
 scope 只能是 single_wall、boundary_span、opening、room_height、ceiling_height、fixture 或 unresolved。
 role 只能是 wall_segment、wall_thickness、room_height、ceiling_height、door_size、door_position、drain_position、pipe_box、fixture_dimension、fixture_label 或 other。
@@ -150,11 +177,21 @@ single_wall/opening 且尺寸线端点确实落在某一编号墙段上时，wal
 """.strip()
 
 SEGMENT_EDGE_CHAIN_PROMPT = """
-你只负责把已确认的像素墙角边链与图上逐段尺寸建立对应，不得推断房间总宽、总长或补齐未标尺寸。
+你只负责把已确认的像素墙角边链与图上逐段尺寸建立对应，目标是生成供用户校正的完整初值，不是出具最终测量结论。
 叠加图中的 W0..Wn 分别连接 boundary 中 corner i 到 corner i+1，最后一条回到 corner 0。门扇开启圆弧和门扇线不是墙边；门洞两侧的短横、短竖回折是独立边。
-每条 edge 的 direction 和顺序必须原样保留。length_mm 只有在尺寸界线/箭头明确测量该边，且能引用 OCR 证据 ID 时才填写；跨多个转角的尺寸链不能塞进单条边。看不清或证据冲突时 length_mm=null。
-不得把局部最长数字称为 overall width/depth，也不得通过住宅常识、像素比例或闭合差猜数字。
-只输出 JSON：{"edge_chain":[{"direction":"right|down|left|up","length_mm":null,"role":"wall|door_jamb|structure_return|other","evidence_ids":[],"confidence":0.5}],"uncertain":[]}。
+输出数组长度必须与 boundary 点数完全相等，顺序必须严格对应 W0..Wn，禁止少边、增边或换起点。
+逐条查看 W 标号附近同方向的尺寸文字、尺寸界线和证据 bbox，尽量给每一条边填写可编辑初值并引用证据 ID；只有图中确实不存在可关联数字时才填 null。固定边界不转向时仍是一条几何边：如果它沿途由连续的墙段、门洞、门垛或间隙尺寸组成，长度必须等于这些连续尺寸之和并引用全部分段证据，例如墙段+门洞+门垛应相加；门洞宽度同时用于 opening，不要为了门洞给 boundary 增加假折点。
+跨越真实转角的总尺寸链不能塞进单条边。总尺寸只用来复核各段合计，不得覆盖已经画出的凹槽、台阶或回折。看不清或证据冲突时 length_mm=null。
+可以用同一水平或垂直尺寸链的合计与正交闭合关系检查候选读数并在多个可见读数中选出最合理者，但不得发明图中不存在的数字。不得把局部最长数字称为 overall width/depth，也不得通过住宅常识或像素长度比例换算毫米。
+只输出包含 lengths_mm 和 evidence_ids 两个数组的紧凑 JSON。数组的确切长度和空骨架由用户消息给出，必须保留骨架中的全部位置并逐项替换；不能识别的位置保持 null 和空数组。不要重复 direction、role、boundary，不要输出 uncertain、Markdown 或解释。
+""".strip()
+
+SEGMENT_EDGE_COORDINATOR_PROMPT = """
+你是量房尺寸归属与计算协调器。输入只包含两个已经独立完成的结果：闭合正交墙段拓扑，以及从整图均匀分块读取并恢复到全图坐标的数字证据。
+不得把“某个数字出现在某个分块”直接等同于属于某条墙。必须结合全图 bbox、数字方向、dimension_chain 关系、墙段方向、尺寸链顺序以及水平/垂直闭合关系单独判断归属。
+草图像素长度与实际毫米长度无关，严禁按像素比例换算。固定边界不转向时仍是一条墙段；沿途的墙段、门洞、门垛连续分段尺寸需要相加，但门洞不增加几何折点。
+目标是给用户生成可修改的初值。优先使用被重叠分块重复读到、视觉置信度高且位置一致的数值；离谱的孤立 OCR 候选不得参与填值。只可引用输入清单中的证据 ID，不得发明数值。
+输出必须使用用户给出的完整数组骨架，不能少项、换起点或改变墙段顺序。只输出 JSON，不要解释。
 """.strip()
 
 CRITICAL_DIMENSION_PROMPT = """
@@ -516,6 +553,144 @@ def _candidate_mask(points: list[tuple[int, int]], width: int, height: int) -> n
     return mask
 
 
+def _has_diagonal_or_curved_ink(image: Image.Image, points: list[tuple[int, int]]) -> bool:
+    """Detect a door leaf/arc inside a candidate U-shaped detour."""
+    left = max(0, min(point[0] for point in points) - 8)
+    top = max(0, min(point[1] for point in points) - 8)
+    right = min(image.width, max(point[0] for point in points) + 8)
+    bottom = min(image.height, max(point[1] for point in points) + 8)
+    if right - left < 12 or bottom - top < 12:
+        return False
+    gray = np.asarray(ImageOps.grayscale(image.crop((left, top, right, bottom))))
+    edges = cv2.Canny(cv2.GaussianBlur(gray, (3, 3), 0), 40, 120)
+    lines = cv2.HoughLinesP(
+        edges, 1, np.pi / 180, threshold=max(8, min(edges.shape) // 8),
+        minLineLength=max(8, min(edges.shape) // 12), maxLineGap=4,
+    )
+    if lines is None:
+        return False
+    diagonal = 0
+    for x1, y1, x2, y2 in lines[:, 0, :]:
+        angle = abs(np.degrees(np.arctan2(y2 - y1, x2 - x1))) % 180
+        if 12 < angle < 78 or 102 < angle < 168:
+            diagonal += 1
+    return diagonal >= 2
+
+
+def _simplify_false_boundary_detours(image: Image.Image, points: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Remove door-leaf U traces and perspective stair steps from wall contours."""
+    points = list(points)
+    changed = True
+    while changed and len(points) >= 6:
+        changed = False
+        count = len(points)
+        for index in range(count):
+            sequence = [points[(index + offset) % count] for offset in range(6)]
+            axes = [_dominant_axis(sequence[offset], sequence[offset + 1]) for offset in range(5)]
+            lengths = [
+                abs(sequence[offset + 1][0] - sequence[offset][0])
+                + abs(sequence[offset + 1][1] - sequence[offset][1])
+                for offset in range(5)
+            ]
+            if axes[0] is None or axes != [axes[0], axes[1], axes[0], axes[1], axes[0]]:
+                continue
+            if axes[0] == axes[1] or lengths[1] < 12 or abs(lengths[1] - lengths[3]) > max(8, lengths[1] * 0.3):
+                continue
+            if not _has_diagonal_or_curved_ink(image, sequence[1:5]):
+                continue
+            # A curved door trace returns to the same wall line. Replace the
+            # entire excursion with its straight boundary continuation.
+            points = [
+                point for offset, point in enumerate(points)
+                if offset not in {(index + inner) % count for inner in range(1, 5)}
+            ]
+            changed = True
+            break
+        if changed:
+            continue
+
+        # Dimension ticks can create a short backtracking staircase along one
+        # otherwise straight wall. If the path returns to the same baseline
+        # while reversing along its main axis, collapse only that noisy run.
+        count = len(points)
+        alignment_limit = max(4, round(min(image.size) * 0.01))
+        excursion_limit = max(16, round(min(image.size) * 0.035))
+        for span in range(3, min(8, count - 1)):
+            for index in range(count):
+                sequence = [points[(index + offset) % count] for offset in range(span + 1)]
+                start, end = sequence[0], sequence[-1]
+                dx, dy = end[0] - start[0], end[1] - start[1]
+                horizontal = abs(dy) <= alignment_limit and abs(dx) >= alignment_limit * 2
+                vertical = abs(dx) <= alignment_limit and abs(dy) >= alignment_limit * 2
+                if not (horizontal or vertical):
+                    continue
+                main_steps = [
+                    sequence[offset + 1][0] - sequence[offset][0]
+                    if horizontal else sequence[offset + 1][1] - sequence[offset][1]
+                    for offset in range(span)
+                ]
+                perpendicular = [point[1] if horizontal else point[0] for point in sequence]
+                net = abs(dx if horizontal else dy)
+                if (
+                    max(perpendicular) - min(perpendicular) > excursion_limit
+                    or not any(step > 0 for step in main_steps)
+                    or not any(step < 0 for step in main_steps)
+                    or sum(abs(step) for step in main_steps) < net * 1.35
+                ):
+                    continue
+                baseline = round((perpendicular[0] + perpendicular[-1]) / 2)
+                start_index = index
+                end_index = (index + span) % count
+                points[start_index] = (points[start_index][0], baseline) if horizontal else (baseline, points[start_index][1])
+                points[end_index] = (points[end_index][0], baseline) if horizontal else (baseline, points[end_index][1])
+                interior = {(index + offset) % count for offset in range(1, span)}
+                points = [point for offset, point in enumerate(points) if offset not in interior]
+                changed = True
+                break
+            if changed:
+                break
+        if changed:
+            continue
+
+        # Four tiny monotonic steps are usually perspective/line-width noise,
+        # not four structural turns. Preserve their net L-shaped movement.
+        count = len(points)
+        small_limit = max(24, round(min(image.size) * 0.045))
+        for index in range(count):
+            sequence = [points[(index + offset) % count] for offset in range(5)]
+            axes = [_dominant_axis(sequence[offset], sequence[offset + 1]) for offset in range(4)]
+            lengths = [
+                abs(sequence[offset + 1][0] - sequence[offset][0])
+                + abs(sequence[offset + 1][1] - sequence[offset][1])
+                for offset in range(4)
+            ]
+            if axes[0] is None or axes[0] != axes[2] or axes[1] != axes[3] or axes[0] == axes[1]:
+                continue
+            if any(length > small_limit for length in lengths):
+                continue
+            vectors = [
+                (sequence[offset + 1][0] - sequence[offset][0], sequence[offset + 1][1] - sequence[offset][1])
+                for offset in range(4)
+            ]
+            if not (
+                (vectors[0][0] * vectors[2][0] + vectors[0][1] * vectors[2][1]) > 0
+                and (vectors[1][0] * vectors[3][0] + vectors[1][1] * vectors[3][1]) > 0
+            ):
+                continue
+            start, end = sequence[0], sequence[4]
+            corner = (start[0], end[1]) if axes[0] == "vertical" else (end[0], start[1])
+            replacement = [start, corner, end]
+            points = [
+                point for offset, point in enumerate(points)
+                if offset not in {(index + inner) % count for inner in range(1, 4)}
+            ]
+            insertion = (index + 1) % (len(points) + 1)
+            points[insertion:insertion] = [replacement[1]]
+            changed = True
+            break
+    return points
+
+
 def _raster_topology_candidates(
     path: Path,
     rotation_degrees: int,
@@ -570,6 +745,12 @@ def _raster_topology_candidates(
                             minimum_edge=max(3, round(minimum * 0.004)),
                             spike_limit=max(6, round(minimum * 0.045)),
                         )
+                        points = _simplify_false_boundary_detours(image, points)
+                        points = _orthogonalize_contour(
+                            np.asarray(points, dtype=np.int32).reshape((-1, 1, 2)),
+                            minimum_edge=max(3, round(minimum * 0.004)),
+                            spike_limit=max(6, round(minimum * 0.045)),
+                        ) if points else []
                         if not _orthogonal_polygon_is_valid(points, width, height):
                             continue
                         support = _polygon_pixel_support(points, ink)
@@ -689,17 +870,49 @@ def _orientation_contact_sheet(path: Path) -> str:
 
 def _crop_data_url(path: Path, rotation_degrees: int, bbox: ImageBBox, enhance: bool = True) -> str:
     image = _oriented_image(path, rotation_degrees, trim_document=True)
-    width, height = image.size
-    left = max(0, int(width * bbox.x_min / 1000))
-    top = max(0, int(height * bbox.y_min / 1000))
-    right = min(width, max(left + 1, int(width * bbox.x_max / 1000)))
-    bottom = min(height, max(top + 1, int(height * bbox.y_max / 1000)))
-    crop = image.crop((left, top, right, bottom))
+    crop = _crop_normalized_image(image, bbox)
     if enhance:
         crop = ImageOps.autocontrast(crop)
         crop = ImageEnhance.Contrast(crop).enhance(1.35)
         crop = ImageEnhance.Sharpness(crop).enhance(1.4)
     return _image_data_url(crop, max_size=1600)
+
+
+def _crop_normalized_image(image: Image.Image, bbox: ImageBBox) -> Image.Image:
+    width, height = image.size
+    left = max(0, int(width * bbox.x_min / 1000))
+    top = max(0, int(height * bbox.y_min / 1000))
+    right = min(width, max(left + 1, int(width * bbox.x_max / 1000)))
+    bottom = min(height, max(top + 1, int(height * bbox.y_max / 1000)))
+    return image.crop((left, top, right, bottom)).convert("RGB")
+
+
+def _handwriting_mask(image: Image.Image) -> np.ndarray:
+    rgb = np.asarray(image.convert("RGB"))
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    colored_ink = (hsv[:, :, 1] >= 35) & (hsv[:, :, 2] <= 235)
+    dark_ink = gray <= 105
+    return colored_ink | dark_ink
+
+
+def _handwriting_ink_image(image: Image.Image) -> Image.Image:
+    mask = _handwriting_mask(image)
+    isolated = np.full((*mask.shape, 3), 255, dtype=np.uint8)
+    isolated[mask] = 0
+    return Image.fromarray(isolated, mode="RGB")
+
+
+def _ink_crop_data_url(path: Path, rotation_degrees: int, bbox: ImageBBox) -> str:
+    image = _oriented_image(path, rotation_degrees, trim_document=True)
+    crop = _crop_normalized_image(image, bbox)
+    return _image_data_url(_handwriting_ink_image(crop), max_size=1600)
+
+
+def _evidence_has_handwriting(image: Image.Image, evidence: VisualEvidence) -> bool:
+    crop = _crop_normalized_image(image, evidence.bbox)
+    mask = _handwriting_mask(crop)
+    return int(mask.sum()) >= max(4, round(mask.size * 0.004))
 
 
 def evidence_crop_png(path: Path, rotation_degrees: int, bbox: ImageBBox) -> bytes:
@@ -731,9 +944,38 @@ def _normalized_bbox_from_pixels(left: int, top: int, width: int, height: int, i
     )
 
 
+def _repair_door_composite(text: str) -> str | None:
+    parts = re.findall(r"\d+", str(text))
+    if len(parts) < 4:
+        return None
+    try:
+        width = int(parts[0])
+        height_head = int(parts[1])
+        split_digit = parts[2]
+        thickness_tail = int(parts[3])
+    except ValueError:
+        return None
+    if not (
+        500 <= width <= 1600
+        and len(parts[1]) == 3
+        and 180 <= height_head <= 280
+        and len(split_digit) == 2
+        and split_digit[0] == split_digit[1]
+        and len(parts[3]) == 2
+        and 2 <= thickness_tail <= 60
+    ):
+        return None
+    height = int(f"{height_head}{split_digit[-1]}")
+    thickness = thickness_tail * 10
+    return f"{width}X{height}X{thickness}"
+
+
 def _ocr_candidates(text: str) -> list[str]:
     compact = re.sub(r"\s+", "", text)
     candidates = [compact] if compact else []
+    repaired_door = _repair_door_composite(compact)
+    if repaired_door and repaired_door not in candidates:
+        candidates.append(repaired_door)
     for token in re.findall(r"\d+(?:[.,]\d+)?", compact):
         normalized = token.replace(",", ".")
         if normalized not in candidates:
@@ -770,10 +1012,10 @@ def _normalize_ocr_text(text: str) -> str:
 
 
 def _ocr_readings(token: dict) -> list[str]:
-    return [
+    return list(dict.fromkeys([
         _normalize_ocr_text(str(token.get("raw_text", ""))),
         *[_normalize_ocr_text(str(item)) for item in token.get("alternate_readings", [])],
-    ]
+    ]))
 
 
 def _ocr_display_text(token: dict, role: str, room_values: set[int], height_hint: int | None) -> str:
@@ -790,7 +1032,26 @@ def _ocr_display_text(token: dict, role: str, room_values: set[int], height_hint
         for reading in readings:
             if "吊顶" in reading and any(1800 <= value <= 5000 for value in _ocr_numbers(reading)):
                 return reading
+    if role == "door_size":
+        door_readings = list(dict.fromkeys([
+            *readings,
+            *[_normalize_ocr_text(str(item)) for item in token.get("normalized_candidates", [])],
+        ]))
+        for reading in door_readings:
+            numbers = _ocr_numbers(reading)
+            if any(500 <= value <= 1600 for value in numbers) and any(1800 <= value <= 2800 for value in numbers):
+                return reading
     return _normalize_ocr_text(str(token.get("raw_text", "")))
+
+
+def _ocr_token_is_central(token: dict) -> bool:
+    try:
+        bbox = ImageBBox.model_validate(token.get("bbox"))
+    except (ValidationError, TypeError, ValueError):
+        return False
+    center_x = (bbox.x_min + bbox.x_max) / 2
+    center_y = (bbox.y_min + bbox.y_max) / 2
+    return 250 <= center_x <= 750 and 250 <= center_y <= 750
 
 
 def _ocr_room_height_hint(ocr_assist: dict | None) -> int | None:
@@ -799,7 +1060,8 @@ def _ocr_room_height_hint(ocr_assist: dict | None) -> int | None:
     for token in ocr_assist.get("tokens") or []:
         readings = _ocr_readings(token)
         for raw_text in readings:
-            if not re.search(r"层高|净高|室内高|室内净高", raw_text):
+            is_room_height = bool(re.search(r"层高|净高|室内高|室内净高", raw_text))
+            if not is_room_height:
                 continue
             match = re.search(r"\d+(?:[.,]\d+)?", raw_text)
             if not match:
@@ -872,8 +1134,14 @@ def _ocr_numbers(text: str) -> list[int]:
 
 def _ocr_fixture_kind(text: str) -> str | None:
     compact = re.sub(r"\s+", "", _normalize_ocr_text(text)).lower()
-    if any(word in compact for word in ("地漏", "排水", "下水", "排污")):
+    if "地漏" in compact:
         return "floor_drain"
+    if any(word in compact for word in ("排水", "下水", "排污")):
+        return "drain"
+    if any(word in compact for word in ("给水", "冷水", "热水")):
+        return "water"
+    if any(word in compact for word in ("电点", "插座")):
+        return "electric"
     if any(word in compact for word in ("马桶", "坐便", "蹲便")):
         return "toilet"
     if any(word in compact for word in ("洗手盆", "台盆", "洗脸")):
@@ -910,12 +1178,12 @@ def _classify_ocr_tokens(tokens: list[dict], *, infer_room_extents: bool = True)
         numeric_only = bool(numbers) and bool(re.fullmatch(r"[\d.,]+", compact_raw))
         fixture_kind = _ocr_fixture_kind(context)
         if re.search(r"吊顶", compact_raw):
-            role = "ceiling_height"
+            role = "room_height" if 250 <= cx <= 750 and 250 <= cy <= 750 else "ceiling_height"
         elif re.search(r"层高|净高|室内高", compact_raw):
             role = "room_height"
         elif re.search(r"包管|管井|管道井", compact_raw):
             role = "pipe_box"
-        elif re.search(r"门|门洞|入户", compact_raw) or (
+        elif re.search(r"门|门洞|入户|(?:d|w)[12]|cg|ck|ch", compact_raw) or (
             len(numbers) >= 3 and 600 <= numbers[0] <= 1600 and 1800 <= numbers[1] <= 2800
         ):
             role = "door_size"
@@ -930,9 +1198,46 @@ def _classify_ocr_tokens(tokens: list[dict], *, infer_room_extents: bool = True)
         token["semantic_role"] = role
         token["review_required"] = bool(
             token.get("confidence", 0) < 0.82
-            or role in {"other", "door_position", "drain_position"}
+            or role in {"door_position", "drain_position"}
             or (role != "other" and not token.get("target_id"))
-        )
+        ) if role != "other" else False
+
+
+def _suppress_reversed_ocr_artifacts(tokens: list[dict]) -> None:
+    vision_engines = {"wall-crop-vision", "glm-vision-ocr"}
+    for token in tokens:
+        raw = _normalize_ocr_text(str(token.get("raw_text", ""))).strip()
+        if token.get("engine") in vision_engines or not re.fullmatch(r"\d{4,5}", raw):
+            continue
+        try:
+            source_bbox = ImageBBox.model_validate(token.get("bbox"))
+        except (ValidationError, TypeError, ValueError):
+            continue
+        source_center = ((source_bbox.x_min + source_bbox.x_max) / 2, (source_bbox.y_min + source_bbox.y_max) / 2)
+        for corrected in tokens:
+            corrected_text = _normalize_ocr_text(str(corrected.get("raw_text", ""))).strip()
+            if corrected.get("engine") not in vision_engines or corrected_text != raw[::-1]:
+                continue
+            try:
+                corrected_bbox = ImageBBox.model_validate(corrected.get("bbox"))
+            except (ValidationError, TypeError, ValueError):
+                continue
+            corrected_center = (
+                (corrected_bbox.x_min + corrected_bbox.x_max) / 2,
+                (corrected_bbox.y_min + corrected_bbox.y_max) / 2,
+            )
+            same_dimension_band = (
+                abs(source_center[0] - corrected_center[0]) <= 120
+                or abs(source_center[1] - corrected_center[1]) <= 120
+            )
+            if not same_dimension_band:
+                continue
+            token["suppressed_by_vision"] = corrected.get("id")
+            corrected["alternate_readings"] = list(dict.fromkeys([
+                *(corrected.get("alternate_readings") or []),
+                raw,
+            ]))
+            break
 
 
 def _bind_ocr_tokens_to_boundary(tokens: list[dict], corners: list[ShapeCorner]) -> None:
@@ -1015,7 +1320,7 @@ def _wall_crop_specs(shape: ShapeTraceResult) -> list[dict]:
         dx, dy = end.x - start.x, end.y - start.y
         horizontal = abs(dx) >= abs(dy)
         along_margin = 65
-        normal_margin = 210
+        normal_margin = 135
         if horizontal:
             x_min = min(start.x, end.x) - along_margin
             x_max = max(start.x, end.x) + along_margin
@@ -1062,6 +1367,18 @@ def _wall_crop_bundle(path: Path, rotation: int, spec: dict) -> list[str]:
     right = min(source.width, max(left + 1, round(source.width * bbox.x_max / 1000)))
     bottom = min(source.height, max(top + 1, round(source.height * bbox.y_max / 1000)))
     raw = source.crop((left, top, right, bottom)).convert("RGB")
+    context_bbox = ImageBBox(
+        x_min=max(0, bbox.x_min - (75 if spec["orientation"] == "vertical" else 0)),
+        y_min=max(0, bbox.y_min - (75 if spec["orientation"] == "horizontal" else 0)),
+        x_max=min(1000, bbox.x_max + (75 if spec["orientation"] == "vertical" else 0)),
+        y_max=min(1000, bbox.y_max + (75 if spec["orientation"] == "horizontal" else 0)),
+    )
+    context = source.crop((
+        round(source.width * context_bbox.x_min / 1000),
+        round(source.height * context_bbox.y_min / 1000),
+        max(1, round(source.width * context_bbox.x_max / 1000)),
+        max(1, round(source.height * context_bbox.y_max / 1000)),
+    )).convert("RGB")
     enhanced = ImageEnhance.Sharpness(
         ImageEnhance.Contrast(ImageOps.autocontrast(raw)).enhance(1.45)
     ).enhance(1.5)
@@ -1096,6 +1413,7 @@ def _wall_crop_bundle(path: Path, rotation: int, spec: dict) -> list[str]:
         _image_data_url(raw, max_size=1600),
         _image_data_url(enhanced, max_size=1600),
         _image_data_url(overlay, max_size=1600),
+        _image_data_url(context, max_size=1600),
     ]
     if spec["orientation"] == "vertical":
         images.append(_image_data_url(raw.rotate(90, expand=True), max_size=1600))
@@ -1138,7 +1456,7 @@ def _wall_crop_target(
         return None
     wall_index = selected_wall["wall_index"]
     if start is None and end is None:
-        return None
+        return f"wall:{wall_index}" if role == "wall_segment" else None
     start = max(0.0, min(1.0, start if start is not None else end))
     end = max(0.0, min(1.0, end if end is not None else start))
     low, high = sorted((start, end))
@@ -1180,6 +1498,13 @@ def _wall_crop_observations(payload: object, spec: dict) -> list[dict]:
             continue
         role = role if role in allowed_roles else "other"
         scope = scope if scope in allowed_scopes else "unresolved"
+        numbers = _ocr_numbers(text)
+        if role == "other" and re.fullmatch(r"\d{4,5}", text) and any(1000 <= value <= 50000 for value in numbers):
+            role = "wall_segment"
+            scope = "single_wall"
+        if role == "other" and _repair_door_composite(text):
+            role = "door_size"
+            scope = "opening"
         try:
             span_start = float(item["span_start"]) if item.get("span_start") is not None else None
             span_end = float(item["span_end"]) if item.get("span_end") is not None else None
@@ -1393,7 +1718,7 @@ async def _recognize_wall_crops_with_vision(
                 ),
             }
         ]
-        labels = ["原始裁片", "增强裁片", "墙段标注裁片", "旋转阅读副本"]
+        labels = ["原始裁片", "增强裁片", "墙段标注裁片", "扩展上下文裁片", "旋转阅读副本"]
         for label, image_url in zip(labels, images, strict=False):
             content_items.extend(
                 [
@@ -1402,7 +1727,7 @@ async def _recognize_wall_crops_with_vision(
                 ]
             )
         async with semaphore:
-            for model in model_names or _models(settings.openai_model):
+            for model in model_names or _vision_recognition_models():
                 try:
                     content = await _request_content(
                         client,
@@ -1479,6 +1804,8 @@ def _seed_segment_edge_chain(shape: ShapeTraceResult, ocr_assist: dict) -> list[
             continue
         token_id = str(token.get("id", ""))
         for candidate in token.get("wall_crop_candidates") or []:
+            if candidate.get("scope") != "single_wall" or candidate.get("role") != "wall_segment":
+                continue
             target = str(candidate.get("target_id") or "")
             match = re.fullmatch(r"wall:(\d+)@[\d.]+", target)
             if not match or candidate.get("scope") != "single_wall":
@@ -1532,19 +1859,37 @@ def _validated_segment_edge_chain(
         evidence_ids = [evidence_id for evidence_id in edge.evidence_ids if evidence_id in tokens]
         if length_mm is not None:
             supported = False
+            additive_values: list[int] = []
+            additive_locations_valid = True
             for evidence_id in evidence_ids:
                 token = tokens[evidence_id]
                 readings = _ocr_readings(token)
+                reading_numbers = [numbers for reading in readings if (numbers := _ocr_numbers(reading))]
                 target_ids = {
                     str(token.get("target_id") or ""),
                     *(str(item.get("target_id") or "") for item in token.get("wall_crop_candidates") or []),
                 }
+                location_valid = (
+                    any(
+                        target == f"wall:{wall_index}" or target.startswith(f"wall:{wall_index}@")
+                        for target in target_ids
+                    )
+                    or bool(token.get("template_visual") and str(token.get("related_to", "")).startswith("dimension_chain:"))
+                )
                 if (
-                    any(length_mm in _ocr_numbers(reading) for reading in readings)
-                    and any(target.startswith(f"wall:{wall_index}@") for target in target_ids)
+                    any(length_mm in numbers for numbers in reading_numbers)
+                    and location_valid
                 ):
                     supported = True
                     break
+                single_values = [numbers[0] for numbers in reading_numbers if len(numbers) == 1]
+                if single_values:
+                    additive_values.append(single_values[0])
+                    additive_locations_valid = additive_locations_valid and location_valid
+                else:
+                    additive_locations_valid = False
+            if not supported and additive_values and additive_locations_valid:
+                supported = sum(additive_values) == length_mm
             if not supported:
                 length_mm = None
                 evidence_ids = []
@@ -1558,6 +1903,199 @@ def _validated_segment_edge_chain(
             )
         )
     return validated
+
+
+def _segment_edge_chain_from_payload(payload: object, shape: ShapeTraceResult) -> list[BoundaryEdge]:
+    if not isinstance(payload, dict):
+        return []
+    if isinstance(payload.get("edge_chain"), list):
+        try:
+            return [BoundaryEdge.model_validate(item) for item in payload["edge_chain"]]
+        except (ValidationError, TypeError, ValueError):
+            return []
+
+    lengths = payload.get("lengths_mm")
+    evidence = payload.get("evidence_ids")
+    directions = _shape_directions(shape)
+    if not isinstance(lengths, list) or len(lengths) != len(directions):
+        return []
+    if not isinstance(evidence, list) or len(evidence) != len(directions):
+        return []
+    try:
+        return [
+            BoundaryEdge(
+                direction=direction,
+                length_mm=length,
+                role=_edge_role(shape, index),
+                evidence_ids=evidence[index] if isinstance(evidence[index], list) else [],
+                confidence=0.8 if length is not None else 0.5,
+            )
+            for index, (direction, length) in enumerate(zip(directions, lengths, strict=True))
+        ]
+    except (ValidationError, TypeError, ValueError):
+        return []
+
+
+def _explicit_wall_segment_edge_chain(shape: ShapeTraceResult, ocr_assist: dict) -> list[BoundaryEdge]:
+    """Build editable initial values only from evidence explicitly bound to a wall."""
+    directions = _shape_directions(shape)
+    if not directions:
+        return []
+    by_wall: dict[int, dict[str, tuple[int, float, float | None]]] = {}
+
+    def single_value(texts: list[str]) -> int | None:
+        for text in texts:
+            numbers = _ocr_numbers(text)
+            if len(numbers) == 1 and numbers[0] >= 30:
+                return numbers[0]
+        return None
+
+    def add(wall_index: int, token_id: str, value: int | None, confidence: float, span: float | None) -> None:
+        if value is None or not 0 <= wall_index < len(directions) or confidence < 0.5:
+            return
+        current = by_wall.setdefault(wall_index, {}).get(token_id)
+        if (
+            current is None
+            or confidence > current[1]
+            or (confidence == current[1] and span is not None and current[2] is None)
+        ):
+            by_wall[wall_index][token_id] = (value, confidence, span)
+
+    for token in ocr_assist.get("tokens") or []:
+        token_id = str(token.get("id", ""))
+        if not token_id:
+            continue
+        direct = re.fullmatch(r"wall:(\d+)(?:@[\d.]+(?::[\d.]+)?)?", str(token.get("target_id") or ""))
+        if direct:
+            value = single_value([
+                str(token.get("raw_text", "")),
+                *[str(item) for item in token.get("alternate_readings") or []],
+            ])
+            add(int(direct.group(1)), token_id, value, float(token.get("confidence", 0.5) or 0.5), None)
+
+        for candidate in token.get("wall_crop_candidates") or []:
+            if candidate.get("scope") != "single_wall" or candidate.get("role") != "wall_segment":
+                continue
+            target = re.fullmatch(r"wall:(\d+)(?:@[\d.]+(?::[\d.]+)?)?", str(candidate.get("target_id") or ""))
+            if not target:
+                continue
+            try:
+                start = candidate.get("span_start")
+                end = candidate.get("span_end")
+                span = abs(float(end) - float(start)) if start is not None and end is not None else None
+                confidence = float(candidate.get("confidence", token.get("confidence", 0.5)) or 0.5)
+            except (TypeError, ValueError):
+                continue
+            value = single_value([
+                str(candidate.get("text", "")),
+                str(token.get("raw_text", "")),
+                *[str(item) for item in token.get("alternate_readings") or []],
+            ])
+            add(int(target.group(1)), token_id, value, confidence, span)
+
+    proposed: list[BoundaryEdge] = []
+    for wall_index, direction in enumerate(directions):
+        candidates = list(by_wall.get(wall_index, {}).items())
+        full_spans = [item for item in candidates if item[1][2] is not None and item[1][2] >= 0.65]
+        full_span_values = {item[1][0] for item in full_spans}
+        selected = max(full_spans, key=lambda item: item[1][1]) if len(full_span_values) == 1 else None
+        if selected:
+            evidence_ids = [selected[0]]
+            length_mm = selected[1][0]
+            confidence = selected[1][1]
+        else:
+            evidence_ids = []
+            length_mm = None
+            confidence = 0.5
+        proposed.append(BoundaryEdge(
+            direction=direction,
+            length_mm=length_mm,
+            role=_edge_role(shape, wall_index),
+            evidence_ids=evidence_ids,
+            confidence=confidence,
+        ))
+    return _validated_segment_edge_chain(proposed, shape, ocr_assist)
+
+
+def _merge_segment_edge_chains(primary: list[BoundaryEdge], fallback: list[BoundaryEdge]) -> list[BoundaryEdge]:
+    if len(primary) != len(fallback):
+        return primary or fallback
+    return [
+        edge if edge.length_mm is not None else fallback[index]
+        for index, edge in enumerate(primary)
+    ]
+
+
+async def _coordinate_segment_edge_chain(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    headers: dict[str, str],
+    shape: ShapeTraceResult,
+    ocr_assist: dict,
+    trace_ids: list[str],
+) -> list[BoundaryEdge]:
+    directions = _shape_directions(shape)
+    visual_tokens = [token for token in ocr_assist.get("tokens") or [] if token.get("template_visual")]
+    if not visual_tokens:
+        visual_tokens = [
+            token for token in ocr_assist.get("tokens") or []
+            if not token.get("wall_crop_vision") and float(token.get("confidence", 0) or 0) >= 0.78
+        ]
+    if not visual_tokens:
+        return []
+    walls = [
+        {
+            "wall_index": index,
+            "direction": directions[index],
+            "start": shape.corners[index].model_dump(mode="json"),
+            "end": shape.corners[(index + 1) % len(shape.corners)].model_dump(mode="json"),
+        }
+        for index in range(len(shape.corners))
+    ]
+    evidence = [
+        {
+            "id": token.get("id"),
+            "text": token.get("raw_text"),
+            "alternatives": token.get("alternate_readings", []),
+            "bbox": token.get("bbox"),
+            "orientation": token.get("orientation"),
+            "related_to": token.get("related_to"),
+            "confidence": token.get("confidence"),
+        }
+        for token in visual_tokens
+        if _ocr_numbers(str(token.get("raw_text", "")))
+    ]
+    skeleton = {
+        "lengths_mm": [None] * len(directions),
+        "evidence_ids": [[] for _ in directions],
+    }
+    model = settings.openai_coordinator_model or settings.openai_model or _vision_recognition_models()[0]
+    try:
+        content = await _request_content(
+            client,
+            endpoint,
+            headers,
+            [
+                {"role": "system", "content": SEGMENT_EDGE_COORDINATOR_PROMPT},
+                {"role": "user", "content": (
+                    "walls=" + json.dumps(walls, ensure_ascii=False, separators=(",", ":"))
+                    + "\nevidence=" + json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
+                    + "\noutput_skeleton=" + json.dumps(skeleton, ensure_ascii=False, separators=(",", ":"))
+                )},
+            ],
+            model,
+            json_object=True,
+            stage="segment-edge-coordinator",
+            extra_payload={"max_tokens": 1024},
+            trace_ids=trace_ids,
+            max_retries=1,
+        )
+        raw = _segment_edge_chain_from_payload(_extract_json(content), shape)
+        return _validated_segment_edge_chain(raw, shape, ocr_assist)
+    except AIAuthenticationError:
+        raise
+    except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
+        return []
 
 
 async def _resolve_segment_edge_chain(
@@ -1574,6 +2112,29 @@ async def _resolve_segment_edge_chain(
     seed = _seed_segment_edge_chain(shape, ocr_assist)
     if not seed:
         return []
+    explicit = _explicit_wall_segment_edge_chain(shape, ocr_assist)
+    fallback = _merge_segment_edge_chains(seed, explicit)
+    coordinated = await _coordinate_segment_edge_chain(
+        client, endpoint, headers, shape, ocr_assist, trace_ids,
+    )
+    if coordinated and any(edge.length_mm is not None for edge in coordinated):
+        return _merge_segment_edge_chains(coordinated, fallback)
+    tokens = ocr_assist.get("tokens") or []
+    template_tokens = [token for token in tokens if token.get("template_visual")]
+    if template_tokens:
+        # Whole-template evidence already contains every visible dimension in
+        # one coordinate system. Do not anchor the solver to partial wall-crop
+        # bindings: a local 400/800/55 chain may describe one geometric edge.
+        seed = [
+            BoundaryEdge(direction=edge.direction, length_mm=None, role=edge.role, evidence_ids=[], confidence=0.5)
+            for edge in seed
+        ]
+        catalog_tokens = template_tokens
+    else:
+        catalog_tokens = [
+            token for token in tokens
+            if token.get("wall_crop_vision") and float(token.get("confidence", 0) or 0) >= 0.78
+        ]
     catalog = [
         {
             "id": token.get("id"),
@@ -1581,8 +2142,9 @@ async def _resolve_segment_edge_chain(
             "alternatives": token.get("alternate_readings", []),
             "bbox": token.get("bbox"),
             "target_id": token.get("target_id"),
+            "related_to": token.get("related_to"),
         }
-        for token in ocr_assist.get("tokens") or []
+        for token in catalog_tokens
         if token.get("normalized_candidates") or _ocr_numbers(str(token.get("raw_text", "")))
     ]
     messages = [
@@ -1598,6 +2160,12 @@ async def _resolve_segment_edge_chain(
                     "type": "text",
                     "text": (
                         "boundary=" + shape.model_dump_json()
+                        + "\n必须输出的方向序列=" + json.dumps(_shape_directions(shape), ensure_ascii=False)
+                        + f"\n必须输出恰好 {len(shape.corners)} 条 edge。"
+                        + "\n输出骨架=" + json.dumps({
+                            "lengths_mm": [None] * len(shape.corners),
+                            "evidence_ids": [[] for _ in shape.corners],
+                        }, ensure_ascii=False, separators=(",", ":"))
                         + "\n固定方向和当前保守结果=" + json.dumps([edge.model_dump(mode="json") for edge in seed], ensure_ascii=False)
                         + "\nOCR证据=" + json.dumps(catalog, ensure_ascii=False)
                     ),
@@ -1619,15 +2187,15 @@ async def _resolve_segment_edge_chain(
                 trace_ids=trace_ids,
                 max_retries=1,
             )
-            extraction = PlanExtraction.model_validate(_extract_json(content))
-            validated = _validated_segment_edge_chain(extraction.edge_chain, shape, ocr_assist)
+            raw_edges = _segment_edge_chain_from_payload(_extract_json(content), shape)
+            validated = _validated_segment_edge_chain(raw_edges, shape, ocr_assist)
             if validated:
-                return validated
+                return _merge_segment_edge_chains(validated, fallback)
         except AIAuthenticationError:
             raise
         except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
             continue
-    return seed
+    return fallback
 
 
 def _ocr_orientation(width: int, height: int) -> str:
@@ -1951,6 +2519,7 @@ def _load_refined_ocr_cache(path: Path, rotation: int) -> dict | None:
     if not (
         cached.get("engine") == settings.ocr_engine
         and cached.get("schema_version") in {7, 8, 9}
+        and cached.get("ocr_orientations") == [0, 180]
         and cached.get("vision_refined")
         and (
             not cached.get("wall_crop_refined")
@@ -2003,6 +2572,7 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
     wall_crop_refined = False
     wall_crop_shape_hash = ""
     wall_crop_cache_version = 0
+    clockwise_orientations = (0, 180) if fast else (0,)
     tokens: list[dict] = []
     if tokens_path.exists():
         try:
@@ -2010,6 +2580,7 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
             cache_valid = bool(
                 cached.get("engine") == settings.ocr_engine
                 and cached.get("schema_version") in {7, 8, 9}
+                and cached.get("ocr_orientations", [0]) == list(clockwise_orientations)
                 and (
                     not cached.get("wall_crop_refined")
                     or cached.get("wall_crop_cache_version") == WALL_CROP_CACHE_VERSION
@@ -2024,9 +2595,6 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
             cache_valid = False
     if not cache_valid:
         orientation_items: list[tuple[Path, Image.Image, str, int]] = []
-        # Keep the fast path to one full-page inference. Sideways/uncertain labels
-        # are surfaced as crops for user confirmation instead of blocking the room.
-        clockwise_orientations = (0,)
         for clockwise in clockwise_orientations:
             oriented = image if clockwise == 0 else image.rotate(-clockwise, expand=True)
             orientation_hash = _image_hash(oriented)
@@ -2047,7 +2615,7 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
                     "engine": settings.ocr_engine,
                     "image_hash": image_hash,
                     "rotation_degrees": rotation,
-                    "ocr_orientations": [0],
+                    "ocr_orientations": list(clockwise_orientations),
                     "vision_refined": False,
                     "image_size": {"width": image.width, "height": image.height},
                     "tokens": tokens,
@@ -2164,6 +2732,7 @@ async def _discover_missing_ocr_with_vision(
     ]
     prompt = (
         "检查干净原图中是否有未被现有 OCR bbox 覆盖的清晰手写文字或尺寸数字。"
+        "优先检查房间轮廓中央的层高、净高、吊顶或吊顶高度数值；中央吊顶数值是整屋建模高度，不得当作墙尺寸或普通备注。"
         "只补充确实可读且未覆盖的内容，不要重复现有 token，不要识别墙线或图形。"
         "返回 JSON：{\"tokens\":[{\"text\":\"原文\",\"bbox\":{\"x_min\":0,\"y_min\":0,\"x_max\":1000,\"y_max\":1000},"
         "\"orientation\":\"horizontal|vertical|free\",\"confidence\":0.0}]}。现有 token："
@@ -2222,7 +2791,7 @@ async def _refine_ocr_with_vision(
     if ocr_assist.get("vision_refined"):
         return ocr_assist
     candidates = _ocr_rotation_candidates(ocr_assist)
-    model = model or settings.openai_model or settings.openai_fallback_model
+    model = model or next(iter(_vision_recognition_models()), "")
     if not candidates or not model:
         return ocr_assist
     results: list[dict] = []
@@ -2354,13 +2923,27 @@ def _extract_json(content: object) -> dict:
 
 
 def _models(preferred: str | None = None) -> list[str]:
-    return list(
-        dict.fromkeys(
-            model
-            for model in [preferred, settings.openai_model, settings.openai_fallback_model]
-            if model
-        )
-    )
+    return list(dict.fromkeys(
+        model for model in (preferred, *_vision_recognition_models()) if model
+    ))
+
+
+def _vision_recognition_models() -> list[str]:
+    configured = [
+        settings.openai_vision_model,
+        settings.openai_fast_model,
+        settings.openai_fallback_model,
+    ]
+    # OPENAI_MODEL remains a compatibility fallback for older .env files. Once
+    # a dedicated visual model is configured, coordinator models stay out of
+    # all image requests.
+    if not any(configured):
+        configured.append(settings.openai_model)
+    return list(dict.fromkeys(model for model in configured if model))
+
+
+def _template_evidence_models() -> list[str]:
+    return _vision_recognition_models()
 
 
 def _write_trace(stage: str, model: str, status: int | str, body: str) -> str | None:
@@ -2453,6 +3036,8 @@ async def _request_message(
         payload["response_format"] = {"type": "json_object"}
     if extra_payload:
         payload.update(extra_payload)
+    if model.lower() == "glm-4v-flash" and int(payload.get("max_tokens", 0) or 0) > 1024:
+        payload["max_tokens"] = 1024
     response = await _post_with_retry(
         client, endpoint, headers, payload, stage, trace_ids, max_retries=max_retries,
     )
@@ -2579,7 +3164,8 @@ def _supports_visual_tools(model: str) -> bool:
 
 
 def _thinking_payload(model: str) -> dict:
-    return {"thinking": {"type": "disabled"}} if _supports_visual_tools(model) else {}
+    normalized = model.lower()
+    return {"thinking": {"type": "disabled"}} if _supports_visual_tools(model) or "4.7" in normalized else {}
 
 
 def _is_door_evidence(item: VisualEvidence) -> bool:
@@ -2758,6 +3344,15 @@ LEGACY_REGION_VIEWS = [
     ("bottom-right", ImageBBox(x_min=440, y_min=350, x_max=1000, y_max=1000)),
 ]
 
+TEMPLATE_TILE_VIEWS = [
+    ("r1c1", ImageBBox(x_min=0, y_min=0, x_max=400, y_max=560)),
+    ("r1c2", ImageBBox(x_min=300, y_min=0, x_max=700, y_max=560)),
+    ("r1c3", ImageBBox(x_min=600, y_min=0, x_max=1000, y_max=560)),
+    ("r2c1", ImageBBox(x_min=0, y_min=440, x_max=400, y_max=1000)),
+    ("r2c2", ImageBBox(x_min=300, y_min=440, x_max=700, y_max=1000)),
+    ("r2c3", ImageBBox(x_min=600, y_min=440, x_max=1000, y_max=1000)),
+]
+
 
 def _map_region_bbox(local: ImageBBox, region: ImageBBox) -> ImageBBox:
     width = region.x_max - region.x_min
@@ -2914,7 +3509,26 @@ def _canonicalize_boundary(boundary: list[Point2D]) -> list[Point2D]:
     return [*points[index:], *points[:index]]
 
 
+EDGE_CLOSURE_MIN_TOLERANCE_MM = 20
+EDGE_CLOSURE_MAX_TOLERANCE_MM = 100
+
+
+def _edge_closure_tolerance(relevant: list[tuple[int, BoundaryEdge]], signs: dict[str, int]) -> int:
+    positive = sum(edge.length_mm or 0 for _, edge in relevant if signs[edge.direction] > 0)
+    negative = sum(edge.length_mm or 0 for _, edge in relevant if signs[edge.direction] < 0)
+    return max(
+        EDGE_CLOSURE_MIN_TOLERANCE_MM,
+        min(EDGE_CLOSURE_MAX_TOLERANCE_MM, round(max(positive, negative) * 0.015)),
+    )
+
+
 def _solve_edge_lengths(edges: list[BoundaryEdge]) -> list[BoundaryEdge]:
+    """Resolve a metric edge chain without changing its measured evidence.
+
+    One unknown per axis is determined by the closure equation. A fully
+    measured axis may absorb a small scale-aware field measurement error in
+    one ordinary wall edge; the adopted length and adjustment remain explicit.
+    """
     if len(edges) < 3:
         return []
     resolved = [edge.model_copy(deep=True) for edge in edges]
@@ -2923,19 +3537,42 @@ def _solve_edge_lengths(edges: list[BoundaryEdge]) -> list[BoundaryEdge]:
         ({"down": 1, "up": -1}, "vertical"),
     )
     for signs, _ in axes:
-        relevant = [edge for edge in resolved if edge.direction in signs]
-        unknown = [edge for edge in relevant if edge.length_mm is None]
-        known_balance = sum(signs[edge.direction] * (edge.length_mm or 0) for edge in relevant)
+        relevant = [(index, edge) for index, edge in enumerate(resolved) if edge.direction in signs]
+        unknown = [(index, edge) for index, edge in relevant if edge.length_mm is None]
+        known_balance = sum(signs[edge.direction] * (edge.length_mm or 0) for _, edge in relevant)
         if len(unknown) > 1:
             return []
         if unknown:
-            edge = unknown[0]
+            _, edge = unknown[0]
             solved = -known_balance * signs[edge.direction]
             if solved <= 0:
                 return []
             edge.length_mm = solved
-        elif abs(known_balance) > 20:
-            return []
+            edge.measured_length_mm = None
+            edge.closure_adjustment_mm = 0
+            edge.source = SourceKind.derived
+        elif known_balance:
+            if abs(known_balance) > _edge_closure_tolerance(relevant, signs):
+                return []
+            candidates = [
+                (index, edge, -known_balance * signs[edge.direction])
+                for index, edge in relevant
+                if (edge.length_mm or 0) - known_balance * signs[edge.direction] > 0
+            ]
+            wall_candidates = [item for item in candidates if item[1].role == "wall"]
+            if wall_candidates:
+                candidates = wall_candidates
+            if not candidates:
+                return []
+            _, edge, adjustment = min(
+                candidates,
+                key=lambda item: (item[1].confidence, bool(item[1].evidence_ids), -item[0]),
+            )
+            original_length = edge.measured_length_mm or edge.length_mm
+            edge.measured_length_mm = original_length
+            edge.length_mm = (edge.length_mm or 0) + adjustment
+            edge.closure_adjustment_mm += adjustment
+            edge.source = SourceKind.derived
     return resolved
 
 
@@ -2952,13 +3589,324 @@ def _edge_chain_to_boundary(edges: list[BoundaryEdge]) -> list[Point2D]:
         points.append(Point2D(x_mm=previous.x_mm + dx * length, z_mm=previous.z_mm + dz * length))
     closure_dx = points[-1].x_mm - points[0].x_mm
     closure_dz = points[-1].z_mm - points[0].z_mm
-    if abs(closure_dx) > 20 or abs(closure_dz) > 20:
+    if closure_dx or closure_dz:
         return []
-    points[-1] = points[0]
     min_x = min(point.x_mm for point in points[:-1])
     min_z = min(point.z_mm for point in points[:-1])
-    normalized = [Point2D(x_mm=point.x_mm - min_x, z_mm=point.z_mm - min_z) for point in points[:-1]]
-    return _canonicalize_boundary(normalized)
+    return [Point2D(x_mm=point.x_mm - min_x, z_mm=point.z_mm - min_z) for point in points[:-1]]
+
+
+def _point_marker_position(
+    marker: VisualEvidence,
+    annotation_boundary: list[ShapeCorner],
+    metric_boundary: list[Point2D],
+) -> Point2D | None:
+    if len(annotation_boundary) < 3 or len(metric_boundary) < 3:
+        return None
+    min_px = min(point.x for point in annotation_boundary)
+    max_px = max(point.x for point in annotation_boundary)
+    min_py = min(point.y for point in annotation_boundary)
+    max_py = max(point.y for point in annotation_boundary)
+    if max_px <= min_px or max_py <= min_py:
+        return None
+    center_x = (marker.bbox.x_min + marker.bbox.x_max) / 2
+    center_y = (marker.bbox.y_min + marker.bbox.y_max) / 2
+    if not (min_px <= center_x <= max_px and min_py <= center_y <= max_py):
+        return None
+    min_x = min(point.x_mm for point in metric_boundary)
+    max_x = max(point.x_mm for point in metric_boundary)
+    min_z = min(point.z_mm for point in metric_boundary)
+    max_z = max(point.z_mm for point in metric_boundary)
+    position = Point2D(
+        x_mm=round(min_x + (center_x - min_px) * (max_x - min_x) / (max_px - min_px)),
+        z_mm=round(min_z + (center_y - min_py) * (max_z - min_z) / (max_py - min_py)),
+    )
+    return position if point_in_polygon(position.x_mm, position.z_mm, metric_boundary) else None
+
+
+def _point_marker_kind(text: str) -> str:
+    compact = re.sub(r"\s+", "", _normalize_ocr_text(text)).lower()
+    if "地漏" in compact or "floor_drain" in compact:
+        return "floor_drain"
+    if any(token in compact for token in ("排水", "下水", "排污", "drain")):
+        return "drain"
+    if any(token in compact for token in ("给水", "冷水", "热水", "water")):
+        return "water"
+    if any(token in compact for token in ("电点", "插座", "electric")):
+        return "electric"
+    return "other"
+
+
+def _coded_opening_row(text: str) -> tuple[str, int, int, int] | None:
+    code_match = re.search(r"\b([DW][12])\b", text, flags=re.IGNORECASE)
+    values: dict[str, int] = {}
+    for field in ("CG", "CK", "CH"):
+        match = re.search(rf"\b{field}\s*[:：=]?\s*(\d+)", text, flags=re.IGNORECASE)
+        if match:
+            values[field] = int(match.group(1))
+    if not code_match or set(values) != {"CG", "CK", "CH"}:
+        return None
+    if values["CK"] <= 0 or values["CH"] <= 0:
+        return None
+    return code_match.group(1).upper(), values["CG"], values["CK"], values["CH"]
+
+
+def _edge_opening_range(
+    width_mm: int,
+    edges: list[BoundaryEdge],
+    tokens: dict[str, dict],
+) -> tuple[int, int, list[str]] | None:
+    for wall_index, edge in enumerate(edges):
+        if edge.length_mm is None or not edge.evidence_ids:
+            continue
+        segments: list[tuple[float, int, str]] = []
+        for evidence_id in edge.evidence_ids:
+            token = tokens.get(evidence_id)
+            if not token:
+                continue
+            raw_numbers = _ocr_numbers(str(token.get("raw_text", "")))
+            if len(raw_numbers) != 1:
+                continue
+            try:
+                bbox = ImageBBox.model_validate(token.get("bbox"))
+            except (ValidationError, TypeError, ValueError):
+                continue
+            center = (
+                (bbox.x_min + bbox.x_max) / 2
+                if edge.direction in {"right", "left"}
+                else (bbox.y_min + bbox.y_max) / 2
+            )
+            if edge.direction in {"left", "up"}:
+                center = -center
+            segments.append((center, raw_numbers[0], evidence_id))
+        segments.sort(key=lambda item: item[0])
+        if not segments or sum(value for _, value, _ in segments) != edge.length_mm:
+            continue
+        for index, (_, value, evidence_id) in enumerate(segments):
+            if value != width_mm:
+                continue
+            offset = sum(segment_value for _, segment_value, _ in segments[:index])
+            return wall_index, offset, [item[2] for item in segments]
+    return None
+
+
+def _opening_specs_from_tokens(ocr_assist: dict | None, edges: list[BoundaryEdge]) -> list[OpeningSpec]:
+    tokens = {str(token.get("id", "")): token for token in (ocr_assist or {}).get("tokens", [])}
+    candidates: list[tuple[float, str, int, int, int, str, tuple[int, int, list[str]] | None]] = []
+    for token_id, token in tokens.items():
+        for reading in _ocr_readings(token):
+            row = _coded_opening_row(reading)
+            if row is None:
+                continue
+            code, sill_mm, width_mm, height_mm = row
+            chain = _edge_opening_range(width_mm, edges, tokens)
+            score = float(token.get("confidence", 0.5)) + (1 if chain else 0)
+            candidates.append((score, code, sill_mm, width_mm, height_mm, token_id, chain))
+    selected: dict[str, tuple[float, str, int, int, int, str, tuple[int, int, list[str]] | None]] = {}
+    for candidate in candidates:
+        code = candidate[1]
+        if code not in selected or candidate[0] > selected[code][0]:
+            selected[code] = candidate
+    openings: list[OpeningSpec] = []
+    for _, code, sill_mm, width_mm, height_mm, token_id, chain in selected.values():
+        if chain is None:
+            continue
+        wall_index, offset_mm, chain_ids = chain
+        openings.append(OpeningSpec(
+            id=f"opening-{code.lower()}",
+            kind="window" if code.startswith("W") else "door",
+            wall_index=wall_index,
+            offset_mm=offset_mm,
+            width_mm=width_mm,
+            height_mm=height_mm,
+            thickness_mm=100,
+            sill_mm=sill_mm,
+            label=code,
+            source=SourceKind.derived,
+            confidence=min(0.95, selected[code][0] / 2),
+            evidence_ids=list(dict.fromkeys([token_id, *chain_ids])),
+        ))
+    return openings
+
+
+async def _collect_template_evidence(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    headers: dict[str, str],
+    path: Path,
+    rotation: int,
+    trace_ids: list[str],
+) -> PlanEvidenceReport | None:
+    oriented = _oriented_image(path, rotation, trim_document=True).convert("RGB")
+    for model in _template_evidence_models():
+        semaphore = asyncio.Semaphore(max(1, min(6, settings.ai_wall_crop_concurrency)))
+
+        async def read_tile(view_id: str, region: ImageBBox) -> list[VisualEvidence]:
+            prompt = (
+                TEMPLATE_EVIDENCE_PROMPT
+                + "\n本次只看均匀分块中的一个局部。bbox 必须相对本局部图使用 0..1000；程序会恢复到全图坐标。"
+                + "第二张是从同一局部分离出的深色/有色笔迹，浅色规则网格已压掉。数字必须在第二张笔迹图中真实可见；"
+                + "只在原图网格上出现、笔迹图中不存在的形状绝不能识别为数字。每块最多返回 8 条，重叠内容可以重复。"
+            )
+            try:
+                async with semaphore:
+                    content = await _request_content(
+                        client,
+                        endpoint,
+                        headers,
+                        [
+                            {"role": "system", "content": prompt},
+                            {"role": "user", "content": [
+                                {"type": "text", "text": f"均匀分块 {view_id} 的原图"},
+                                {"type": "image_url", "image_url": {"url": _crop_data_url(path, rotation, region, enhance=False), "detail": "high"}},
+                                {"type": "text", "text": "同一分块的笔迹隔离图；只从其中确认手写内容"},
+                                {"type": "image_url", "image_url": {"url": _ink_crop_data_url(path, rotation, region), "detail": "high"}},
+                            ]},
+                        ],
+                        model,
+                        json_object=True,
+                        stage=f"template-evidence-{view_id}",
+                        extra_payload={"max_tokens": 1024},
+                        trace_ids=trace_ids,
+                        max_retries=1,
+                    )
+                report = PlanEvidenceReport.model_validate(_extract_json(content))
+            except AIAuthenticationError:
+                raise
+            except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
+                return []
+            mapped: list[VisualEvidence] = []
+            for index, item in enumerate(report.evidence):
+                item.id = f"{view_id}-{index + 1}-{item.id}"[:80]
+                item.view_id = view_id
+                item.bbox = _map_region_bbox(item.bbox, region)
+                if _evidence_has_handwriting(oriented, item):
+                    mapped.append(item)
+            return mapped
+
+        tiles = await asyncio.gather(*(read_tile(view_id, region) for view_id, region in TEMPLATE_TILE_VIEWS))
+        evidence = _dedupe_evidence([item for tile in tiles for item in tile])
+        if evidence:
+            return PlanEvidenceReport(rotation_degrees=rotation, evidence=evidence, uncertain=[])
+    return None
+
+
+def _ocr_ceiling_height_hint(ocr_assist: dict | None) -> tuple[int, str, float] | None:
+    if not ocr_assist:
+        return None
+    candidates: list[tuple[int, str, float]] = []
+    for token in ocr_assist.get("tokens") or []:
+        for raw_text in _ocr_readings(token):
+            if "吊顶" not in raw_text:
+                continue
+            overall = (
+                "整屋" in raw_text
+                or _ocr_token_is_central(token)
+                or str(token.get("related_to", "")).lower() == "overall_ceiling"
+            )
+            if not overall:
+                continue
+            numbers = _ocr_numbers(raw_text)
+            value = next((number for number in numbers if 1800 <= number <= 5000), None)
+            if value is None:
+                continue
+            candidates.append((value, str(token.get("id", "")), float(token.get("confidence", 0.5))))
+    return max(candidates, key=lambda item: item[2]) if candidates else None
+
+
+def _merge_template_evidence(ocr_assist: dict, report: PlanEvidenceReport | None) -> list[VisualEvidence]:
+    if report is None:
+        return []
+    tokens = ocr_assist.setdefault("tokens", [])
+    # Cached OCR survives repeated analysis of the same photo. Template evidence
+    # is a fresh whole-image pass, so replace its previous run instead of adding
+    # TV001X/TV001XX duplicates on every retry.
+    tokens[:] = [token for token in tokens if not token.get("template_visual")]
+    existing_ids = {str(token.get("id")) for token in tokens}
+    point_markers: list[VisualEvidence] = []
+    for index, item in enumerate(report.evidence, start=1):
+        if item.kind == "fixture":
+            center_x = (item.bbox.x_min + item.bbox.x_max) / 2
+            center_y = (item.bbox.y_min + item.bbox.y_max) / 2
+            if 40 <= center_x <= 720 and 125 <= center_y <= 950:
+                point_markers.append(item)
+            continue
+        token_id = f"TV{index:03d}"
+        while token_id in existing_ids:
+            token_id += "X"
+        existing_ids.add(token_id)
+        related = item.related_to.lower()
+        if item.kind == "height":
+            role = "ceiling_height" if "ceiling" in related or "吊顶" in item.text else "room_height"
+        elif item.kind == "opening":
+            role = "door_size"
+        elif item.kind == "dimension":
+            role = "wall_segment"
+        else:
+            role = "other"
+        tokens.append({
+            "id": token_id,
+            "raw_text": item.text,
+            "normalized_candidates": _ocr_candidates(item.text),
+            "bbox": item.bbox.model_dump(),
+            "orientation": item.orientation,
+            "confidence": item.confidence,
+            "engine": "template-vision",
+            "template_visual": True,
+            "semantic_role": role,
+            "target_id": None,
+            "review_required": bool(role == "door_size" or item.confidence < 0.85),
+            "image_hash": ocr_assist.get("image_hash", ""),
+            "related_to": item.related_to,
+        })
+    return point_markers
+
+
+def _merge_point_markers(*groups: list[VisualEvidence]) -> list[VisualEvidence]:
+    merged: list[VisualEvidence] = []
+    for marker in (item for group in groups for item in group):
+        if any(_ocr_bbox_iou(existing.bbox, marker.bbox) >= 0.3 for existing in merged):
+            continue
+        merged.append(marker)
+    return merged[:16]
+
+
+async def _detect_point_markers(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    headers: dict[str, str],
+    path: Path,
+    rotation: int,
+    models: list[str],
+    trace_ids: list[str],
+) -> list[VisualEvidence]:
+    for model in models:
+        try:
+            content = await _request_content(
+                client,
+                endpoint,
+                headers,
+                [
+                    {"role": "system", "content": POINT_MARKER_PROMPT},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": "识别草图内部所有真实点位符号。"},
+                        {"type": "image_url", "image_url": {"url": image_data_url(path, rotation, trim_document=True), "detail": "high"}},
+                    ]},
+                ],
+                model,
+                json_object=True,
+                stage="plan-point-markers",
+                extra_payload={"max_tokens": 768},
+                trace_ids=trace_ids,
+                max_retries=0,
+            )
+            report = PlanEvidenceReport.model_validate(_extract_json(content))
+            return [item for item in report.evidence if item.kind == "fixture"][:16]
+        except AIAuthenticationError:
+            raise
+        except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return []
 
 
 def _extraction_to_spec(
@@ -3019,6 +3967,9 @@ def _extraction_to_spec(
         )
     fixture_defaults = {
         "floor_drain": (120, 120, 10),
+        "drain": (60, 60, 10),
+        "water": (40, 40, 10),
+        "electric": (40, 40, 10),
         "pipe": (110, 110, extraction.height_mm or 2100),
         "column": (400, 400, extraction.height_mm or 2100),
         "other": (300, 300, 300),
@@ -3387,31 +4338,22 @@ def _shape_directions(shape: ShapeTraceResult) -> list[str]:
     return directions
 
 
-def _shape_trace_to_boundary(shape: ShapeTraceResult, width_mm: int, depth_mm: int) -> list[Point2D]:
-    """Scale a pixel-backed orthogonal trace into the measured room dimensions."""
-    if not shape.closed or len(shape.corners) < 4 or width_mm <= 0 or depth_mm <= 0:
+def _rectangular_boundary_from_extents(
+    shape: ShapeTraceResult | None,
+    width_mm: int,
+    depth_mm: int,
+) -> list[Point2D]:
+    """Create only a true rectangle from measured extents, never from pixel proportions."""
+    if shape is None or not shape.closed or len(shape.corners) != 4 or width_mm <= 0 or depth_mm <= 0:
         return []
-    min_x = min(corner.x for corner in shape.corners)
-    max_x = max(corner.x for corner in shape.corners)
-    min_y = min(corner.y for corner in shape.corners)
-    max_y = max(corner.y for corner in shape.corners)
-    span_x = max_x - min_x
-    span_y = max_y - min_y
-    if span_x < 5 or span_y < 5:
+    if len(_shape_directions(shape)) != 4:
         return []
-    points: list[Point2D] = []
-    for corner in shape.corners:
-        point = Point2D(
-            x_mm=round((corner.x - min_x) * width_mm / span_x),
-            z_mm=round((corner.y - min_y) * depth_mm / span_y),
-        )
-        if not points or point != points[-1]:
-            points.append(point)
-    if len(points) > 1 and points[-1] == points[0]:
-        points.pop()
-    if len(points) < 4:
-        return []
-    return _canonicalize_boundary(points)
+    return _canonicalize_boundary([
+        Point2D(x_mm=0, z_mm=0),
+        Point2D(x_mm=width_mm, z_mm=0),
+        Point2D(x_mm=width_mm, z_mm=depth_mm),
+        Point2D(x_mm=0, z_mm=depth_mm),
+    ])
 
 
 def _provisional_room_spec(
@@ -3422,13 +4364,18 @@ def _provisional_room_spec(
     trace_ids: list[str] | None = None,
     allow_incomplete_annotation: bool = False,
     edge_chain: list[BoundaryEdge] | None = None,
+    point_markers: list[VisualEvidence] | None = None,
 ) -> RoomSpec | None:
     segment_mode = edge_chain is not None
+    working_edge_chain = edge_chain or []
     if segment_mode:
-        boundary = _edge_chain_to_boundary(edge_chain or [])
+        resolved_edge_chain = _solve_edge_lengths(working_edge_chain)
+        if resolved_edge_chain:
+            working_edge_chain = resolved_edge_chain
+        boundary = _edge_chain_to_boundary(working_edge_chain)
         if not boundary and not allow_incomplete_annotation:
             return None
-        missing_edges = [index for index, edge in enumerate(edge_chain or []) if edge.length_mm is None]
+        missing_edges = [index for index, edge in enumerate(working_edge_chain) if edge.length_mm is None]
         missing_width = missing_depth = not bool(boundary)
         width_mm = (
             max(point.x_mm for point in boundary) - min(point.x_mm for point in boundary)
@@ -3444,21 +4391,25 @@ def _provisional_room_spec(
         missing_depth = not depth_mm
         if not width_mm or not depth_mm:
             return None
-        boundary = _shape_trace_to_boundary(shape, width_mm, depth_mm) if shape else []
-        if len(boundary) < 4:
-            boundary = [
-                Point2D(x_mm=0, z_mm=depth_mm),
-                Point2D(x_mm=width_mm, z_mm=depth_mm),
-                Point2D(x_mm=width_mm, z_mm=0),
-                Point2D(x_mm=0, z_mm=0),
-            ]
+        boundary = _rectangular_boundary_from_extents(shape, width_mm, depth_mm)
         missing_edges = []
     annotation_boundary = list(shape.corners) if shape else []
     height_mm = _ocr_room_height_hint(ocr_assist)
+    ocr_tokens = (ocr_assist or {}).get("tokens", [])
+    openings = _opening_specs_from_tokens(ocr_assist, working_edge_chain)
+    opening_evidence = {evidence_id for opening in openings for evidence_id in opening.evidence_ids}
+    _suppress_reversed_ocr_artifacts(ocr_tokens)
     _classify_ocr_tokens(
-        (ocr_assist or {}).get("tokens", []),
+        ocr_tokens,
         infer_room_extents=not segment_mode,
     )
+    if shape is not None:
+        bindable_tokens = [
+            token for token in ocr_tokens
+            if token.get("wall_crop_vision")
+            or token.get("coordinate_transform", {}).get("ocr_relative_rotation_degrees") is not None
+        ]
+        _bind_ocr_tokens_to_boundary(bindable_tokens, shape.corners)
     room_width, room_depth = _ocr_dimension_hints(ocr_assist) if not segment_mode else (None, None)
     room_values = {value for value in (room_width, room_depth) if value}
     if not segment_mode:
@@ -3473,13 +4424,38 @@ def _provisional_room_spec(
                 token["target_id"] = "room:depth"
                 token["review_required"] = bool(token.get("confidence", 0) < 0.82)
     height_hint = _ocr_room_height_hint(ocr_assist)
+    selected_edge_evidence = {
+        evidence_id
+        for edge in working_edge_chain
+        for evidence_id in edge.evidence_ids
+    }
     observations: list[Observation] = []
-    for token in (ocr_assist or {}).get("tokens", []):
+    for token in ocr_tokens:
+        if token.get("suppressed_by_vision"):
+            continue
         role = token.get("semantic_role", "other")
+        token_id = str(token.get("id", "unknown"))
+        value = _ocr_display_text(token, role, room_values, height_hint)
+        review_required = bool(token.get("review_required", False))
+        if role == "other":
+            review_required = False
+        elif role in {"room_dimension", "wall_segment", "wall_thickness"}:
+            review_required = token_id in selected_edge_evidence and float(token.get("confidence", 0.5)) < 0.85
+        elif role == "door_size":
+            complete_row = all(code in value.upper() for code in ("CG", "CK", "CH"))
+            review_required = complete_row and token_id not in opening_evidence
+        elif role == "room_height":
+            review_required = bool(re.search(r"净高|层高|室内高", value)) and float(token.get("confidence", 0.5)) < 0.85
+        elif role == "ceiling_height":
+            review_required = "吊顶" in value and "整屋" not in value
+        elif role == "drain_position":
+            review_required = bool(re.search(r"地漏|排水|下水|排污", value)) and not token.get("target_id")
+        elif role in {"fixture_dimension", "fixture_label"}:
+            review_required = False
         observations.append(
             Observation(
-                field=f"ocr:{token.get('id', 'unknown')}",
-                value=_ocr_display_text(token, role, room_values, height_hint),
+                field=f"ocr:{token_id}",
+                value=value,
                 source=SourceKind.measured,
                 asset_id=asset_id,
                 bbox=ImageBBox.model_validate(token.get("bbox")),
@@ -3487,17 +4463,69 @@ def _provisional_room_spec(
                 alternatives=list(token.get("alternate_readings", [])),
                 note=f"文字识别结果；语义分类={role}；请对低置信度或归属不明项查看裁片",
                 semantic_role=role,
-                review_required=bool(token.get("review_required", False)),
+                review_required=review_required,
                 rotation_degrees=round((ocr_assist or {}).get("rotation_degrees", 0)) % 360,
                 target_id=token.get("target_id"),
             )
         )
 
-    # Visual bindings are proposals shown on the source photo. Doors and
-    # fixtures enter the model only after the user confirms the corresponding
-    # evidence in the annotation UI.
     fixtures: list[FixtureSpec] = []
-    openings: list[OpeningSpec] = []
+    for index, marker in enumerate(point_markers or []):
+        position = _point_marker_position(marker, annotation_boundary, boundary)
+        if position is None:
+            continue
+        evidence_id = f"point-marker-{index + 1}"
+        marker_kind = _point_marker_kind(marker.text)
+        observations.append(
+            Observation(
+                field=f"visual_evidence:{evidence_id}",
+                value=marker.text,
+                source=SourceKind.measured,
+                asset_id=asset_id,
+                bbox=marker.bbox,
+                confidence=marker.confidence,
+                note="图中点位符号中心；相对照片轮廓映射为毫米坐标",
+                semantic_role="drain_position",
+                review_required=marker.confidence < 0.85,
+                rotation_degrees=round((ocr_assist or {}).get("rotation_degrees", 0)) % 360,
+                target_id=f"point:{index + 1}",
+            )
+        )
+        size_mm = 75 if marker_kind == "floor_drain" else 40
+        fixtures.append(
+            FixtureSpec(
+                id=f"point-{index + 1}",
+                kind=marker_kind,
+                label=marker.text,
+                x_mm=position.x_mm,
+                z_mm=position.z_mm,
+                width_mm=size_mm,
+                depth_mm=size_mm,
+                height_mm=10,
+                source=SourceKind.derived,
+                confidence=min(marker.confidence, 0.85),
+                evidence_ids=[evidence_id],
+            )
+        )
+    for index, edge in enumerate(working_edge_chain):
+        if not edge.closure_adjustment_mm or edge.measured_length_mm is None:
+            continue
+        observations.append(
+            Observation(
+                field=f"closure:wall:{index}",
+                value=str(edge.length_mm),
+                source=SourceKind.derived,
+                asset_id=asset_id,
+                confidence=1,
+                note=(
+                    f"W{index + 1} 实测 {edge.measured_length_mm} mm；"
+                    f"闭合调整 {edge.closure_adjustment_mm:+d} mm；"
+                    f"建模采用 {edge.length_mm} mm"
+                ),
+                semantic_role="wall_segment",
+                target_id=f"wall:{index}",
+            )
+        )
     if trace_ids:
         observations.append(
             Observation(
@@ -3514,28 +4542,55 @@ def _provisional_room_spec(
         if not annotation_boundary:
             warnings.append("视觉复核未形成可靠墙体边界，未生成任何替代矩形")
         elif missing_edges:
-            warnings.append("逐段尺寸尚未闭合，缺少墙段：" + "、".join(f"W{index}" for index in missing_edges))
+            warnings.append("逐段尺寸尚未闭合，缺少墙段：" + "、".join(f"W{index + 1}" for index in missing_edges))
         elif not boundary:
             warnings.append("逐段尺寸存在冲突，水平或垂直边链无法闭合")
+    elif boundary:
+        warnings.append("矩形总长宽由文字证据得到，请在图上确认")
     else:
-        warnings.append("总长宽由 OCR 证据归一化得到，请在图上确认")
+        warnings.append("草图不按比例且逐段尺寸未闭合；仅保留转折拓扑，不生成毫米边界")
     if not _ocr_room_height_hint(ocr_assist):
-        warnings.append("未可靠识别室内净高；吊顶高度不会代替层高，请在照片上补录")
+        warnings.append("未可靠识别净高；吊顶高度不会代替房间净高，请在照片上补录")
     issues = [
         ValidationIssue(id=f"provisional-{index + 1}", severity="warning", code="provisional_geometry", message=message)
         for index, message in enumerate(warnings)
     ]
+    issues.extend(
+        ValidationIssue(
+            id=f"closure-adjustment-{index}", severity="info", code="closure_adjustment",
+            message=(
+                f"W{index + 1} 实测 {edge.measured_length_mm} mm，闭合调整 "
+                f"{edge.closure_adjustment_mm:+d} mm，建模采用 {edge.length_mm} mm"
+            ),
+            target_id=f"wall:{index}",
+        )
+        for index, edge in enumerate(working_edge_chain)
+        if edge.closure_adjustment_mm and edge.measured_length_mm is not None
+    )
+    ceiling_hint = _ocr_ceiling_height_hint(ocr_assist)
+    ceiling_zones = [
+        CeilingZone(
+            id="ceiling-overall",
+            label="整屋吊顶",
+            boundary=[point.model_copy(deep=True) for point in boundary],
+            height_mm=ceiling_hint[0],
+            source=SourceKind.measured,
+            confidence=ceiling_hint[2],
+            evidence_ids=[ceiling_hint[1]] if ceiling_hint[1] else [],
+        )
+    ] if boundary and ceiling_hint else []
     return RoomSpec(
         boundary=boundary,
         height_mm=height_mm,
         wall_thickness_mm=100,
         openings=openings,
         fixtures=fixtures,
+        ceiling_zones=ceiling_zones,
         observations=observations,
         plan_annotation=PlanAnnotation(
             rotation_degrees=round((ocr_assist or {}).get("rotation_degrees", 0)) % 360,
             boundary=annotation_boundary,
-            edge_chain=edge_chain or [],
+            edge_chain=working_edge_chain,
             confirmed=False,
         ),
         issues=issues,
@@ -3626,7 +4681,8 @@ async def _resolve_cropped_shape_trace(
     prompt = (
         "四张图都是同一个房间绘图区的局部裁切。第一张是原图，第二张是高对比图，第三张是边缘辅助图，第四张叠加了百分比坐标网格。"
         "只追踪手绘房间内侧墙线形成的闭合边界；忽略内部尺寸线、数字、文字、地漏、排水符号、门扇圆弧和纸张阴影。"
-        "门洞附近若墙线有真实短回折必须保留，但尺寸引线造成的假转折必须删除。"
+        "只有固定边界改变方向才增加角点。同一直墙上的尺寸分段和门洞不增加角点；门洞两侧墙面共线时直线跨过门洞，绝不能沿门扇或圆弧形成 U 形凹口。"
+        "真实短回折只有在固定墙面换到另一条平行线时才保留；尺寸引线以及透视/线宽造成的连续微小阶梯必须删除。"
         "每相邻两点必须一横一竖交替，不得输出共线冗余点，不得用泛化矩形替代看得见的回折。"
         "墙角坐标只能根据第四张图的网格读取百分比，禁止抄写图中的毫米尺寸数字。"
         "返回 JSON：{\"corners\":[{\"x_pct\":0到100,\"y_pct\":0到100,\"role\":\"wall_corner|structure_return|door_jamb|other\",\"confidence\":0到1}],\"closed\":true,\"uncertain\":[]}。"
@@ -3707,7 +4763,7 @@ async def _audit_shape_trace(
         model,
         json_object=True,
         stage="photo-annotation-topology-audit",
-        extra_payload={"max_tokens": 1024},
+                extra_payload={"max_tokens": 1024},
         trace_ids=trace_ids,
         max_retries=1,
     )
@@ -3775,6 +4831,20 @@ async def _resolve_topology_candidate_selection(
     return selection
 
 
+def _program_topology_fallback(candidates: list[TopologyCandidate]) -> TopologyCandidate | None:
+    """Prefer the simplest well-supported non-rectangular contour when vision is unavailable."""
+    if len(candidates) < 2 or any(len(candidate.corners) == 4 for candidate in candidates):
+        return None
+    best_support = max(candidate.pixel_support for candidate in candidates)
+    eligible = [
+        candidate for candidate in candidates
+        if candidate.pixel_support >= 0.4 and candidate.pixel_support >= best_support - 0.06
+    ]
+    if not eligible:
+        return None
+    return min(eligible, key=lambda candidate: (len(candidate.corners), -candidate.pixel_support))
+
+
 async def _select_raster_topology(
     client: httpx.AsyncClient,
     endpoint: str,
@@ -3806,7 +4876,14 @@ async def _select_raster_topology(
         except (AIResponseError, ValidationError) as error:
             failures[primary_model] = str(error)
 
-    if not selections and len(available_models) > 1:
+    primary_selection = selections.get(primary_model)
+    unhelpful_rejection = bool(
+        primary_selection
+        and not primary_selection.accepted
+        and primary_selection.confidence <= 0
+        and not primary_selection.missing_features
+    )
+    if (not selections or unhelpful_rejection) and len(available_models) > 1:
         model = available_models[1]
         attempted_models.append(model)
         try:
@@ -3818,7 +4895,13 @@ async def _select_raster_topology(
         except (AIResponseError, ValidationError) as error:
             failures[model] = str(error)
 
-    if primary_model in selections:
+    accepted_selection = next(
+        ((model, selection) for model, selection in selections.items() if selection.accepted),
+        None,
+    )
+    if accepted_selection is not None:
+        decision_source, decision = accepted_selection
+    elif primary_model in selections:
         decision = selections[primary_model]
         decision_source = primary_model
     elif selections:
@@ -3841,16 +4924,25 @@ async def _select_raster_topology(
     )
     if comparison_trace:
         trace_ids.append(comparison_trace)
-    if not decision.accepted or not decision.selected_id:
-        return None
-    candidate = next((item for item in candidates if item.id == decision.selected_id), None)
+    program_fallback = False
+    candidate = (
+        next((item for item in candidates if item.id == decision.selected_id), None)
+        if decision.accepted and decision.selected_id
+        else _program_topology_fallback(candidates)
+    )
     if candidate is None:
         return None
+    if not decision.accepted or not decision.selected_id:
+        program_fallback = True
     return ShapeTraceResult(
         corners=candidate.corners,
         closed=True,
         uncertain=[
-            f"栅格候选由 {decision_source} 复核选择；置信度 {decision.confidence:.2f}",
+            (
+                f"程序按像素支持度与最小转折选择候选 {candidate.id}；视觉服务未给出可用结论，必须人工复核"
+                if program_fallback
+                else f"栅格候选由 {decision_source} 复核选择；置信度 {decision.confidence:.2f}"
+            ),
             *decision.missing_features,
         ],
     )
@@ -3907,6 +4999,9 @@ def _apply_critical_dimensions(extraction: PlanExtraction, roles: CriticalDimens
     extraction = extraction.model_copy(deep=True)
     edge_boundary: list[Point2D] = []
     if extraction.edge_chain:
+        resolved_edge_chain = _solve_edge_lengths(extraction.edge_chain)
+        if resolved_edge_chain:
+            extraction.edge_chain = resolved_edge_chain
         edge_boundary = _edge_chain_to_boundary(extraction.edge_chain)
         if edge_boundary:
             extraction.boundary = edge_boundary
@@ -4155,12 +5250,7 @@ async def _refine_photo_annotation_bindings(
 ) -> None:
     if not shape or len(shape.corners) < 3:
         return
-    models = model_names or list(dict.fromkeys(
-        model for model in (
-            settings.openai_model,
-            settings.openai_fallback_model,
-        ) if model
-    ))
+    models = model_names or _vision_recognition_models()
     if not models:
         return
     token_catalog = [
@@ -4187,7 +5277,7 @@ async def _refine_photo_annotation_bindings(
             "候选边界按 boundary 数组顺序闭合，墙段编号 wall:0 到 wall:N-1。"
             "逐个查看 OCR bbox 的尺寸线端点、门扇圆弧、墙线和设施符号，不能只按文字距离猜。"
             "纯数字只有明确尺寸线连接时才可绑定墙段；跨越转角的尺寸链必须保持未绑定；门洞组合值必须同时定位门扇/门框及所属墙段；"
-            "排水或地漏必须有明确文字/符号及位置。无法确认时 target_id=null、review_required=true。"
+            "排水或地漏必须有明确文字/符号及位置。门窗行按 CG=洞口距地、CK=洞口内宽、CH=洞口内高解释，D1 是门，W1/W2 是窗。无法确认时 target_id=null、review_required=true。"
             "confidence 必须按实际把握填写 0.5 到 1，无法判断则填写 0.5，禁止固定填 0。"
             "只返回本批每个 id 一次，不要复述 bbox 或 alternatives。返回 JSON："
             "{\"bindings\":[{\"id\":\"E001\",\"text\":\"原文\","
@@ -4195,7 +5285,7 @@ async def _refine_photo_annotation_bindings(
             "\"target_id\":\"wall:3@0.420|wall:3@0.320:0.520|room_height|drain:1|fixture:1|null\","
             "\"confidence\":0.5,\"review_required\":true}]}。"
             "普通墙尺寸用 wall:N@ratio。door_size 必须用 wall:N@start:end 标出门宽在线段上的起止范围，"
-            "start 和 end 是从墙段起点到终点的相对位置且 start<end；门高和门厚属于同一个门对象，不得写成墙厚。"
+            "start 和 end 是从墙段起点到终点的相对位置且 start<end；CG/CK/CH 属于同一个门窗对象，不得把 CG 当门宽或把 CH 当墙高。"
             "boundary=" + json.dumps(boundary_catalog, ensure_ascii=False)
             + "\n本批OCR=" + json.dumps(chunk, ensure_ascii=False)
         )
@@ -4254,16 +5344,11 @@ async def _refine_photo_annotation_bindings(
             token["alternate_readings"] = list(dict.fromkeys([*(token.get("alternate_readings") or []), corrected]))
         token["semantic_role"] = role
         token["target_id"] = target_id
-        object_specific = role in {
-            "wall_segment", "wall_thickness", "ceiling_height", "door_size", "door_position",
-            "drain_position", "pipe_box", "fixture_dimension", "fixture_label",
-        }
         token["review_required"] = bool(
             binding.get("review_required", False)
             or (role != "other" and not target_id)
             or confidence < 0.85
-            or object_specific
-        )
+        ) if role != "other" else False
         token["vision_bound"] = True
 
 
@@ -4279,12 +5364,17 @@ async def analyze_floorplan_fast(
     trace_ids: list[str] = []
     ocr_assist: dict
     edge_chain: list[BoundaryEdge] = []
-    fast_models = [settings.openai_fast_model] if settings.openai_fast_model else [settings.openai_model]
+    point_markers: list[VisualEvidence] = []
+    fast_models = _vision_recognition_models()
+    recognition_models = _vision_recognition_models()
     if settings.ai_configured:
         endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
         headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
-            selectable_candidates = [candidate for candidate in candidates if 4 <= len(candidate.corners) <= 16]
+            # Noisy contours often add door-leaf or perspective stair steps.
+            # Keep them available to the visual audit, which can remove false
+            # turns; filtering them out here can discard the closest wall trace.
+            selectable_candidates = [candidate for candidate in candidates if 4 <= len(candidate.corners) <= 24]
             selected_shape: ShapeTraceResult | None = None
             if selectable_candidates:
                 try:
@@ -4295,6 +5385,28 @@ async def analyze_floorplan_fast(
                     raise
                 except (AIResponseError, ValidationError):
                     selected_shape = None
+            if selected_shape is None and selectable_candidates:
+                for model in fast_models:
+                    try:
+                        traced = await _resolve_cropped_shape_trace(
+                            client, endpoint, headers, path, rotation, selectable_candidates, model, trace_ids,
+                        )
+                        collapsed_all_candidates = (
+                            len(traced.corners) == 4
+                            and all(len(candidate.corners) > 4 for candidate in selectable_candidates)
+                        )
+                        if (
+                            traced.closed
+                            and 4 <= len(traced.corners) <= 16
+                            and _shape_directions(traced)
+                            and not collapsed_all_candidates
+                        ):
+                            selected_shape = traced
+                            break
+                    except AIAuthenticationError:
+                        raise
+                    except (AIResponseError, ValidationError, TypeError, ValueError):
+                        continue
             if selected_shape is not None:
                 for model in fast_models:
                     try:
@@ -4309,19 +5421,28 @@ async def analyze_floorplan_fast(
                         raise
                     except (AIResponseError, ValidationError):
                         continue
-            # Paddle remains a detector and fallback. Wall crops are the primary
-            # handwriting recognizer once a stable pixel-space topology exists.
+                if shape is None:
+                    shape = selected_shape.model_copy(deep=True)
+                    shape.uncertain.append("逐点视觉复核未返回可用结果，保留已通过候选选择的闭合轮廓")
+            # Full-page OCR supplies candidates. Uniform visual tiles verify and
+            # complete them; wall-centred crops amplify the printed grid and are
+            # intentionally excluded from the recognition path.
             ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
-            ocr_assist = await _recognize_wall_crops_with_vision(
-                client, endpoint, headers, path, rotation, shape, ocr_assist, trace_ids, fast_models,
+            template_report = await _collect_template_evidence(
+                client, endpoint, headers, path, rotation, trace_ids,
             )
+            template_points = _merge_template_evidence(ocr_assist, template_report)
             ocr_assist = await _refine_ocr_with_vision(
-                client, endpoint, headers, ocr_assist, trace_ids, fast_models[0],
+                client, endpoint, headers, ocr_assist, trace_ids, recognition_models[0],
             )
-            await _refine_photo_annotation_bindings(client, endpoint, headers, ocr_assist, shape, trace_ids, fast_models)
+            await _refine_photo_annotation_bindings(client, endpoint, headers, ocr_assist, shape, trace_ids, recognition_models)
             if shape is not None:
+                detected_points = await _detect_point_markers(
+                    client, endpoint, headers, path, rotation, recognition_models, trace_ids,
+                )
+                point_markers = _merge_point_markers(template_points, detected_points)
                 edge_chain = await _resolve_segment_edge_chain(
-                    client, endpoint, headers, path, rotation, shape, ocr_assist, trace_ids, fast_models,
+                    client, endpoint, headers, path, rotation, shape, ocr_assist, trace_ids, recognition_models,
                 )
     else:
         ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
@@ -4331,6 +5452,7 @@ async def analyze_floorplan_fast(
         asset_id=asset_id,
         allow_incomplete_annotation=True,
         edge_chain=edge_chain,
+        point_markers=point_markers,
     )
     if provisional is None:
         if not settings.ai_configured:
@@ -4410,7 +5532,7 @@ async def analyze_floorplan(
         ocr_height_hint = _ocr_room_height_hint(ocr_assist)
         if critical_roles.room_height is None and ocr_height_hint is not None:
             critical_roles.room_height = DimensionEvidenceRef(value_mm=ocr_height_hint, confidence=0.7)
-            critical_roles.uncertain.append("房间高度由带有吊顶/层高标签的 PaddleOCR 文本补充，保存前请人工确认")
+            critical_roles.uncertain.append("房间高度由带有吊顶/净高标签的 PaddleOCR 文本补充，保存前请人工确认")
 
         door_evidence_present = any(_is_door_evidence(item) for item in report.evidence)
         door_wall_chain: BoundaryChainResult | None = None
@@ -4474,21 +5596,6 @@ async def analyze_floorplan(
             except (AIResponseError, ValidationError) as error:
                 errors.append(f"{model} 轮廓追踪失败: {error}")
 
-        shape_boundary_hint: list[Point2D] = []
-        if shape_trace is not None:
-            width_hint = (
-                critical_roles.overall_width.value_mm
-                if critical_roles.overall_width
-                else sum(item.value_mm for item in critical_roles.overall_width_segments)
-            )
-            depth_hint = (
-                critical_roles.overall_depth.value_mm
-                if critical_roles.overall_depth
-                else sum(item.value_mm for item in critical_roles.overall_depth_segments)
-            )
-            if width_hint and depth_hint:
-                shape_boundary_hint = _shape_trace_to_boundary(shape_trace, width_hint, depth_hint)
-
         normalization_models = _models() if shape_trace is not None else []
         for model in normalization_models:
             try:
@@ -4496,35 +5603,20 @@ async def analyze_floorplan(
                     client, endpoint, headers, path, rotation, report, critical_roles, door_wall_chain,
                     topology_hint, model, trace_ids,
                 )
-                current_shape_boundary = shape_boundary_hint
-                if (
-                    not current_shape_boundary
-                    and shape_trace is not None
-                    and extraction.overall_width_mm
-                    and extraction.overall_depth_mm
-                ):
-                    current_shape_boundary = _shape_trace_to_boundary(
-                        shape_trace, extraction.overall_width_mm, extraction.overall_depth_mm,
-                    )
                 if topology_hint:
                     extraction.edge_chain = topology_hint
-                elif current_shape_boundary and len(extraction.boundary) <= 4 and len(extraction.edge_chain) <= 4:
-                    extraction.boundary = current_shape_boundary
+                elif shape_trace is not None and len(shape_trace.corners) > 4:
+                    extraction.boundary = []
                     extraction.edge_chain = []
-                    extraction.uncertain.append("独立栅格轮廓未通过逐边归属复核，已保留多边形轮廓供人工校正")
+                    extraction.uncertain.append("草图不按比例；逐段毫米尺寸未闭合前不生成非矩形毫米边界")
                 extraction = _apply_critical_dimensions(extraction, critical_roles)
+                if shape_trace is not None and len(shape_trace.corners) > 4 and not topology_hint:
+                    raise AIResponseError("非矩形草图缺少逐段毫米闭合边链；禁止按像素比例生成替代矩形")
                 derived_values = _derived_role_values(critical_roles) | _edge_chain_span_values(extraction.edge_chain)
-                if current_shape_boundary:
-                    derived_values.update(
-                        {
-                            max(point.x_mm for point in current_shape_boundary) - min(point.x_mm for point in current_shape_boundary),
-                            max(point.z_mm for point in current_shape_boundary) - min(point.z_mm for point in current_shape_boundary),
-                        }
-                    )
                 preliminary = _extraction_to_spec(extraction.model_copy(deep=True), report, derived_values=derived_values)
                 has_geometry_error = any(issue.severity == "error" for issue in validate_spec(preliminary)[0])
-                width_resolved = critical_roles.overall_width or len(critical_roles.overall_width_segments) >= 2 or bool(current_shape_boundary and extraction.overall_width_mm)
-                depth_resolved = critical_roles.overall_depth or len(critical_roles.overall_depth_segments) >= 2 or bool(current_shape_boundary and extraction.overall_depth_mm)
+                width_resolved = critical_roles.overall_width or len(critical_roles.overall_width_segments) >= 2
+                depth_resolved = critical_roles.overall_depth or len(critical_roles.overall_depth_segments) >= 2
                 core_roles_missing = not all([width_resolved, depth_resolved, critical_roles.room_height])
                 door_roles_missing = door_evidence_present and not all([critical_roles.door_width, critical_roles.door_height])
                 try:
@@ -4541,14 +5633,15 @@ async def analyze_floorplan(
                     if has_geometry_error or core_roles_missing:
                         raise AIResponseError(f"{reason}未通过，已拒绝保存候选轮廓") from review_error
                 if topology_hint:
-                    topology_boundary = _edge_chain_to_boundary(topology_hint)
+                    resolved_topology = _solve_edge_lengths(topology_hint)
+                    topology_boundary = _edge_chain_to_boundary(resolved_topology)
                     if topology_boundary:
-                        extraction.edge_chain = topology_hint
+                        extraction.edge_chain = resolved_topology
                         extraction.boundary = topology_boundary
-                elif current_shape_boundary and len(extraction.boundary) <= 4:
-                    extraction.boundary = current_shape_boundary
+                elif shape_trace is not None and len(shape_trace.corners) > 4:
+                    extraction.boundary = []
                     extraction.edge_chain = []
-                    extraction.uncertain.append("复核结果退化为矩形，已恢复栅格检测到的多边形轮廓")
+                    extraction.uncertain.append("复核未得到逐段毫米闭合边链，已拒绝按草图比例生成轮廓")
                 chain_has_partial_structure = bool(
                     door_wall_chain
                     and (len(door_wall_chain.segments) >= 2 or door_wall_chain.returns)

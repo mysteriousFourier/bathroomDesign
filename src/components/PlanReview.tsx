@@ -1,5 +1,6 @@
 import { Eye, EyeOff, Focus, Move, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
+import { drawableEvidence, observationId } from '../evidence'
 import { fixtureLabels, roomBounds, wallLength } from '../spec'
 import type { Asset, RoomSpec, Selection } from '../types'
 
@@ -28,7 +29,10 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onE
   const mmX = (x: number) => Math.round((x - offsetX) / scale / 10) * 10
   const mmZ = (z: number) => Math.round((z - offsetZ) / scale / 10) * 10
   const points = spec.boundary.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')
-  const sourceRotation = spec.observations.find((item) => item.field.startsWith('ocr:'))?.rotation_degrees ?? 0
+  const sourceRotation = spec.observations.find((item) => (
+    item.field.startsWith('ocr:') && (!plan?.id || item.asset_id === plan.id)
+  ))?.rotation_degrees ?? 0
+  const sourceEvidence = useMemo(() => drawableEvidence(spec, plan?.id), [plan?.id, spec])
   const sourceImage = sourceRotation === 90
     ? { width: canvasHeight, height: canvasWidth, transform: `translate(${canvasWidth} 0) rotate(90)` }
     : sourceRotation === 270
@@ -162,9 +166,9 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onE
           )
         })}
         {showSource && <g className="ocr-evidence-layer">
-          {spec.observations.filter((item) => item.field.startsWith('ocr:') && item.bbox).map((item) => {
+          {sourceEvidence.map((item) => {
             const bbox = item.bbox!
-            const evidenceId = item.field.slice(4)
+            const evidenceId = observationId(item)
             const pending = item.review_required && !item.confirmed
             const left = bbox.x_min * canvasWidth / 1000
             const top = bbox.y_min * canvasHeight / 1000

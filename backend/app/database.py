@@ -171,7 +171,13 @@ class Database:
                 "INSERT INTO assets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (asset_id, project_id, role, filename, stored_name, mime_type, width, height, created_at),
             )
-            connection.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (created_at, project_id))
+            if role == "floorplan":
+                connection.execute(
+                    "UPDATE projects SET spec_json = NULL, measurement_json = NULL, status = 'draft', updated_at = ? WHERE id = ?",
+                    (created_at, project_id),
+                )
+            else:
+                connection.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (created_at, project_id))
         return AssetResponse(id=asset_id, project_id=project_id, role=role, filename=filename, mime_type=mime_type, width=width, height=height, created_at=created_at, url=f"/api/assets/{asset_id}/content")
 
     def get_asset_row(self, asset_id: str) -> sqlite3.Row:

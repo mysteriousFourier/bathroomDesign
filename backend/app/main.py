@@ -13,12 +13,14 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
 from .ai import AIConfigurationError, AIResponseError, analyze_floorplan_fast as analyze_floorplan, analyze_photos, evidence_crop_png
+from .capture import assess_capture
 from .config import settings
 from .database import db
 from .measurement import measurement_contract_export, validate_measurement
 from .models import (
     AnalysisResponse,
     AssetResponse,
+    CaptureAssessment,
     MeasurementModel,
     MeasurementValidationResponse,
     ProjectCreate,
@@ -62,12 +64,13 @@ def ai_http_error(error: Exception) -> HTTPException:
 
 @app.get("/api/health")
 def health() -> dict:
+    visual_model = settings.openai_vision_model or settings.openai_fast_model or settings.openai_model
+    fallback_model = settings.openai_fast_model if settings.openai_fast_model != visual_model else None
     return {
         "ok": True,
         "ai_configured": settings.ai_configured,
-        "model": settings.openai_model or None,
-        "quality_model": settings.openai_quality_model or None,
-        "fallback_model": settings.openai_fallback_model or None,
+        "model": visual_model or None,
+        "fallback_model": fallback_model,
         "ocr_configured": settings.ocr_engine.lower() == "paddle",
     }
 
@@ -89,7 +92,9 @@ def get_project(project_id: str) -> ProjectResponse:
 
 @app.delete("/api/projects/{project_id}", status_code=204)
 def delete_project(project_id: str) -> None:
-    project_or_404(project_id)
+    project = project_or_404(project_id)
+    if project.status == "analysis_running":
+        raise HTTPException(status_code=409, detail="项目正在识别，完成后才能删除")
     project_dir = (db.asset_dir / project_id).resolve()
     asset_root = db.asset_dir.resolve()
     db.delete_project(project_id)
@@ -139,6 +144,15 @@ def asset_content(asset_id: str) -> FileResponse:
     if not path.exists():
         raise HTTPException(status_code=404, detail="图片文件不存在")
     return FileResponse(path, media_type=row["mime_type"], content_disposition_type="inline")
+
+
+@app.get("/api/assets/{asset_id}/capture-assessment", response_model=CaptureAssessment)
+def capture_assessment(asset_id: str) -> CaptureAssessment:
+    try:
+        row = db.get_asset_row(asset_id)
+        return assess_capture(db.asset_path(row))
+    except (KeyError, ValueError, OSError) as error:
+        raise HTTPException(status_code=404, detail="无法检查这张图片") from error
 
 
 @app.get("/api/assets/{asset_id}/crop")
@@ -271,6 +285,17 @@ def update_measurement(project_id: str, measurement: MeasurementModel) -> Projec
     return db.save_measurement(project_id, measurement, status)
 
 
-dist_dir = Path("dist")
+project_root = Path(__file__).resolve().parents[2]
+dist_dir = project_root / "dist"
+template_file = project_root / "public" / "measurement-template.html"
+
+
+@app.get("/measurement-template.html", include_in_schema=False)
+def measurement_template() -> FileResponse:
+    if not template_file.is_file():
+        raise HTTPException(status_code=404, detail="量房模板文件不存在")
+    return FileResponse(template_file, media_type="text/html; charset=utf-8")
+
+
 if dist_dir.exists():
     app.mount("/", StaticFiles(directory=dist_dir, html=True), name="frontend")

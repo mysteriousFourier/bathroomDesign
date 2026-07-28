@@ -361,7 +361,7 @@ def measurement_from_spec(
             evidence_id,
             field="height_mm",
             raw_text=str(spec.height_mm),
-            note="无图证据时的人工确认层高审计记录",
+            note="无图证据时的人工确认净高审计记录",
         ))
         height_source = SourceKind.user
         height_confidence = 1.0

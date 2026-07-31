@@ -12,11 +12,11 @@ class Settings(BaseSettings):
     openai_base_url: str = ""
     openai_api_key: str = ""
     read_model: str = Field(
-        default="glm-4v-flash",
+        default="",
         validation_alias=AliasChoices("READ_MODEL", "OPENAI_VISION_MODEL", "OPENAI_FAST_MODEL", "OPENAI_MODEL"),
     )
     chat_model: str = Field(
-        default="glm-4.7-flash",
+        default="",
         validation_alias=AliasChoices("CHAT_MODEL", "OPENAI_COORDINATOR_MODEL", "OPENAI_MODEL"),
     )
     app_data_dir: Path = PROJECT_ROOT / "backend" / "data"

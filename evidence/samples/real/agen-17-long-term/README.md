@@ -2,6 +2,8 @@
 
 This directory persists the real hand-drawn floorplan image requested in AGEN-17 as a long-term regression sample.
 
+Source-platform identifiers and location-specific OCR text are redacted in the tracked metadata and replay JSON.
+
 Files:
 
 - `source.jpg`: stable original image copy from the issue attachment.

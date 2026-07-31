@@ -1,9 +1,9 @@
 {
   "sample_id": "agen-17-long-term-floorplan-001",
-  "issue_id": "25dd9e48-bc04-4db4-9b20-64db8362422f",
+  "issue_id": "redacted",
   "issue_identifier": "AGEN-17",
-  "source_attachment_id": "019f8cce-6d62-714e-94e9-0c9cb470d0a2",
-  "source_filename": "微信图片_20260716091803_2_911.jpg",
+  "source_attachment_id": "redacted",
+  "source_filename": "source.jpg",
   "image_path": "source.jpg",
   "content_type": "image/jpeg",
   "size_bytes": 4919290,
@@ -19,6 +19,6 @@
   },
   "purpose": "Long-term real hand-drawn floorplan sample for OCR text-position annotation and visual-model regression checks.",
   "annotation_policy": "Use source.jpg as the stable base image. OCR or manual labels may cover only recognized handwritten text bounding boxes and must not redraw walls, dimension lines, or topology.",
-  "created_from_comment_id": "3825bf9f-117c-4feb-893e-ec5654c4d34d",
+  "created_from_comment_id": "redacted",
   "created_date": "2026-07-23"
 }

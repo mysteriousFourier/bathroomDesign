@@ -1,4 +1,4 @@
-# 量界 · 卫生间建模工作台
+# 卫生间量房建模工作台
 
 从卫生间手绘测量图和可选现场照片提取结构化尺寸，先形成可追溯的 `MeasurementModel` 量房 JSON，再由确定性几何代码生成二维审图和三维模型。照片只补充固定设施和空间关系；明确测量值始终优先于图像估算。
 
@@ -41,18 +41,18 @@ npm run build
 
 此时访问 `http://127.0.0.1:8000`。
 
-## OpenAI 兼容接口
+## 模型接口配置
 
-后端调用 `{OPENAI_BASE_URL}/chat/completions`，使用 Chat Completions 的多模态 `image_url` 格式。4.6V 优先通过视觉 Function Call 主动裁剪局部；旧模型由后端生成完整图和重叠局部图。识别流程先保存带 bbox 的原始证据，再识别底边尺寸链和关键尺寸，最后组装并复核几何结构。
+后端使用 Chat Completions 兼容协议调用模型接口，并以多模态 `image_url` 格式提交图片。支持工具调用的视觉模型可主动读取局部图像；其他兼容模型由后端生成完整图和重叠局部图。识别流程先保存带 bbox 的原始证据，再识别底边尺寸链和关键尺寸，最后组装并复核几何结构。
 
 ```dotenv
-OPENAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-OPENAI_API_KEY=填写你的智谱 API Key
-READ_MODEL=glm-4v-flash
-CHAT_MODEL=glm-4.7-flash
+OPENAI_BASE_URL=
+OPENAI_API_KEY=
+READ_MODEL=
+CHAT_MODEL=
 ```
 
-密钥只存在于后端环境变量，不发送到浏览器。图片识别统一使用 `READ_MODEL`，流程协调与对话统一使用 `CHAT_MODEL`。429、1302、1305 和服务端错误会指数退避重试；401/403 鉴权错误不会重复请求。没有图像 bbox 证据的尺寸、门洞和设施不会自动进入三维模型。脱敏后的模型原始响应保存在 `backend/data/ai-traces`，便于定位供应商返回格式和识别错误。
+四项配置均由部署者按所用兼容接口填写：`READ_MODEL` 必须支持图像输入，`CHAT_MODEL` 用于流程协调与对话。密钥只存在于后端环境变量，不发送到浏览器。限流和服务端错误会指数退避重试；鉴权错误不会重复请求。没有图像 bbox 证据的尺寸、门洞和设施不会自动进入三维模型。脱敏后的模型原始响应保存在 `backend/data/ai-traces`，便于定位接口返回格式和识别错误。
 
 ## 使用流程
 
@@ -90,7 +90,7 @@ npm run build
 
 ## Docker
 
-先在当前终端设置三个 `OPENAI_*` 环境变量，然后运行：
+先在当前终端设置 `OPENAI_BASE_URL`、`OPENAI_API_KEY`、`READ_MODEL` 和 `CHAT_MODEL`，然后运行：
 
 ```powershell
 docker compose up --build

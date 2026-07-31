@@ -1,6 +1,6 @@
 {
   "passed": false,
-  "model": "glm-4v-flash",
+  "model": "configured-read-model",
   "elapsed_seconds": 1.75,
   "corner_count": 0,
   "short_edge_count": 0,
@@ -9,7 +9,7 @@
   "auto_edge_lengths": [],
   "closure_adjustments_mm": [],
   "checks": {
-    "flash_model_only": true,
+    "read_model_configured": true,
     "latency_within_budget": true,
     "non_rectangular_topology": false,
     "short_returns_preserved": false,

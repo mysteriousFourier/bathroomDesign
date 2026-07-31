@@ -358,7 +358,7 @@ async def recognize(path: Path) -> dict[str, Any]:
             ],
             coordinator_model,
             json_object=True,
-            stage="template-glm-coordinator",
+            stage="template-chat-coordinator",
             # The coordinator only ranks structured evidence. Deep reasoning can
             # consume the complete output budget without returning JSON.
             extra_payload={"max_tokens": 4096, "thinking": {"type": "disabled"}},

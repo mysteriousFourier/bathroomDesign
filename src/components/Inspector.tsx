@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, fixtureDefaults, fixtureLabels, roomBounds, roomCentroid, wallLength } from '../spec'
+import { cloneSpec, defaultFinishSurfaceOffsetMm, fixtureDefaults, fixtureLabels, finishSurfaceOffset, roomBounds, roomCentroid, wallLength } from '../spec'
 import type { Asset, EvidenceRole, FixtureKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -97,6 +97,7 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             <NumberField label="净深" value={bounds.depth} min={500} onChange={(value) => resizeBoundary(bounds.width, value)} />
             <NumberField label="净高" value={spec.height_mm ?? 0} min={1000} onChange={(value) => edit((draft) => { draft.height_mm = value })} />
             <NumberField label="墙厚" value={spec.wall_thickness_mm} min={50} onChange={(value) => edit((draft) => { draft.wall_thickness_mm = value })} />
+            <NumberField label="完成面刨除" value={finishSurfaceOffset(spec)} min={0} onChange={(value) => edit((draft) => { draft.finish_surface_offset_mm = value || defaultFinishSurfaceOffsetMm })} />
             <div className="boundary-editor">
               <div className="boundary-editor-heading"><strong>轮廓折点</strong><span>{spec.boundary.length} 点</span></div>
               {spec.boundary.map((point, index) => (

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import itertools
 import json
 import os
 import random
@@ -80,7 +81,7 @@ TEMPLATE_EVIDENCE_PROMPT = """
 
 草图墙线只表达连接和转折，线条在照片中画得长或短与实际毫米长度无关。每个尺寸数字必须单独输出一条 evidence，bbox 紧贴数字本身，并用 related_to 标明 dimension_chain:top、dimension_chain:bottom、dimension_chain:left、dimension_chain:right 或 dimension_chain:recess。不要把相邻尺寸线上的数字混为同一链。
 
-D1/W1/W2 每个有填写的行输出一条 opening evidence，text 完整写成如“D1 CG 0 CK 800 CH 2055”，bbox 框住该行。净高、整屋吊顶分别输出 height evidence；米制小数换算成毫米文字，例如“整屋吊顶 2100”。
+D1/W1/W2 每个有填写的行输出一条 opening evidence，text 完整写成“编号 CG 数值 CK 数值 CH 数值”，bbox 框住该行。净高、整屋吊顶分别输出 height evidence；米制小数换算成毫米文字，例如“整屋吊顶 2100”。
 
 点位逐个输出 fixture evidence：⊗=地漏、实心点或○=排水、△=给水、□=电点；bbox 只框草图内符号，不得把右侧图例算作点位。
 
@@ -331,8 +332,7 @@ def _line_candidate_overlay(path: Path, rotation_degrees: int) -> tuple[str, lis
         minLineLength=minimum, maxLineGap=max(8, minimum // 3),
     )
     candidates: list[tuple[str, int, int, int]] = []
-    for values in ([] if raw is None else raw[:, 0, :]):
-        x1, y1, x2, y2 = (int(item) for item in values)
+    for x1, y1, x2, y2 in _hough_line_segments(raw):
         dx, dy = abs(x2 - x1), abs(y2 - y1)
         if dx >= max(12, dy * 4):
             candidates.append(("horizontal", round((y1 + y2) / 2), min(x1, x2), max(x1, x2)))
@@ -384,6 +384,15 @@ def _line_candidate_overlay(path: Path, rotation_degrees: int) -> tuple[str, lis
             "x2": round(x2 * 1000 / image.width), "y2": round(y2 * 1000 / image.height),
         })
     return _image_data_url(overlay, max_size=1800), catalog
+
+
+def _hough_line_segments(lines: np.ndarray | None) -> list[tuple[int, int, int, int]]:
+    if lines is None:
+        return []
+    values = np.asarray(lines)
+    if values.size == 0:
+        return []
+    return [tuple(int(item) for item in row) for row in values.reshape(-1, 4)]
 
 
 def _dominant_axis(start: tuple[int, int], end: tuple[int, int]) -> str | None:
@@ -570,7 +579,7 @@ def _has_diagonal_or_curved_ink(image: Image.Image, points: list[tuple[int, int]
     if lines is None:
         return False
     diagonal = 0
-    for x1, y1, x2, y2 in lines[:, 0, :]:
+    for x1, y1, x2, y2 in _hough_line_segments(lines):
         angle = abs(np.degrees(np.arctan2(y2 - y1, x2 - x1))) % 180
         if 12 < angle < 78 or 102 < angle < 168:
             diagonal += 1
@@ -1874,7 +1883,12 @@ def _validated_segment_edge_chain(
                         target == f"wall:{wall_index}" or target.startswith(f"wall:{wall_index}@")
                         for target in target_ids
                     )
-                    or bool(token.get("template_visual") and str(token.get("related_to", "")).startswith("dimension_chain:"))
+                    or bool(
+                        token.get("template_visual")
+                        and str(token.get("related_to", "")).startswith("dimension_chain:")
+                        and _template_token_bbox_can_bind_wall(token)
+                        and _template_token_is_near_wall(token, shape, wall_index)
+                    )
                 )
                 if (
                     any(length_mm in numbers for numbers in reading_numbers)
@@ -1908,6 +1922,8 @@ def _validated_segment_edge_chain(
 def _segment_edge_chain_from_payload(payload: object, shape: ShapeTraceResult) -> list[BoundaryEdge]:
     if not isinstance(payload, dict):
         return []
+    if isinstance(payload.get("answer"), dict):
+        payload = payload["answer"]
     if isinstance(payload.get("edge_chain"), list):
         try:
             return [BoundaryEdge.model_validate(item) for item in payload["edge_chain"]]
@@ -1921,13 +1937,17 @@ def _segment_edge_chain_from_payload(payload: object, shape: ShapeTraceResult) -
         return []
     if not isinstance(evidence, list) or len(evidence) != len(directions):
         return []
+    evidence_lists = [
+        item if isinstance(item, list) else ([item] if isinstance(item, str) else [])
+        for item in evidence
+    ]
     try:
         return [
             BoundaryEdge(
                 direction=direction,
                 length_mm=length,
                 role=_edge_role(shape, index),
-                evidence_ids=evidence[index] if isinstance(evidence[index], list) else [],
+                evidence_ids=evidence_lists[index],
                 confidence=0.8 if length is not None else 0.5,
             )
             for index, (direction, length) in enumerate(zip(directions, lengths, strict=True))
@@ -2015,6 +2035,392 @@ def _explicit_wall_segment_edge_chain(shape: ShapeTraceResult, ocr_assist: dict)
             confidence=confidence,
         ))
     return _validated_segment_edge_chain(proposed, shape, ocr_assist)
+
+
+def _bbox_center(token: dict) -> tuple[float, float] | None:
+    try:
+        bbox = ImageBBox.model_validate(token.get("bbox"))
+    except (ValidationError, TypeError, ValueError):
+        return None
+    return (bbox.x_min + bbox.x_max) / 2, (bbox.y_min + bbox.y_max) / 2
+
+
+def _template_token_is_near_wall(token: dict, shape: ShapeTraceResult, wall_index: int) -> bool:
+    center = _bbox_center(token)
+    if center is None or not shape.corners:
+        return False
+    if not 0 <= wall_index < len(shape.corners):
+        return False
+    start = shape.corners[wall_index]
+    end = shape.corners[(wall_index + 1) % len(shape.corners)]
+    cx, cy = center
+    dx = abs(end.x - start.x)
+    dy = abs(end.y - start.y)
+    if max(dx, dy) < 2:
+        return False
+    token_orientation = str(token.get("orientation") or "").lower()
+    wall_is_horizontal = dx >= dy
+    if token_orientation == "horizontal" and not wall_is_horizontal:
+        return False
+    if token_orientation == "vertical" and wall_is_horizontal:
+        return False
+    tolerance = 230
+    span_pad = 170
+    if wall_is_horizontal:
+        line_y = (start.y + end.y) / 2
+        return (
+            abs(cy - line_y) <= tolerance
+            and min(start.x, end.x) - span_pad <= cx <= max(start.x, end.x) + span_pad
+        )
+    line_x = (start.x + end.x) / 2
+    return (
+        abs(cx - line_x) <= tolerance
+        and min(start.y, end.y) - span_pad <= cy <= max(start.y, end.y) + span_pad
+    )
+
+
+def _template_token_bbox_can_bind_wall(token: dict) -> bool:
+    if token.get("bbox_quality", "tight") != "tight":
+        return False
+    if "-total" in str(token.get("view_id") or ""):
+        return False
+    try:
+        bbox = ImageBBox.model_validate(token.get("bbox"))
+    except (ValidationError, TypeError, ValueError):
+        return False
+    width = bbox.x_max - bbox.x_min
+    height = bbox.y_max - bbox.y_min
+    orientation = str(token.get("orientation") or "").lower()
+    if width <= 0 or height <= 0:
+        return False
+    # Whole strip bboxes are still useful OCR observations, but they are not
+    # local enough to become a wall length. Keep this gate stricter than the
+    # catalog ingestion filter so poor bbox quality cannot create wrong W data.
+    if orientation == "horizontal":
+        return height <= 110 and width <= 190
+    if orientation == "vertical":
+        return width <= 110 and height <= 200
+    return width <= 170 and height <= 170
+
+
+def _template_adjacent_dimension_edge_chain(
+    shape: ShapeTraceResult,
+    ocr_assist: dict,
+) -> list[BoundaryEdge]:
+    directions = _shape_directions(shape)
+    if not directions:
+        return []
+    tokens = [
+        token for token in ocr_assist.get("tokens") or []
+        if token.get("template_visual")
+        and str(token.get("semantic_role") or "") == "wall_segment"
+        and len(_ocr_numbers(str(token.get("raw_text", "")))) == 1
+        and _ocr_numbers(str(token.get("raw_text", "")))[0] >= 30
+        and _bbox_center(token) is not None
+        and _template_token_bbox_can_bind_wall(token)
+    ]
+    by_wall: dict[int, list[dict]] = {index: [] for index in range(len(directions))}
+    for token in tokens:
+        candidates = [index for index in range(len(directions)) if _template_token_is_near_wall(token, shape, index)]
+        if not candidates:
+            continue
+        cx, cy = _bbox_center(token) or (0, 0)
+
+        def distance(index: int) -> float:
+            start = shape.corners[index]
+            end = shape.corners[(index + 1) % len(shape.corners)]
+            if directions[index] in {"right", "left"}:
+                return abs(cy - (start.y + end.y) / 2)
+            return abs(cx - (start.x + end.x) / 2)
+
+        by_wall[min(candidates, key=distance)].append(token)
+
+    edges: list[BoundaryEdge] = []
+    for wall_index, direction in enumerate(directions):
+        wall_tokens = by_wall.get(wall_index, [])
+        values = [_ocr_numbers(str(token.get("raw_text", "")))[0] for token in wall_tokens]
+        if not values:
+            length_mm = None
+            evidence_ids: list[str] = []
+            confidence = 0.5
+        elif len(values) == 1:
+            length_mm = values[0]
+            evidence_ids = [str(wall_tokens[0].get("id", ""))]
+            confidence = float(wall_tokens[0].get("confidence", 0.7) or 0.7)
+        elif any(value >= 1000 for value in values):
+            short_groups: dict[str, list[dict]] = {}
+            for token in wall_tokens:
+                value = _ocr_numbers(str(token.get("raw_text", "")))[0]
+                if value < 1000:
+                    short_groups.setdefault(str(token.get("view_id") or ""), []).append(token)
+            additive_group = next(
+                (
+                    group for view_id, group in short_groups.items()
+                    if len(group) >= 2 and view_id and "-total" not in view_id
+                ),
+                None,
+            )
+            if additive_group:
+                axis = 0 if direction in {"right", "left"} else 1
+                ordered = sorted(
+                    additive_group,
+                    key=lambda token: (_bbox_center(token) or (0, 0))[axis],
+                    reverse=direction in {"left", "up"},
+                )
+                length_mm = sum(_ocr_numbers(str(token.get("raw_text", "")))[0] for token in ordered)
+                evidence_ids = [str(token.get("id", "")) for token in ordered if token.get("id")]
+                confidence = min(float(token.get("confidence", 0.7) or 0.7) for token in ordered)
+            else:
+                token = min(
+                    wall_tokens,
+                    key=lambda item: (
+                        _ocr_numbers(str(item.get("raw_text", "")))[0] < 1000,
+                        -float(item.get("confidence", 0.7) or 0.7),
+                    ),
+                )
+                length_mm = _ocr_numbers(str(token.get("raw_text", "")))[0]
+                evidence_ids = [str(token.get("id", ""))]
+                confidence = float(token.get("confidence", 0.7) or 0.7)
+        else:
+            axis = 0 if direction in {"right", "left"} else 1
+            local_groups: dict[str, list[dict]] = {}
+            for token in wall_tokens:
+                view_id = str(token.get("view_id") or "")
+                if view_id and "-total" not in view_id:
+                    local_groups.setdefault(view_id, []).append(token)
+            additive_group = max(
+                (group for group in local_groups.values() if len(group) >= 2),
+                key=lambda group: (
+                    sum(_ocr_numbers(str(token.get("raw_text", "")))[0] for token in group),
+                    len(group),
+                ),
+                default=wall_tokens,
+            )
+            length_mm = sum(_ocr_numbers(str(token.get("raw_text", "")))[0] for token in additive_group)
+            ordered = sorted(
+                additive_group,
+                key=lambda token: (_bbox_center(token) or (0, 0))[axis],
+                reverse=direction in {"left", "up"},
+            )
+            evidence_ids = [str(token.get("id", "")) for token in ordered if token.get("id")]
+            confidence = min(float(token.get("confidence", 0.7) or 0.7) for token in additive_group)
+        edges.append(BoundaryEdge(
+            direction=direction,
+            length_mm=length_mm,
+            role=_edge_role(shape, wall_index),
+            evidence_ids=evidence_ids,
+            confidence=confidence,
+        ))
+    constrained = _apply_template_axis_total_constraints(edges, shape, ocr_assist)
+    return _validated_segment_edge_chain(constrained, shape, ocr_assist)
+
+
+def _template_axis_total_token(token: dict) -> tuple[str, int] | None:
+    if not token.get("template_visual"):
+        return None
+    if str(token.get("semantic_role") or "") != "wall_segment":
+        return None
+    values = _ocr_numbers(str(token.get("raw_text", "")))
+    if len(values) != 1 or values[0] < 1000:
+        return None
+    view_id = str(token.get("view_id") or "")
+    related_to = str(token.get("related_to") or "")
+    if "-total" in view_id:
+        if "top" in view_id:
+            return "top", values[0]
+        if "bottom" in view_id:
+            return "bottom", values[0]
+    if related_to == "dimension_chain:top" and values[0] >= 3000:
+        return "top", values[0]
+    if related_to == "dimension_chain:bottom" and values[0] >= 3000:
+        return "bottom", values[0]
+    return None
+
+
+def _template_token_value(token: dict) -> int | None:
+    values = _ocr_numbers(str(token.get("raw_text", "")))
+    if len(values) != 1:
+        return None
+    return values[0]
+
+
+def _repair_template_axis_total_readings(ocr_assist: dict) -> None:
+    """Recover dropped digits in total strips from same-chain model segments."""
+    tokens = [token for token in ocr_assist.get("tokens") or [] if token.get("template_visual")]
+    for total_token in tokens:
+        view_id = str(total_token.get("view_id") or "")
+        chain = "bottom" if view_id == "strip-bottom-total" else "top" if view_id == "strip-top-total" else ""
+        if not chain:
+            continue
+        current = _template_token_value(total_token)
+        if current is None or not 100 <= current <= 999:
+            continue
+        segment_values: list[tuple[int, str]] = []
+        for token in tokens:
+            if token is total_token or str(token.get("semantic_role") or "") != "wall_segment":
+                continue
+            if "-total" in str(token.get("view_id") or ""):
+                continue
+            if str(token.get("related_to") or "") != f"dimension_chain:{chain}":
+                continue
+            value = _template_token_value(token)
+            if value is None or not 30 <= value <= 2999:
+                continue
+            segment_values.append((value, str(token.get("id") or "")))
+        best_sum: int | None = None
+        for size in range(2, min(6, len(segment_values)) + 1):
+            for group in itertools.combinations(segment_values, size):
+                total = sum(value for value, _ in group)
+                if 3000 <= total <= 6000 and abs(total - current * 10) <= 20:
+                    if best_sum is None or abs(total - current * 10) < abs(best_sum - current * 10):
+                        best_sum = total
+        if best_sum is None:
+            continue
+        previous_text = str(total_token.get("raw_text", ""))
+        total_token["raw_text"] = str(best_sum)
+        total_token["normalized_candidates"] = _ocr_candidates(str(best_sum))
+        total_token["alternate_readings"] = list(dict.fromkeys([
+            *(total_token.get("alternate_readings") or []),
+            previous_text,
+        ]))
+        total_token["template_total_repaired_from_segments"] = True
+
+
+def _apply_template_axis_total_constraints(
+    edges: list[BoundaryEdge],
+    shape: ShapeTraceResult,
+    ocr_assist: dict,
+) -> list[BoundaryEdge]:
+    """Use total dimension readings as axis constraints, not single-wall data."""
+    if not edges:
+        return edges
+    directions = _shape_directions(shape)
+    if len(directions) != len(edges):
+        return edges
+    tokens = [token for token in ocr_assist.get("tokens") or [] if token.get("template_visual")]
+    totals: dict[str, tuple[int, str, float]] = {}
+    for token in tokens:
+        total = _template_axis_total_token(token)
+        if total is None:
+            continue
+        chain, value = total
+        token_id = str(token.get("id", ""))
+        confidence = float(token.get("confidence", 0.6) or 0.6)
+        current = totals.get(chain)
+        if current is None or confidence > current[2]:
+            totals[chain] = (value, token_id, confidence)
+
+    if not totals:
+        return edges
+
+    by_id = {str(token.get("id", "")): token for token in tokens if token.get("id")}
+    result = [edge.model_copy(deep=True) for edge in edges]
+    for chain, direction in (("bottom", "right"), ("top", "left")):
+        total = totals.get(chain)
+        if total is None:
+            continue
+        total_value, total_id, total_confidence = total
+        indexes = [index for index, edge in enumerate(result) if edge.direction == direction]
+        known = sum(edge.length_mm or 0 for index, edge in enumerate(result) if index in indexes)
+        missing = [index for index in indexes if result[index].length_mm is None]
+        if not missing:
+            replacement_options: list[tuple[int, int, dict]] = []
+            for replace_index in indexes:
+                edge = result[replace_index]
+                if edge.length_mm is None:
+                    continue
+                remainder = total_value - (known - edge.length_mm)
+                if remainder < 30 or remainder == edge.length_mm:
+                    continue
+                candidates = [
+                    token for token in tokens
+                    if str(token.get("semantic_role") or "") == "wall_segment"
+                    and str(token.get("id") or "") != total_id
+                    and _template_token_value(token) == remainder
+                    and _bbox_center(token) is not None
+                    and _template_token_is_near_wall(token, shape, replace_index)
+                    and "-total" not in str(token.get("view_id") or "")
+                ]
+                if candidates:
+                    candidates.sort(key=lambda token: float(token.get("confidence", 0.5) or 0.5), reverse=True)
+                    replacement_options.append((replace_index, remainder, candidates[0]))
+            if len(replacement_options) == 1:
+                replace_index, remainder, token = replacement_options[0]
+                result[replace_index] = BoundaryEdge(
+                    direction=direction,
+                    length_mm=remainder,
+                    role=_edge_role(shape, replace_index),
+                    evidence_ids=[str(token.get("id")), total_id],
+                    confidence=min(total_confidence, float(token.get("confidence", 0.6) or 0.6)),
+                )
+                continue
+        if len(missing) != 1:
+            continue
+        remainder = total_value - known
+        if remainder <= 0:
+            moved = False
+            for source_index in indexes:
+                edge = result[source_index]
+                if source_index == missing[0] or edge.length_mm is None or len(edge.evidence_ids) < 2:
+                    continue
+                for evidence_id in list(edge.evidence_ids):
+                    token = by_id.get(evidence_id)
+                    if token is None or str(token.get("id") or "") == total_id:
+                        continue
+                    value = _template_token_value(token)
+                    if value is None or value < 1000:
+                        continue
+                    if total_value - ((edge.length_mm or 0) - value) != value:
+                        continue
+                    if not _template_token_is_near_wall(token, shape, missing[0]):
+                        continue
+                    remaining_ids = [item for item in edge.evidence_ids if item != evidence_id]
+                    remaining_length = (edge.length_mm or 0) - value
+                    if remaining_length < 30:
+                        continue
+                    result[source_index] = BoundaryEdge(
+                        direction=edge.direction,
+                        length_mm=remaining_length,
+                        role=_edge_role(shape, source_index),
+                        evidence_ids=remaining_ids,
+                        confidence=edge.confidence,
+                    )
+                    result[missing[0]] = BoundaryEdge(
+                        direction=direction,
+                        length_mm=value,
+                        role=_edge_role(shape, missing[0]),
+                        evidence_ids=[evidence_id, total_id],
+                        confidence=min(total_confidence, float(token.get("confidence", 0.6) or 0.6)),
+                    )
+                    moved = True
+                    break
+                if moved:
+                    break
+            if moved:
+                continue
+        if remainder < 30:
+            continue
+        candidates = [
+            token for token in tokens
+            if str(token.get("semantic_role") or "") == "wall_segment"
+            and str(token.get("id") or "") != total_id
+            and _template_token_value(token) == remainder
+            and _bbox_center(token) is not None
+            and _template_token_is_near_wall(token, shape, missing[0])
+            and "-total" not in str(token.get("view_id") or "")
+        ]
+        if not candidates:
+            continue
+        candidates.sort(key=lambda token: float(token.get("confidence", 0.5) or 0.5), reverse=True)
+        token = candidates[0]
+        result[missing[0]] = BoundaryEdge(
+            direction=direction,
+            length_mm=remainder,
+            role=_edge_role(shape, missing[0]),
+            evidence_ids=[str(token.get("id")), total_id],
+            confidence=min(total_confidence, float(token.get("confidence", 0.6) or 0.6)),
+        )
+    return result
 
 
 def _merge_segment_edge_chains(primary: list[BoundaryEdge], fallback: list[BoundaryEdge]) -> list[BoundaryEdge]:
@@ -2111,7 +2517,13 @@ async def _resolve_segment_edge_chain(
 ) -> list[BoundaryEdge]:
     seed = _seed_segment_edge_chain(shape, ocr_assist)
     if not seed:
-        return []
+        directions = _shape_directions(shape)
+        if not directions or not any(token.get("template_visual") for token in ocr_assist.get("tokens") or []):
+            return []
+        seed = [
+            BoundaryEdge(direction=direction, length_mm=None, role=_edge_role(shape, index), evidence_ids=[], confidence=0.5)
+            for index, direction in enumerate(directions)
+        ]
     explicit = _explicit_wall_segment_edge_chain(shape, ocr_assist)
     fallback = _merge_segment_edge_chains(seed, explicit)
     coordinated = await _coordinate_segment_edge_chain(
@@ -2129,6 +2541,9 @@ async def _resolve_segment_edge_chain(
             BoundaryEdge(direction=edge.direction, length_mm=None, role=edge.role, evidence_ids=[], confidence=0.5)
             for edge in seed
         ]
+        template_adjacent = _template_adjacent_dimension_edge_chain(shape, ocr_assist)
+        seed = _merge_segment_edge_chains(template_adjacent, seed)
+        fallback = _merge_segment_edge_chains(seed, fallback)
         catalog_tokens = template_tokens
     else:
         catalog_tokens = [
@@ -2664,6 +3079,8 @@ def _image_path_data_url(path: Path, max_size: int = 1800) -> str:
 def _ocr_rotation_candidates(ocr_assist: dict) -> list[dict]:
     candidates: list[tuple[int, dict]] = []
     for token in ocr_assist.get("tokens") or []:
+        if token.get("template_visual"):
+            continue
         if (
             token.get("wall_crop_vision")
             and token.get("confidence", 0) >= 0.85
@@ -2920,6 +3337,41 @@ def _extract_json(content: object) -> dict:
     if last_error:
         raise AIResponseError(f"模型 JSON 格式无效：{last_error.msg}") from last_error
     raise AIResponseError("模型没有返回可解析的 JSON")
+
+
+def _extract_json_value(content: object) -> object:
+    if isinstance(content, list):
+        content = "".join(str(item.get("text", "")) for item in content if isinstance(item, dict))
+    if not isinstance(content, str):
+        raise AIResponseError("模型响应没有文本内容")
+    text = content.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
+    decoder = json.JSONDecoder()
+    last_error: json.JSONDecodeError | None = None
+    for match in re.finditer(r"[\{\[]", text):
+        try:
+            value, _ = decoder.raw_decode(text[match.start():])
+            if isinstance(value, (dict, list)):
+                return value
+        except json.JSONDecodeError as error:
+            last_error = error
+    if last_error:
+        raise AIResponseError(f"模型 JSON 格式无效：{last_error.msg}") from last_error
+    raise AIResponseError("模型没有返回可解析的 JSON")
+
+
+def _extract_evidence_report(content: object) -> PlanEvidenceReport:
+    parsed = _extract_json_value(content)
+    if isinstance(parsed, dict):
+        return PlanEvidenceReport.model_validate(parsed)
+    if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict) and "evidence" in parsed[0]:
+        return PlanEvidenceReport.model_validate(parsed[0])
+    return PlanEvidenceReport.model_validate({
+        "rotation_degrees": 0,
+        "evidence": parsed if isinstance(parsed, list) else [],
+        "uncertain": [],
+    })
 
 
 def _models(preferred: str | None = None) -> list[str]:
@@ -3353,6 +3805,83 @@ TEMPLATE_TILE_VIEWS = [
     ("r2c3", ImageBBox(x_min=600, y_min=440, x_max=1000, y_max=1000)),
 ]
 
+TEMPLATE_DIMENSION_STRIP_VIEWS = [
+    ("strip-top-total", ImageBBox(x_min=330, y_min=240, x_max=470, y_max=340), "horizontal"),
+    ("strip-top-left", ImageBBox(x_min=160, y_min=285, x_max=325, y_max=395), "horizontal"),
+    ("strip-top-mid", ImageBBox(x_min=320, y_min=280, x_max=450, y_max=420), "horizontal"),
+    ("strip-top-right", ImageBBox(x_min=450, y_min=285, x_max=660, y_max=405), "horizontal"),
+    ("strip-top-full-chain", ImageBBox(x_min=155, y_min=245, x_max=665, y_max=410), "horizontal"),
+    ("strip-recess-left", ImageBBox(x_min=300, y_min=365, x_max=390, y_max=520), "vertical"),
+    ("strip-recess-right", ImageBBox(x_min=400, y_min=365, x_max=485, y_max=520), "vertical"),
+    ("strip-recess-bottom", ImageBBox(x_min=315, y_min=455, x_max=455, y_max=555), "horizontal"),
+    ("strip-recess-full", ImageBBox(x_min=300, y_min=340, x_max=490, y_max=555), "free"),
+    ("strip-left-upper", ImageBBox(x_min=80, y_min=335, x_max=215, y_max=505), "vertical"),
+    ("strip-left-main", ImageBBox(x_min=50, y_min=500, x_max=180, y_max=760), "vertical"),
+    ("strip-left-full-chain", ImageBBox(x_min=50, y_min=330, x_max=215, y_max=770), "vertical"),
+    ("strip-right-main", ImageBBox(x_min=585, y_min=480, x_max=730, y_max=775), "vertical"),
+    ("strip-right-total", ImageBBox(x_min=650, y_min=455, x_max=815, y_max=795), "vertical"),
+    ("strip-right-full-chain", ImageBBox(x_min=585, y_min=330, x_max=730, y_max=775), "vertical"),
+    ("strip-bottom-door", ImageBBox(x_min=35, y_min=800, x_max=325, y_max=930), "horizontal"),
+    ("strip-bottom-main", ImageBBox(x_min=350, y_min=745, x_max=625, y_max=900), "horizontal"),
+    ("strip-bottom-total", ImageBBox(x_min=245, y_min=760, x_max=455, y_max=895), "horizontal"),
+    ("strip-bottom-total-tight", ImageBBox(x_min=285, y_min=775, x_max=405, y_max=845), "horizontal"),
+    ("strip-bottom-full-chain", ImageBBox(x_min=35, y_min=760, x_max=630, y_max=1000), "horizontal"),
+]
+TEMPLATE_DIMENSION_STRIP_REGIONS = {
+    view_id: region for view_id, region, _ in TEMPLATE_DIMENSION_STRIP_VIEWS
+}
+
+
+def _clamped_bbox(x_min: int, y_min: int, x_max: int, y_max: int) -> ImageBBox:
+    return ImageBBox(
+        x_min=max(0, min(999, x_min)),
+        y_min=max(0, min(999, y_min)),
+        x_max=max(1, min(1000, x_max)),
+        y_max=max(1, min(1000, y_max)),
+    )
+
+
+def _shape_dimension_strip_views(shape: ShapeTraceResult | None) -> list[tuple[str, ImageBBox, str]]:
+    if shape is None or not shape.closed or len(shape.corners) < 4:
+        return []
+    directions = _shape_directions(shape)
+    if len(directions) != len(shape.corners):
+        return []
+    views: list[tuple[str, ImageBBox, str]] = []
+    along_pad = 115
+    cross_pad = 175
+    for index, direction in enumerate(directions):
+        start = shape.corners[index]
+        end = shape.corners[(index + 1) % len(shape.corners)]
+        if direction in {"right", "left"}:
+            x_min = min(start.x, end.x) - along_pad
+            x_max = max(start.x, end.x) + along_pad
+            line_y = round((start.y + end.y) / 2)
+            views.append((f"wall-{index}-h", _clamped_bbox(x_min, line_y - cross_pad, x_max, line_y + cross_pad), "horizontal"))
+        else:
+            y_min = min(start.y, end.y) - along_pad
+            y_max = max(start.y, end.y) + along_pad
+            line_x = round((start.x + end.x) / 2)
+            views.append((f"wall-{index}-v", _clamped_bbox(line_x - cross_pad, y_min, line_x + cross_pad, y_max), "vertical"))
+    return views
+
+
+def _dimension_strip_data_url(
+    path: Path,
+    rotation_degrees: int,
+    region: ImageBBox,
+    orientation: str,
+    *,
+    rotated: bool = False,
+) -> str:
+    crop = _crop_normalized_image(_oriented_image(path, rotation_degrees, trim_document=True), region)
+    if rotated and orientation == "vertical":
+        crop = crop.rotate(90, expand=True)
+    crop = ImageOps.autocontrast(ImageOps.grayscale(crop), cutoff=1)
+    crop = ImageEnhance.Contrast(crop).enhance(2.35)
+    crop = ImageEnhance.Sharpness(crop).enhance(2.0)
+    return _image_data_url(crop.convert("RGB"), max_size=1200)
+
 
 def _map_region_bbox(local: ImageBBox, region: ImageBBox) -> ImageBBox:
     width = region.x_max - region.x_min
@@ -3382,6 +3911,41 @@ def _dedupe_evidence(items: list[VisualEvidence]) -> list[VisualEvidence]:
         if not duplicate:
             result.append(item)
     return sorted(result, key=lambda item: (item.bbox.y_min, item.bbox.x_min))
+
+
+def _dimension_bbox_is_usable(text: str, bbox: ImageBBox) -> bool:
+    width = bbox.x_max - bbox.x_min
+    height = bbox.y_max - bbox.y_min
+    digit_count = sum(1 for character in text if character.isdigit())
+    if width > 180 or height > 180:
+        return False
+    if digit_count >= 4 and width < 24:
+        return False
+    if digit_count >= 3 and width < 18:
+        return False
+    if digit_count >= 3 and min(width, height) < 8:
+        return False
+    return width >= 4 and height >= 4
+
+
+def _template_bbox_quality(view_id: str, bbox: ImageBBox) -> str:
+    region = TEMPLATE_DIMENSION_STRIP_REGIONS.get(view_id)
+    width = bbox.x_max - bbox.x_min
+    height = bbox.y_max - bbox.y_min
+    if region is None:
+        if width > 220 or height > 220:
+            return "coarse_strip"
+        return "tight"
+    region_width = region.x_max - region.x_min
+    region_height = region.y_max - region.y_min
+    if (
+        width >= region_width * 0.82
+        and height >= region_height * 0.82
+        and abs(bbox.x_min - region.x_min) <= max(4, region_width * 0.08)
+        and abs(bbox.y_min - region.y_min) <= max(4, region_height * 0.08)
+    ):
+        return "whole_strip"
+    return "tight"
 
 
 async def _collect_evidence_hosted(
@@ -3596,6 +4160,15 @@ def _edge_chain_to_boundary(edges: list[BoundaryEdge]) -> list[Point2D]:
     return [Point2D(x_mm=point.x_mm - min_x, z_mm=point.z_mm - min_z) for point in points[:-1]]
 
 
+def _estimated_metric_geometry_from_shape(
+    shape: ShapeTraceResult | None,
+    ocr_assist: dict | None,
+) -> tuple[list[Point2D], list[BoundaryEdge]]:
+    # The drawing is not to scale. Missing wall lengths must remain unresolved
+    # until tied to adjacent dimension evidence or solved by closure.
+    return [], []
+
+
 def _point_marker_position(
     marker: VisualEvidence,
     annotation_boundary: list[ShapeCorner],
@@ -3624,6 +4197,28 @@ def _point_marker_position(
     return position if point_in_polygon(position.x_mm, position.z_mm, metric_boundary) else None
 
 
+def _point_marker_position_from_shape(
+    marker: VisualEvidence,
+    annotation_boundary: list[ShapeCorner],
+) -> Point2D | None:
+    if len(annotation_boundary) < 3:
+        return None
+    min_px = min(point.x for point in annotation_boundary)
+    max_px = max(point.x for point in annotation_boundary)
+    min_py = min(point.y for point in annotation_boundary)
+    max_py = max(point.y for point in annotation_boundary)
+    if max_px <= min_px or max_py <= min_py:
+        return None
+    center_x = (marker.bbox.x_min + marker.bbox.x_max) / 2
+    center_y = (marker.bbox.y_min + marker.bbox.y_max) / 2
+    if not (min_px <= center_x <= max_px and min_py <= center_y <= max_py):
+        return None
+    return Point2D(
+        x_mm=round((center_x - min_px) * 1000 / (max_px - min_px)),
+        z_mm=round((center_y - min_py) * 1000 / (max_py - min_py)),
+    )
+
+
 def _point_marker_kind(text: str) -> str:
     compact = re.sub(r"\s+", "", _normalize_ocr_text(text)).lower()
     if "地漏" in compact or "floor_drain" in compact:
@@ -3644,6 +4239,11 @@ def _coded_opening_row(text: str) -> tuple[str, int, int, int] | None:
         match = re.search(rf"\b{field}\s*[:：=]?\s*(\d+)", text, flags=re.IGNORECASE)
         if match:
             values[field] = int(match.group(1))
+    if code_match and not values:
+        row_text = text[:code_match.start()] + text[code_match.end():]
+        row_values = [int(match.group(0)) for match in re.finditer(r"(?<!\d)\d{1,5}(?!\d)", row_text)]
+        if len(row_values) >= 3:
+            values = {"CG": row_values[0], "CK": row_values[1], "CH": row_values[2]}
     if not code_match or set(values) != {"CG", "CK", "CH"}:
         return None
     if values["CK"] <= 0 or values["CH"] <= 0:
@@ -3690,6 +4290,35 @@ def _edge_opening_range(
     return None
 
 
+def _opening_range_from_target(
+    target_id: object,
+    width_mm: int,
+    edges: list[BoundaryEdge],
+) -> tuple[int, int, list[str]] | None:
+    match = re.fullmatch(
+        r"wall:(\d+)(?:@(0(?:\.\d+)?|1(?:\.0+)?)(?::(0(?:\.\d+)?|1(?:\.0+)?))?)?",
+        str(target_id or ""),
+    )
+    if not match:
+        return None
+    wall_index = int(match.group(1))
+    if wall_index < 0 or wall_index >= len(edges):
+        return None
+    host = edges[wall_index]
+    if not host.length_mm or host.length_mm < width_mm:
+        return None
+    first = float(match.group(2)) if match.group(2) is not None else None
+    second = float(match.group(3)) if match.group(3) is not None else None
+    if first is None:
+        return None
+    if second is not None:
+        offset = round(min(first, second) * host.length_mm)
+    else:
+        offset = round(first * host.length_mm - width_mm / 2)
+    offset = max(0, min(offset, host.length_mm - width_mm))
+    return wall_index, offset, []
+
+
 def _opening_specs_from_tokens(ocr_assist: dict | None, edges: list[BoundaryEdge]) -> list[OpeningSpec]:
     tokens = {str(token.get("id", "")): token for token in (ocr_assist or {}).get("tokens", [])}
     candidates: list[tuple[float, str, int, int, int, str, tuple[int, int, list[str]] | None]] = []
@@ -3700,6 +4329,8 @@ def _opening_specs_from_tokens(ocr_assist: dict | None, edges: list[BoundaryEdge
                 continue
             code, sill_mm, width_mm, height_mm = row
             chain = _edge_opening_range(width_mm, edges, tokens)
+            if chain is None:
+                chain = _opening_range_from_target(token.get("target_id"), width_mm, edges)
             score = float(token.get("confidence", 0.5)) + (1 if chain else 0)
             candidates.append((score, code, sill_mm, width_mm, height_mm, token_id, chain))
     selected: dict[str, tuple[float, str, int, int, int, str, tuple[int, int, list[str]] | None]] = {}
@@ -3726,7 +4357,204 @@ def _opening_specs_from_tokens(ocr_assist: dict | None, edges: list[BoundaryEdge
             confidence=min(0.95, selected[code][0] / 2),
             evidence_ids=list(dict.fromkeys([token_id, *chain_ids])),
         ))
-    return openings
+    return openings or _opening_specs_from_dimension_chain_tokens(ocr_assist, edges)
+
+
+def _opening_specs_from_dimension_chain_tokens(
+    ocr_assist: dict | None,
+    edges: list[BoundaryEdge],
+) -> list[OpeningSpec]:
+    all_tokens = (ocr_assist or {}).get("tokens", [])
+    dimension_tokens = [
+        token for token in (ocr_assist or {}).get("tokens", [])
+        if _template_token_can_support_opening_chain(token)
+    ]
+    horizontal_edges = [
+        (index, edge) for index, edge in enumerate(edges)
+        if edge.direction in {"right", "left"} and edge.length_mm and edge.length_mm >= 1200
+    ]
+    if not horizontal_edges:
+        return []
+    candidates: list[OpeningSpec] = []
+    for token in all_tokens:
+        token_id = str(token.get("id", ""))
+        best_row: tuple[str, int, int, int] | None = None
+        for reading in _ocr_readings(token):
+            row = _coded_opening_row(reading)
+            if row is not None:
+                best_row = row
+                break
+        if best_row is None:
+            continue
+        code, sill_mm, width_mm, height_mm = best_row
+        chain_result = _template_opening_dimension_chain(dimension_tokens, opening_width_mm=width_mm)
+        width_source = "opening_row"
+        if chain_result is None:
+            relaxed_chain = _template_opening_dimension_chain(dimension_tokens)
+            if relaxed_chain is not None:
+                door_chain = _door_dimension_subchain(relaxed_chain[1])
+                if door_chain is not None:
+                    width_mm = door_chain[1][2]
+                    width_source = "dimension_chain"
+                    chain_result = (relaxed_chain[0], door_chain)
+        if chain_result is None:
+            continue
+        _, chain = chain_result
+        center_y = sum(item[0] for item in chain) / len(chain)
+        width_position = next((index for index, item in enumerate(chain) if item[2] == width_mm), None)
+        if width_position is None:
+            continue
+        offset_mm = sum(item[2] for item in chain[:width_position])
+        wall_index, host, offset_mm = _select_opening_host_edge(
+            ocr_assist, edges, horizontal_edges, center_y, offset_mm, width_mm,
+        )
+        if offset_mm + width_mm > (host.length_mm or 0):
+            continue
+        evidence_ids = [item[3] for item in chain if item[3]]
+        candidates.append(OpeningSpec(
+            id=f"opening-{code.lower()}",
+            kind="window" if code.startswith("W") else "door",
+            wall_index=wall_index,
+            offset_mm=offset_mm,
+            width_mm=width_mm,
+            height_mm=height_mm,
+            thickness_mm=100,
+            sill_mm=sill_mm,
+            label=code,
+            source=SourceKind.estimated,
+            confidence=min(0.75, float(token.get("confidence", 0.5)) * (0.55 if width_source == "dimension_chain" else 0.7) + 0.25),
+            evidence_ids=list(dict.fromkeys([token_id, *evidence_ids])),
+        ))
+    return candidates
+
+
+def _template_token_can_support_opening_chain(token: dict) -> bool:
+    if not token.get("template_visual"):
+        return False
+    if len(_ocr_numbers(str(token.get("raw_text", "")))) != 1:
+        return False
+    role = str(token.get("semantic_role") or "")
+    if role in {"wall_segment", "door_size"}:
+        return True
+    if role == "drain_position":
+        view_id = str(token.get("view_id") or "")
+        related_to = str(token.get("related_to") or "")
+        return "bottom-door" in view_id or related_to == "dimension_chain:bottom"
+    return False
+
+
+def _select_opening_host_edge(
+    ocr_assist: dict | None,
+    edges: list[BoundaryEdge],
+    horizontal_edges: list[tuple[int, BoundaryEdge]],
+    chain_center_y: float,
+    offset_mm: int,
+    width_mm: int,
+) -> tuple[int, BoundaryEdge, int]:
+    ranked = sorted(
+        horizontal_edges,
+        key=lambda item: (
+            abs(chain_center_y - _edge_annotation_center_y(ocr_assist, item[0])),
+            -float(item[1].length_mm or 0),
+        ),
+    )
+    wall_index, host = ranked[0]
+    arc_host = _door_arc_host_edge(edges, wall_index, offset_mm, width_mm)
+    if arc_host is not None:
+        wall_index, host = arc_host
+    usable_length = int(host.length_mm or 0)
+    if usable_length > 0 and offset_mm + width_mm > usable_length:
+        offset_mm = max(0, usable_length - width_mm)
+    return wall_index, host, offset_mm
+
+
+def _door_arc_host_edge(
+    edges: list[BoundaryEdge],
+    selected_wall_index: int,
+    offset_mm: int,
+    width_mm: int,
+) -> tuple[int, BoundaryEdge] | None:
+    if not edges:
+        return None
+    previous = (selected_wall_index - 2) % len(edges)
+    hinge = (selected_wall_index - 1) % len(edges)
+    host = edges[previous]
+    turn = edges[hinge]
+    selected = edges[selected_wall_index]
+    if host.direction != selected.direction or host.direction not in {"right", "left"}:
+        return None
+    if turn.direction not in {"up", "down"} or not turn.length_mm or turn.length_mm > max(450, width_mm * 0.7):
+        return None
+    if not host.length_mm or host.length_mm < width_mm * 0.75:
+        return None
+    if offset_mm + width_mm <= host.length_mm:
+        return None
+    if selected.length_mm and selected.length_mm > host.length_mm * 1.2:
+        return previous, host
+    return None
+
+
+def _door_dimension_subchain(
+    chain: list[tuple[float, float, int, str]]
+) -> list[tuple[float, float, int, str]] | None:
+    ordered = sorted(chain, key=lambda item: item[1])
+    candidates: list[list[tuple[float, float, int, str]]] = []
+    for index in range(len(ordered) - 2):
+        window = ordered[index:index + 3]
+        left, middle, right = [item[2] for item in window]
+        if middle <= left or middle <= right:
+            continue
+        if middle < 500 or middle > 1300:
+            continue
+        if left <= 0 or right <= 0:
+            continue
+        candidates.append(window)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[1][2])
+
+
+def _template_opening_dimension_chain(
+    tokens: list[dict],
+    opening_width_mm: int | None = None,
+) -> tuple[float, list[tuple[float, float, int, str]]] | None:
+    segments: list[tuple[float, float, int, str]] = []
+    for token in tokens:
+        numbers = _ocr_numbers(str(token.get("raw_text", "")))
+        if len(numbers) != 1:
+            continue
+        try:
+            bbox = ImageBBox.model_validate(token.get("bbox"))
+        except (ValidationError, TypeError, ValueError):
+            continue
+        value = numbers[0]
+        center_x = (bbox.x_min + bbox.x_max) / 2
+        center_y = (bbox.y_min + bbox.y_max) / 2
+        segments.append((center_y, center_x, value, str(token.get("id", ""))))
+    if len(segments) < 3:
+        return None
+    best: tuple[float, list[tuple[float, float, int, str]]] | None = None
+    for anchor_y, *_ in segments:
+        row = [segment for segment in segments if abs(segment[0] - anchor_y) <= 90]
+        candidate = sorted(row, key=lambda item: item[1])
+        if len(candidate) < 3:
+            continue
+        if opening_width_mm is not None and opening_width_mm not in [item[2] for item in candidate]:
+            continue
+        spread = max(item[0] for item in candidate) - min(item[0] for item in candidate)
+        score = spread - len(candidate) * 0.01
+        if best is None or score < best[0]:
+            best = (score, candidate)
+    return best
+
+
+def _edge_annotation_center_y(ocr_assist: dict | None, wall_index: int) -> float:
+    shape = (ocr_assist or {}).get("shape_trace")
+    if not isinstance(shape, ShapeTraceResult) or not shape.corners:
+        return 500.0
+    start = shape.corners[wall_index]
+    end = shape.corners[(wall_index + 1) % len(shape.corners)]
+    return (start.y + end.y) / 2
 
 
 async def _collect_template_evidence(
@@ -3736,6 +4564,7 @@ async def _collect_template_evidence(
     path: Path,
     rotation: int,
     trace_ids: list[str],
+    shape: ShapeTraceResult | None = None,
 ) -> PlanEvidenceReport | None:
     oriented = _oriented_image(path, rotation, trim_document=True).convert("RGB")
     for model in _template_evidence_models():
@@ -3770,7 +4599,7 @@ async def _collect_template_evidence(
                         trace_ids=trace_ids,
                         max_retries=1,
                     )
-                report = PlanEvidenceReport.model_validate(_extract_json(content))
+                report = _extract_evidence_report(content)
             except AIAuthenticationError:
                 raise
             except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
@@ -3784,11 +4613,140 @@ async def _collect_template_evidence(
                     mapped.append(item)
             return mapped
 
+        async def read_dimension_strip(view_id: str, region: ImageBBox, orientation_hint: str) -> list[VisualEvidence]:
+            prompt = (
+                "你只读取这条裁剪尺寸带中的贴线尺寸数字。每个数字必须单独输出一条 dimension evidence；"
+                "bbox 只框数字本身，必须相对第一张未旋转尺寸带使用 0..1000。不要输出门窗表、图例、洁具或墙线。"
+                "如果同一条尺寸线上连续看到多个数字，逐个输出，并用同一个 related_to 标明"
+                " dimension_chain:top、dimension_chain:bottom、dimension_chain:left、dimension_chain:right 或 dimension_chain:recess。"
+                "不要因为户型线条看起来长短去估计任何数值，只能输出图中真实可见的数字。"
+                "四位尺寸末尾的 0 必须保留，不要把清晰的四位数字简写成三位。"
+                "如果后面提供了旋转阅读图，它只帮助读竖排文字，bbox 仍必须回填到第一张未旋转尺寸带坐标。"
+                "只输出 JSON：{\"rotation_degrees\":0,\"evidence\":[{\"id\":\"S1\",\"kind\":\"dimension\",\"text\":\"800\","
+                "\"bbox\":{\"x_min\":0,\"y_min\":0,\"x_max\":1000,\"y_max\":1000},\"orientation\":\"horizontal\","
+                "\"related_to\":\"dimension_chain:bottom\",\"view_id\":\"strip\",\"confidence\":0.5}],\"uncertain\":[]}。"
+            )
+            images = [
+                {"type": "text", "text": f"尺寸带 {view_id} 的未旋转原图；bbox 必须相对这一张"},
+                {"type": "image_url", "image_url": {"url": _dimension_strip_data_url(path, rotation, region, orientation_hint), "detail": "high"}},
+                {"type": "text", "text": "同一尺寸带的笔迹隔离图；只从其中确认手写数字"},
+                {"type": "image_url", "image_url": {"url": _ink_crop_data_url(path, rotation, region), "detail": "high"}},
+            ]
+            if orientation_hint == "vertical":
+                images.extend([
+                    {"type": "text", "text": "同一尺寸带旋转阅读图；仅用于辨认竖排数字，不能用它的坐标作为 bbox"},
+                    {"type": "image_url", "image_url": {"url": _dimension_strip_data_url(path, rotation, region, orientation_hint, rotated=True), "detail": "high"}},
+                ])
+            try:
+                async with semaphore:
+                    content = await _request_content(
+                        client,
+                        endpoint,
+                        headers,
+                        [
+                            {"role": "system", "content": prompt},
+                            {"role": "user", "content": images},
+                        ],
+                        model,
+                        json_object=True,
+                        stage=f"template-dimension-strip-{view_id}",
+                        extra_payload={"max_tokens": 900},
+                        trace_ids=trace_ids,
+                        max_retries=1,
+                    )
+                report = _extract_evidence_report(content)
+            except AIAuthenticationError:
+                raise
+            except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
+                return []
+            mapped: list[VisualEvidence] = []
+            for index, item in enumerate(report.evidence):
+                if item.kind != "dimension" or len(_ocr_numbers(item.text)) != 1:
+                    continue
+                item.id = f"{view_id}-{index + 1}-{item.id}"[:80]
+                item.view_id = view_id
+                item.bbox = _map_region_bbox(item.bbox, region)
+                if _evidence_has_handwriting(oriented, item):
+                    mapped.append(item)
+            return mapped
+
+        opening_table_task = asyncio.create_task(
+            _collect_opening_table_evidence(client, endpoint, headers, path, rotation, model, trace_ids)
+        )
         tiles = await asyncio.gather(*(read_tile(view_id, region) for view_id, region in TEMPLATE_TILE_VIEWS))
-        evidence = _dedupe_evidence([item for tile in tiles for item in tile])
+        dimension_views = [
+            *TEMPLATE_DIMENSION_STRIP_VIEWS,
+            *_shape_dimension_strip_views(shape),
+        ]
+        strips = await asyncio.gather(
+            *(read_dimension_strip(view_id, region, orientation) for view_id, region, orientation in dimension_views)
+        )
+        opening_table = await opening_table_task
+        evidence = _dedupe_evidence(
+            [item for tile in tiles for item in tile]
+            + [item for strip in strips for item in strip]
+            + opening_table
+        )
         if evidence:
             return PlanEvidenceReport(rotation_degrees=rotation, evidence=evidence, uncertain=[])
     return None
+
+
+async def _collect_opening_table_evidence(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    headers: dict[str, str],
+    path: Path,
+    rotation: int,
+    model: str,
+    trace_ids: list[str],
+) -> list[VisualEvidence]:
+    prompt = """
+你只读取图纸里的门窗表，不处理墙段尺寸、洁具、点位或轮廓。
+在原图中寻找 D1、W1、W2 等门窗编号所在表格行，并逐行读取 CG、CK、CH 三列。
+只有同一行同时清楚看到编号和 CG/CK/CH 数值时才输出 opening evidence；空白行不要输出。
+text 必须规范化为“编号 CG 数值 CK 数值 CH 数值”这种格式，但数值只能来自图中对应单元格，不得按常见门高门宽补齐。
+bbox 框住整行；bbox 使用完整转正原图 0 到 1000 坐标。
+只输出 JSON：{"rotation_degrees":0,"evidence":[{"id":"O1","kind":"opening","text":"D1 CG ... CK ... CH ...","bbox":{"x_min":0,"y_min":0,"x_max":1000,"y_max":1000},"orientation":"horizontal","related_to":"opening:D1","view_id":"opening-table","confidence":0.5}],"uncertain":[]}。
+""".strip()
+    regions = [
+        ("full", ImageBBox(x_min=0, y_min=0, x_max=1000, y_max=1000), False),
+        ("right", ImageBBox(x_min=540, y_min=0, x_max=1000, y_max=1000), True),
+        ("lower-right", ImageBBox(x_min=520, y_min=420, x_max=1000, y_max=1000), True),
+    ]
+    content: list[dict] = [{"type": "text", "text": prompt}]
+    for label, region, enhanced in regions:
+        content.extend([
+            {"type": "text", "text": f"{label} view"},
+            {"type": "image_url", "image_url": {"url": _crop_data_url(path, rotation, region, enhance=enhanced), "detail": "high"}},
+        ])
+    try:
+        response = await _request_content(
+            client,
+            endpoint,
+            headers,
+            [{"role": "system", "content": prompt}, {"role": "user", "content": content}],
+            model,
+            json_object=True,
+            stage="template-opening-table",
+            extra_payload={"max_tokens": 700},
+            trace_ids=trace_ids,
+            max_retries=1,
+        )
+        report = _extract_evidence_report(response)
+    except AIAuthenticationError:
+        raise
+    except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
+        return []
+    rows: list[VisualEvidence] = []
+    for index, item in enumerate(report.evidence, start=1):
+        if item.kind != "opening" or _coded_opening_row(item.text) is None:
+            continue
+        item.id = f"opening-table-{index}-{item.id}"[:80]
+        item.view_id = "opening-table"
+        item.related_to = item.related_to or f"opening:{_coded_opening_row(item.text)[0]}"
+        rows.append(item)
+    return rows[:6]
 
 
 def _ocr_ceiling_height_hint(ocr_assist: dict | None) -> tuple[int, str, float] | None:
@@ -3853,12 +4811,15 @@ def _merge_template_evidence(ocr_assist: dict, report: PlanEvidenceReport | None
             "confidence": item.confidence,
             "engine": "template-vision",
             "template_visual": True,
+            "view_id": item.view_id,
+            "bbox_quality": _template_bbox_quality(item.view_id, item.bbox),
             "semantic_role": role,
             "target_id": None,
             "review_required": bool(role == "door_size" or item.confidence < 0.85),
             "image_hash": ocr_assist.get("image_hash", ""),
             "related_to": item.related_to,
         })
+    _repair_template_axis_total_readings(ocr_assist)
     return point_markers
 
 
@@ -4027,7 +4988,8 @@ def _extraction_to_spec(
     return RoomSpec(
         boundary=boundary,
         height_mm=extraction.height_mm,
-        wall_thickness_mm=100,
+        wall_thickness_mm=200,
+        finish_surface_offset_mm=20,
         openings=openings,
         fixtures=fixtures,
         observations=observations,
@@ -4373,6 +5335,13 @@ def _provisional_room_spec(
         if resolved_edge_chain:
             working_edge_chain = resolved_edge_chain
         boundary = _edge_chain_to_boundary(working_edge_chain)
+        used_estimated_shape_boundary = False
+        if not boundary and allow_incomplete_annotation:
+            estimated_boundary, estimated_edges = _estimated_metric_geometry_from_shape(shape, ocr_assist)
+            if estimated_boundary and estimated_edges:
+                boundary = estimated_boundary
+                working_edge_chain = estimated_edges
+                used_estimated_shape_boundary = True
         if not boundary and not allow_incomplete_annotation:
             return None
         missing_edges = [index for index, edge in enumerate(working_edge_chain) if edge.length_mm is None]
@@ -4386,6 +5355,7 @@ def _provisional_room_spec(
             if boundary else None
         )
     else:
+        used_estimated_shape_boundary = False
         width_mm, depth_mm = _ocr_dimension_hints(ocr_assist, shape)
         missing_width = not width_mm
         missing_depth = not depth_mm
@@ -4396,6 +5366,8 @@ def _provisional_room_spec(
     annotation_boundary = list(shape.corners) if shape else []
     height_mm = _ocr_room_height_hint(ocr_assist)
     ocr_tokens = (ocr_assist or {}).get("tokens", [])
+    if ocr_assist is not None and shape is not None:
+        ocr_assist["shape_trace"] = shape
     openings = _opening_specs_from_tokens(ocr_assist, working_edge_chain)
     opening_evidence = {evidence_id for opening in openings for evidence_id in opening.evidence_ids}
     _suppress_reversed_ocr_artifacts(ocr_tokens)
@@ -4471,7 +5443,11 @@ def _provisional_room_spec(
 
     fixtures: list[FixtureSpec] = []
     for index, marker in enumerate(point_markers or []):
-        position = _point_marker_position(marker, annotation_boundary, boundary)
+        position = _point_marker_position(marker, annotation_boundary, boundary) if boundary else None
+        provisional_position = False
+        if position is None and allow_incomplete_annotation:
+            position = _point_marker_position_from_shape(marker, annotation_boundary)
+            provisional_position = position is not None
         if position is None:
             continue
         evidence_id = f"point-marker-{index + 1}"
@@ -4484,9 +5460,13 @@ def _provisional_room_spec(
                 asset_id=asset_id,
                 bbox=marker.bbox,
                 confidence=marker.confidence,
-                note="图中点位符号中心；相对照片轮廓映射为毫米坐标",
+                note=(
+                    "图中点位符号中心；逐段尺寸未闭合时按照片轮廓归一坐标生成，需人工拖动确认"
+                    if provisional_position
+                    else "图中点位符号中心；相对照片轮廓映射为毫米坐标"
+                ),
                 semantic_role="drain_position",
-                review_required=marker.confidence < 0.85,
+                review_required=provisional_position or marker.confidence < 0.85,
                 rotation_degrees=round((ocr_assist or {}).get("rotation_degrees", 0)) % 360,
                 target_id=f"point:{index + 1}",
             )
@@ -4502,8 +5482,8 @@ def _provisional_room_spec(
                 width_mm=size_mm,
                 depth_mm=size_mm,
                 height_mm=10,
-                source=SourceKind.derived,
-                confidence=min(marker.confidence, 0.85),
+                source=SourceKind.estimated if provisional_position else SourceKind.derived,
+                confidence=min(marker.confidence, 0.65 if provisional_position else 0.85),
                 evidence_ids=[evidence_id],
             )
         )
@@ -4539,6 +5519,8 @@ def _provisional_room_spec(
         )
     warnings = ["未完成视觉证据归一化，已保留临时轮廓作为可编辑结果"]
     if segment_mode:
+        if used_estimated_shape_boundary:
+            warnings.append("逐段尺寸未完整闭合，已按可见拓扑和已识别总尺寸生成低置信度可编辑边界")
         if not annotation_boundary:
             warnings.append("视觉复核未形成可靠墙体边界，未生成任何替代矩形")
         elif missing_edges:
@@ -4582,7 +5564,8 @@ def _provisional_room_spec(
     return RoomSpec(
         boundary=boundary,
         height_mm=height_mm,
-        wall_thickness_mm=100,
+        wall_thickness_mm=200,
+        finish_surface_offset_mm=20,
         openings=openings,
         fixtures=fixtures,
         ceiling_zones=ceiling_zones,
@@ -4833,11 +5816,14 @@ async def _resolve_topology_candidate_selection(
 
 def _program_topology_fallback(candidates: list[TopologyCandidate]) -> TopologyCandidate | None:
     """Prefer the simplest well-supported non-rectangular contour when vision is unavailable."""
-    if len(candidates) < 2 or any(len(candidate.corners) == 4 for candidate in candidates):
+    if len(candidates) < 2:
         return None
-    best_support = max(candidate.pixel_support for candidate in candidates)
+    non_rectangular = [candidate for candidate in candidates if len(candidate.corners) > 4]
+    if not non_rectangular:
+        return None
+    best_support = max(candidate.pixel_support for candidate in non_rectangular)
     eligible = [
-        candidate for candidate in candidates
+        candidate for candidate in non_rectangular
         if candidate.pixel_support >= 0.4 and candidate.pixel_support >= best_support - 0.06
     ]
     if not eligible:
@@ -5239,6 +6225,22 @@ def _valid_photo_binding_target(role: str, raw_target: object, wall_count: int) 
     return target
 
 
+def _photo_binding_role_for_token(token: dict, role: str) -> str:
+    if (
+        token.get("template_visual")
+        and role in {"door_size", "drain_position", "fixture_dimension", "fixture_label"}
+        and _coded_opening_row(str(token.get("raw_text", ""))) is None
+    ):
+        current = str(token.get("semantic_role") or "wall_segment")
+        if current in {
+            "wall_segment", "wall_thickness", "room_height", "ceiling_height",
+            "drain_position", "pipe_box", "fixture_dimension", "fixture_label", "other",
+        }:
+            return current
+        return "wall_segment"
+    return role
+
+
 async def _refine_photo_annotation_bindings(
     client: httpx.AsyncClient,
     endpoint: str,
@@ -5332,6 +6334,8 @@ async def _refine_photo_annotation_bindings(
         token = by_id.get(str(binding.get("id", "")))
         role = str(binding.get("semantic_role", "other"))
         role = {"door_position": "door_size", "fixture_label": "fixture_dimension"}.get(role, role)
+        if token is not None:
+            role = _photo_binding_role_for_token(token, role)
         target_id = _valid_photo_binding_target(role, binding.get("target_id"), len(shape.corners))
         try:
             confidence = float(binding.get("confidence", 0) or 0)
@@ -5429,7 +6433,7 @@ async def analyze_floorplan_fast(
             # intentionally excluded from the recognition path.
             ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
             template_report = await _collect_template_evidence(
-                client, endpoint, headers, path, rotation, trace_ids,
+                client, endpoint, headers, path, rotation, trace_ids, shape,
             )
             template_points = _merge_template_evidence(ocr_assist, template_report)
             ocr_assist = await _refine_ocr_with_vision(

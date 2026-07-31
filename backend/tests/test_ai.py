@@ -227,6 +227,46 @@ def test_provisional_spec_adds_derived_fixture_from_point_marker() -> None:
     assert spec.fixtures[0].evidence_ids == ["point-marker-1"]
 
 
+def test_incomplete_annotation_keeps_point_marker_as_editable_fixture() -> None:
+    shape = ShapeTraceResult(
+        corners=[
+            ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
+            ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
+        ],
+        closed=True,
+    )
+    edges = [
+        BoundaryEdge(direction="right", length_mm=3000),
+        BoundaryEdge(direction="down", length_mm=None),
+        BoundaryEdge(direction="left", length_mm=3000),
+        BoundaryEdge(direction="up", length_mm=None),
+    ]
+    marker = VisualEvidence(
+        id="marker-1",
+        kind="fixture",
+        text="地漏",
+        bbox=ImageBBox(x_min=480, y_min=480, x_max=520, y_max=520),
+        confidence=0.91,
+    )
+
+    spec = ai._provisional_room_spec(
+        shape,
+        {"tokens": [], "rotation_degrees": 0},
+        edge_chain=edges,
+        point_markers=[marker],
+        allow_incomplete_annotation=True,
+    )
+
+    assert spec is not None
+    assert spec.boundary == []
+    assert len(spec.fixtures) == 1
+    assert spec.fixtures[0].source.value == "estimated"
+    assert (spec.fixtures[0].x_mm, spec.fixtures[0].z_mm) == (500, 500)
+    assert spec.fixtures[0].confidence == pytest.approx(0.65)
+    assert spec.observations[-1].field == "visual_evidence:point-marker-1"
+    assert spec.observations[-1].review_required is True
+
+
 def test_bbox_accepts_provider_array_and_reversed_x() -> None:
     bbox = ImageBBox.model_validate([725, 15, 717, 620])
     assert (bbox.x_min, bbox.y_min, bbox.x_max, bbox.y_max) == (717, 15, 725, 620)
@@ -342,6 +382,65 @@ def test_segment_edge_validation_accepts_a_continuous_additive_dimension_chain()
     assert validated[0].evidence_ids == ["T1", "T2", "T3"]
 
 
+def test_template_dimension_chain_uses_adjacent_wall_not_drawing_scale() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=100, y=100), ShapeCorner(x=100, y=820),
+        ShapeCorner(x=300, y=820), ShapeCorner(x=300, y=760),
+        ShapeCorner(x=620, y=760), ShapeCorner(x=620, y=100),
+    ], closed=True)
+    assist = {"tokens": [
+        {
+            "id": "T1", "raw_text": "400", "bbox": {"x_min": 115, "y_min": 790, "x_max": 150, "y_max": 825},
+            "template_visual": True, "semantic_role": "wall_segment", "related_to": "dimension_chain:bottom",
+            "confidence": 0.93,
+        },
+        {
+            "id": "T2", "raw_text": "800", "bbox": {"x_min": 185, "y_min": 790, "x_max": 235, "y_max": 825},
+            "template_visual": True, "semantic_role": "wall_segment", "related_to": "dimension_chain:bottom",
+            "confidence": 0.93,
+        },
+        {
+            "id": "T3", "raw_text": "55", "bbox": {"x_min": 270, "y_min": 790, "x_max": 295, "y_max": 825},
+            "template_visual": True, "semantic_role": "wall_segment", "related_to": "dimension_chain:bottom",
+            "confidence": 0.93,
+        },
+    ]}
+
+    edges = ai._template_adjacent_dimension_edge_chain(shape, assist)
+    estimated_boundary, estimated_edges = ai._estimated_metric_geometry_from_shape(shape, assist)
+
+    assert edges[1].length_mm == 1255
+    assert edges[1].evidence_ids == ["T1", "T2", "T3"]
+    assert edges[0].length_mm is None
+    assert estimated_boundary == []
+    assert estimated_edges == []
+
+
+def test_template_dimension_evidence_on_wrong_wall_is_rejected_by_location() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
+        ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
+    ], closed=True)
+    assist = {"tokens": [
+        {
+            "id": "T1", "raw_text": "800", "bbox": {"x_min": 420, "y_min": 875, "x_max": 470, "y_max": 915},
+            "template_visual": True, "semantic_role": "wall_segment", "related_to": "dimension_chain:bottom",
+            "confidence": 0.95,
+        },
+    ]}
+    raw_edges = [
+        BoundaryEdge(direction="right", length_mm=800, evidence_ids=["T1"], confidence=0.95),
+        BoundaryEdge(direction="down"),
+        BoundaryEdge(direction="left"),
+        BoundaryEdge(direction="up"),
+    ]
+
+    validated = ai._validated_segment_edge_chain(raw_edges, shape, assist)
+
+    assert validated[0].length_mm is None
+    assert validated[0].evidence_ids == []
+
+
 def test_complete_opening_row_uses_the_cited_dimension_chain_for_wall_and_offset() -> None:
     assist = {"tokens": [
         {"id": "T1", "raw_text": "400", "bbox": [100, 900, 250, 940]},
@@ -362,7 +461,90 @@ def test_complete_opening_row_uses_the_cited_dimension_chain_for_wall_and_offset
     assert openings[0].thickness_mm == 100
 
 
-def test_complete_opening_row_without_additive_chain_stays_reviewable() -> None:
+def test_opening_table_row_without_field_labels_uses_template_column_order() -> None:
+    assist = {"tokens": [
+        {"id": "T1", "raw_text": "400", "bbox": [100, 900, 250, 940]},
+        {"id": "T2", "raw_text": "800", "bbox": [250, 900, 650, 940]},
+        {"id": "T3", "raw_text": "55", "bbox": [650, 900, 700, 940]},
+        {"id": "D1", "raw_text": "D1 0 800 2055", "bbox": [730, 200, 950, 250], "confidence": 0.95},
+    ]}
+    edges = [BoundaryEdge(direction="right", length_mm=1255, evidence_ids=["T1", "T2", "T3"])]
+
+    openings = ai._opening_specs_from_tokens(assist, edges)
+
+    assert len(openings) == 1
+    assert openings[0].label == "D1"
+    assert openings[0].offset_mm == 400
+    assert openings[0].width_mm == 800
+    assert openings[0].height_mm == 2055
+
+
+def test_opening_row_ck_misread_can_use_middle_dimension_chain_segment() -> None:
+    assist = {"tokens": [
+        {"id": "T0", "raw_text": "327", "bbox": [40, 890, 90, 930], "template_visual": True, "semantic_role": "wall_segment"},
+        {"id": "T1", "raw_text": "400", "bbox": [100, 900, 250, 940], "template_visual": True, "semantic_role": "wall_segment"},
+        {"id": "T2", "raw_text": "800", "bbox": [250, 900, 650, 940], "template_visual": True, "semantic_role": "wall_segment"},
+        {"id": "T3", "raw_text": "55", "bbox": [650, 900, 700, 940], "template_visual": True, "semantic_role": "wall_segment"},
+        {"id": "D1", "raw_text": "D1 CG 0 CK 300 CH 2055", "bbox": [0, 0, 1000, 1000], "confidence": 0.55},
+    ], "shape_trace": ShapeTraceResult(corners=[
+        ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
+        ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
+    ], closed=True)}
+    edges = [
+        BoundaryEdge(direction="right", length_mm=1255),
+        BoundaryEdge(direction="down", length_mm=1800),
+        BoundaryEdge(direction="left", length_mm=1255),
+        BoundaryEdge(direction="up", length_mm=1800),
+    ]
+
+    openings = ai._opening_specs_from_tokens(assist, edges)
+
+    assert len(openings) == 1
+    assert openings[0].wall_index == 2
+    assert openings[0].offset_mm == 400
+    assert openings[0].width_mm == 800
+    assert openings[0].height_mm == 2055
+    assert openings[0].evidence_ids == ["D1", "T1", "T2", "T3"]
+
+
+def test_opening_chain_survives_misclassified_template_tokens() -> None:
+    assist = {"tokens": [
+        {
+            "id": "T1", "raw_text": "400", "bbox": [100, 900, 250, 940],
+            "template_visual": True, "semantic_role": "drain_position",
+            "view_id": "strip-bottom-door", "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "T2", "raw_text": "800", "bbox": [250, 900, 650, 940],
+            "template_visual": True, "semantic_role": "door_size",
+            "view_id": "strip-bottom-door", "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "T3", "raw_text": "55", "bbox": [650, 900, 700, 940],
+            "template_visual": True, "semantic_role": "drain_position",
+            "view_id": "strip-bottom-door", "related_to": "dimension_chain:bottom",
+        },
+        {"id": "D1", "raw_text": "D1 CG 0 CK 300 CH 2055", "bbox": [0, 0, 1000, 1000], "confidence": 0.55},
+    ], "shape_trace": ShapeTraceResult(corners=[
+        ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
+        ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
+    ], closed=True)}
+    edges = [
+        BoundaryEdge(direction="right", length_mm=1255),
+        BoundaryEdge(direction="down", length_mm=1800),
+        BoundaryEdge(direction="left", length_mm=1255),
+        BoundaryEdge(direction="up", length_mm=1800),
+    ]
+
+    openings = ai._opening_specs_from_tokens(assist, edges)
+
+    assert len(openings) == 1
+    assert openings[0].width_mm == 800
+    assert openings[0].offset_mm == 400
+    assert openings[0].evidence_ids == ["D1", "T1", "T2", "T3"]
+
+
+def test_complete_opening_row_with_wall_target_creates_reviewable_opening() -> None:
     shape = ShapeTraceResult(corners=[
         ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
         ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
@@ -382,10 +564,514 @@ def test_complete_opening_row_without_additive_chain_stays_reviewable() -> None:
     spec = ai._provisional_room_spec(shape, assist, edge_chain=edges)
 
     assert spec is not None
-    assert spec.openings == []
+    assert len(spec.openings) == 1
+    assert spec.openings[0].wall_index == 0
+    assert spec.openings[0].offset_mm == 251
+    assert spec.openings[0].width_mm == 800
     row = next(item for item in spec.observations if item.field == "ocr:D1")
     assert row.semantic_role == "door_size"
-    assert row.review_required is True
+    assert row.review_required is False
+
+
+def test_incomplete_segment_chain_does_not_invent_metric_shape_from_drawing_scale() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=157, y=395), ShapeCorner(x=157, y=723),
+        ShapeCorner(x=312, y=723), ShapeCorner(x=312, y=677),
+        ShapeCorner(x=605, y=677), ShapeCorner(x=605, y=340),
+        ShapeCorner(x=419, y=340), ShapeCorner(x=419, y=419),
+        ShapeCorner(x=350, y=419), ShapeCorner(x=350, y=343),
+        ShapeCorner(x=196, y=343), ShapeCorner(x=196, y=395),
+    ], closed=True)
+    tokens = [
+        {"id": "TV001", "raw_text": "4110", "bbox": [320, 636, 364, 664], "confidence": 0.5, "template_visual": True, "semantic_role": "wall_segment"},
+        {"id": "TV002", "raw_text": "2855", "bbox": [400, 860, 468, 888], "confidence": 0.5, "template_visual": True, "semantic_role": "wall_segment"},
+        {"id": "TV003", "raw_text": "400", "bbox": [80, 776, 120, 832], "confidence": 0.5, "template_visual": True, "semantic_role": "wall_segment"},
+        {"id": "TV004", "raw_text": "800", "bbox": [200, 776, 240, 832], "confidence": 0.5, "template_visual": True, "semantic_role": "wall_segment"},
+        {"id": "TV005", "raw_text": "55", "bbox": [300, 776, 312, 832], "confidence": 0.5, "template_visual": True, "semantic_role": "wall_segment"},
+        {"id": "TV006", "raw_text": "D1 CG 0 CK 800 CH 2055", "bbox": [700, 120, 820, 180], "confidence": 0.8, "template_visual": True, "semantic_role": "door_size"},
+    ]
+    edges = [
+        BoundaryEdge(direction=direction, length_mm=None)
+        for direction in ["down", "right", "up", "right", "up", "left", "down", "left", "up", "left", "down", "left"]
+    ]
+
+    spec = ai._provisional_room_spec(
+        shape,
+        {"tokens": tokens, "rotation_degrees": 0},
+        edge_chain=edges,
+        allow_incomplete_annotation=True,
+    )
+
+    assert spec is not None
+    assert spec.boundary == []
+    assert all(edge.length_mm is None for edge in spec.plan_annotation.edge_chain)
+    assert spec.openings == []
+    assert any("逐段尺寸尚未闭合" in issue.message for issue in spec.issues)
+
+
+def test_template_dimension_with_whole_strip_bbox_is_not_bound_to_wall() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=157, y=395), ShapeCorner(x=157, y=723),
+        ShapeCorner(x=312, y=723), ShapeCorner(x=312, y=677),
+        ShapeCorner(x=605, y=677), ShapeCorner(x=605, y=340),
+        ShapeCorner(x=419, y=340), ShapeCorner(x=419, y=419),
+        ShapeCorner(x=350, y=419), ShapeCorner(x=350, y=343),
+        ShapeCorner(x=196, y=343), ShapeCorner(x=196, y=395),
+    ], closed=True)
+    edges = ai._template_adjacent_dimension_edge_chain(shape, {"tokens": [
+        {
+            "id": "TV001",
+            "raw_text": "4105",
+            "bbox": [330, 240, 470, 340],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "bbox_quality": "whole_strip",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:top",
+        },
+        {
+            "id": "TV002",
+            "raw_text": "800",
+            "bbox": [200, 888, 240, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+    ]})
+
+    assert all("TV001" not in edge.evidence_ids for edge in edges)
+    assert any(edge.length_mm == 800 and edge.evidence_ids == ["TV002"] for edge in edges)
+
+
+def test_template_total_strip_and_tiny_noise_are_ocr_only_not_wall_lengths() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=157, y=395), ShapeCorner(x=157, y=723),
+        ShapeCorner(x=312, y=723), ShapeCorner(x=312, y=677),
+        ShapeCorner(x=605, y=677), ShapeCorner(x=605, y=340),
+        ShapeCorner(x=419, y=340), ShapeCorner(x=419, y=419),
+        ShapeCorner(x=350, y=419), ShapeCorner(x=350, y=343),
+        ShapeCorner(x=196, y=343), ShapeCorner(x=196, y=395),
+    ], closed=True)
+    edges = ai._template_adjacent_dimension_edge_chain(shape, {"tokens": [
+        {
+            "id": "TOTAL",
+            "raw_text": "4105",
+            "bbox": [330, 240, 470, 340],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-top-total",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:top",
+        },
+        {
+            "id": "NOISE",
+            "raw_text": "10",
+            "bbox": [350, 745, 378, 761],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-main",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_LEFT",
+            "raw_text": "400",
+            "bbox": [80, 888, 120, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_WIDTH",
+            "raw_text": "800",
+            "bbox": [200, 888, 240, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_RIGHT",
+            "raw_text": "55",
+            "bbox": [280, 888, 300, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+    ]})
+
+    assert all("TOTAL" not in edge.evidence_ids for edge in edges)
+    assert all("NOISE" not in edge.evidence_ids for edge in edges)
+    assert any(
+        edge.length_mm == 1255
+        and edge.evidence_ids == ["DOOR_LEFT", "DOOR_WIDTH", "DOOR_RIGHT"]
+        for edge in edges
+    )
+
+
+def test_template_short_values_use_one_local_view_chain() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=157, y=395), ShapeCorner(x=157, y=723),
+        ShapeCorner(x=312, y=723), ShapeCorner(x=312, y=677),
+        ShapeCorner(x=605, y=677), ShapeCorner(x=605, y=340),
+        ShapeCorner(x=419, y=340), ShapeCorner(x=419, y=419),
+        ShapeCorner(x=350, y=419), ShapeCorner(x=350, y=343),
+        ShapeCorner(x=196, y=343), ShapeCorner(x=196, y=395),
+    ], closed=True)
+    edges = ai._template_adjacent_dimension_edge_chain(shape, {"tokens": [
+        {
+            "id": "DOOR_LEFT",
+            "raw_text": "400",
+            "bbox": [80, 888, 120, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_WIDTH",
+            "raw_text": "800",
+            "bbox": [200, 888, 240, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_RIGHT",
+            "raw_text": "55",
+            "bbox": [280, 888, 300, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "OTHER_A",
+            "raw_text": "410",
+            "bbox": [416, 808, 451, 820],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "wall-1-h",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "OTHER_B",
+            "raw_text": "320",
+            "bbox": [388, 880, 427, 898],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "wall-1-h",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+    ]})
+
+    assert edges[1].length_mm == 1255
+    assert edges[1].evidence_ids == ["DOOR_LEFT", "DOOR_WIDTH", "DOOR_RIGHT"]
+
+
+def test_template_bottom_total_constrains_single_missing_segment() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=157, y=395), ShapeCorner(x=157, y=723),
+        ShapeCorner(x=312, y=723), ShapeCorner(x=312, y=677),
+        ShapeCorner(x=605, y=677), ShapeCorner(x=605, y=340),
+        ShapeCorner(x=419, y=340), ShapeCorner(x=419, y=419),
+        ShapeCorner(x=350, y=419), ShapeCorner(x=350, y=343),
+        ShapeCorner(x=196, y=343), ShapeCorner(x=196, y=395),
+    ], closed=True)
+    edges = ai._template_adjacent_dimension_edge_chain(shape, {"tokens": [
+        {
+            "id": "DOOR_LEFT",
+            "raw_text": "400",
+            "bbox": [80, 888, 120, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_WIDTH",
+            "raw_text": "800",
+            "bbox": [200, 888, 240, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_RIGHT",
+            "raw_text": "55",
+            "bbox": [280, 888, 300, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "BOTTOM_MAIN",
+            "raw_text": "2855",
+            "bbox": [400, 860, 468, 888],
+            "orientation": "horizontal",
+            "confidence": 0.8,
+            "template_visual": True,
+            "view_id": "strip-bottom-main",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "BOTTOM_TOTAL",
+            "raw_text": "4110",
+            "bbox": [320, 900, 390, 940],
+            "orientation": "horizontal",
+            "confidence": 0.8,
+            "template_visual": True,
+            "view_id": "strip-bottom-total",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+    ]})
+
+    assert edges[1].length_mm == 1255
+    assert edges[3].length_mm == 2855
+    assert edges[3].evidence_ids == ["BOTTOM_MAIN", "BOTTOM_TOTAL"]
+
+
+def test_template_bottom_total_replaces_single_conflicting_segment() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=157, y=395), ShapeCorner(x=157, y=723),
+        ShapeCorner(x=312, y=723), ShapeCorner(x=312, y=677),
+        ShapeCorner(x=605, y=677), ShapeCorner(x=605, y=340),
+        ShapeCorner(x=419, y=340), ShapeCorner(x=419, y=419),
+        ShapeCorner(x=350, y=419), ShapeCorner(x=350, y=343),
+        ShapeCorner(x=196, y=343), ShapeCorner(x=196, y=395),
+    ], closed=True)
+    edges = [
+        BoundaryEdge(direction="down"),
+        BoundaryEdge(direction="right", length_mm=1255, evidence_ids=["DOOR_CHAIN"], confidence=0.9),
+        BoundaryEdge(direction="up"),
+        BoundaryEdge(direction="right", length_mm=3430, evidence_ids=["WRONG_SUM"], confidence=0.95),
+        BoundaryEdge(direction="up"),
+        BoundaryEdge(direction="left"),
+        BoundaryEdge(direction="down"),
+        BoundaryEdge(direction="left"),
+        BoundaryEdge(direction="up"),
+        BoundaryEdge(direction="left"),
+        BoundaryEdge(direction="down"),
+        BoundaryEdge(direction="left"),
+    ]
+    constrained = ai._apply_template_axis_total_constraints(edges, shape, {"tokens": [
+        {
+            "id": "BOTTOM_MAIN",
+            "raw_text": "2855",
+            "bbox": [400, 860, 468, 888],
+            "orientation": "horizontal",
+            "confidence": 0.8,
+            "template_visual": True,
+            "view_id": "strip-bottom-main",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "BOTTOM_TOTAL",
+            "raw_text": "4110",
+            "bbox": [320, 790, 390, 840],
+            "orientation": "horizontal",
+            "confidence": 0.8,
+            "template_visual": True,
+            "view_id": "strip-bottom-total",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+    ]})
+
+    assert constrained[1].length_mm == 1255
+    assert constrained[3].length_mm == 2855
+    assert constrained[3].evidence_ids == ["BOTTOM_MAIN", "BOTTOM_TOTAL"]
+
+
+def test_template_axis_total_repairs_dropped_digit_from_segment_sum() -> None:
+    assist = {"tokens": [
+        {
+            "id": "DOOR_LEFT",
+            "raw_text": "400",
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_WIDTH",
+            "raw_text": "800",
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_RIGHT",
+            "raw_text": "55",
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "BOTTOM_MAIN",
+            "raw_text": "2855",
+            "template_visual": True,
+            "view_id": "strip-bottom-main",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "BOTTOM_TOTAL",
+            "raw_text": "410",
+            "template_visual": True,
+            "view_id": "strip-bottom-total",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+    ]}
+
+    ai._repair_template_axis_total_readings(assist)
+
+    assert assist["tokens"][-1]["raw_text"] == "4110"
+    assert assist["tokens"][-1]["alternate_readings"] == ["410"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_segment_edge_chain_can_start_from_template_without_wall_crop_seed(monkeypatch) -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=157, y=395), ShapeCorner(x=157, y=723),
+        ShapeCorner(x=312, y=723), ShapeCorner(x=312, y=677),
+        ShapeCorner(x=605, y=677), ShapeCorner(x=605, y=340),
+        ShapeCorner(x=419, y=340), ShapeCorner(x=419, y=419),
+        ShapeCorner(x=350, y=419), ShapeCorner(x=350, y=343),
+        ShapeCorner(x=196, y=343), ShapeCorner(x=196, y=395),
+    ], closed=True)
+    tokens = [
+        {
+            "id": "DOOR_LEFT",
+            "raw_text": "400",
+            "bbox": [80, 888, 120, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_WIDTH",
+            "raw_text": "800",
+            "bbox": [200, 888, 240, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+        {
+            "id": "DOOR_RIGHT",
+            "raw_text": "55",
+            "bbox": [280, 888, 300, 916],
+            "orientation": "horizontal",
+            "confidence": 0.9,
+            "template_visual": True,
+            "view_id": "strip-bottom-door",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:bottom",
+        },
+    ]
+
+    async def empty_coordinate(*_args, **_kwargs):
+        return []
+
+    async def empty_model(*_args, **_kwargs):
+        return json.dumps({
+            "lengths_mm": [None] * 12,
+            "evidence_ids": [[] for _ in range(12)],
+        })
+
+    monkeypatch.setattr(ai, "_coordinate_segment_edge_chain", empty_coordinate)
+    monkeypatch.setattr(ai, "_request_content", empty_model)
+    monkeypatch.setattr(ai, "image_data_url", lambda *_args, **_kwargs: "original")
+    monkeypatch.setattr(ai, "_shape_wall_overlay", lambda *_args, **_kwargs: "overlay")
+
+    edges = await ai._resolve_segment_edge_chain(
+        None, "endpoint", {}, Path("unused.jpg"), 0, shape, {"tokens": tokens}, [], ["vision-test"],
+    )
+
+    assert edges[1].length_mm == 1255
+    assert edges[1].evidence_ids == ["DOOR_LEFT", "DOOR_WIDTH", "DOOR_RIGHT"]
+
+
+def test_template_large_wall_dimension_is_not_summed_with_nearby_noise() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=157, y=395), ShapeCorner(x=157, y=723),
+        ShapeCorner(x=312, y=723), ShapeCorner(x=312, y=677),
+        ShapeCorner(x=605, y=677), ShapeCorner(x=605, y=340),
+        ShapeCorner(x=419, y=340), ShapeCorner(x=419, y=419),
+        ShapeCorner(x=350, y=419), ShapeCorner(x=350, y=343),
+        ShapeCorner(x=196, y=343), ShapeCorner(x=196, y=395),
+    ], closed=True)
+    edges = ai._template_adjacent_dimension_edge_chain(shape, {"tokens": [
+        {
+            "id": "RIGHT_MAIN",
+            "raw_text": "2400",
+            "bbox": [680, 608, 760, 720],
+            "orientation": "vertical",
+            "confidence": 0.8,
+            "template_visual": True,
+            "view_id": "strip-right-main",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:right",
+        },
+        {
+            "id": "NEARBY_RECESS",
+            "raw_text": "615",
+            "bbox": [540, 392, 620, 504],
+            "orientation": "vertical",
+            "confidence": 0.8,
+            "template_visual": True,
+            "view_id": "strip-recess-right",
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:recess",
+        },
+    ]})
+
+    assert edges[4].length_mm == 2400
+    assert edges[4].evidence_ids == ["RIGHT_MAIN"]
 
 
 @pytest.mark.parametrize("text,expected", [
@@ -494,6 +1180,23 @@ def test_compact_segment_edge_chain_is_expanded_and_validated() -> None:
 
     assert [edge.direction for edge in validated] == ["right", "down", "left", "up"]
     assert [edge.length_mm for edge in validated] == [3000, 2000, None, None]
+
+    flat_raw = ai._segment_edge_chain_from_payload({
+        "lengths_mm": [3000, 2000, None, None],
+        "evidence_ids": ["T1", "T2", [], []],
+    }, shape)
+
+    assert [edge.evidence_ids for edge in flat_raw] == [["T1"], ["T2"], [], []]
+
+    wrapped_raw = ai._segment_edge_chain_from_payload({
+        "answer": {
+            "lengths_mm": [3000, 2000, None, None],
+            "evidence_ids": [["T1"], ["T2"], [], []],
+        }
+    }, shape)
+
+    assert [edge.length_mm for edge in wrapped_raw] == [3000, 2000, None, None]
+    assert [edge.evidence_ids for edge in wrapped_raw] == [["T1"], ["T2"], [], []]
 
 
 def test_door_detection_uses_related_to_text() -> None:
@@ -1049,6 +1752,25 @@ def test_photo_binding_target_rejects_null_mismatched_and_out_of_range_values() 
     assert ai._valid_photo_binding_target("wall_segment", "wall:8@0.5", 8) is None
 
 
+def test_photo_binding_keeps_template_dimensions_out_of_door_size_role() -> None:
+    dimension = {
+        "id": "TV001",
+        "raw_text": "800",
+        "semantic_role": "wall_segment",
+        "template_visual": True,
+    }
+    door_row = {
+        "id": "TV002",
+        "raw_text": "D1 CG 0 CK 800 CH 2055",
+        "semantic_role": "door_size",
+        "template_visual": True,
+    }
+
+    assert ai._photo_binding_role_for_token(dimension, "door_size") == "wall_segment"
+    assert ai._photo_binding_role_for_token(dimension, "drain_position") == "wall_segment"
+    assert ai._photo_binding_role_for_token(door_row, "door_size") == "door_size"
+
+
 @pytest.mark.asyncio
 async def test_photo_binding_only_accepts_ids_from_the_current_chunk(tmp_path, monkeypatch) -> None:
     source = tmp_path / "source.jpg"
@@ -1548,6 +2270,57 @@ def test_invalid_model_geometry_is_rejected_before_persisting() -> None:
     )
     with pytest.raises(ai.AIResponseError, match="门 超出所属墙面"):
         ai._ensure_usable_geometry(spec)
+
+
+def test_door_dimension_chain_uses_arc_host_before_false_detour() -> None:
+    edges = [
+        BoundaryEdge(direction="down", length_mm=1760),
+        BoundaryEdge(direction="right", length_mm=830),
+        BoundaryEdge(direction="up", length_mm=247),
+        BoundaryEdge(direction="right", length_mm=1570),
+        BoundaryEdge(direction="up", length_mm=1808),
+        BoundaryEdge(direction="left", length_mm=996),
+    ]
+    ocr_assist = {
+        "tokens": [
+            {
+                "id": "TV001",
+                "raw_text": "D1 CG 0 CK 300 CH 2055",
+                "confidence": 0.5,
+                "template_visual": True,
+                "semantic_role": "door_size",
+                "bbox": {"x_min": 0, "y_min": 0, "x_max": 1000, "y_max": 1000},
+            },
+            {
+                "id": "TV004",
+                "raw_text": "400",
+                "template_visual": True,
+                "semantic_role": "wall_segment",
+                "bbox": {"x_min": 80, "y_min": 888, "x_max": 120, "y_max": 916},
+            },
+            {
+                "id": "TV005",
+                "raw_text": "800",
+                "template_visual": True,
+                "semantic_role": "wall_segment",
+                "bbox": {"x_min": 200, "y_min": 888, "x_max": 240, "y_max": 916},
+            },
+            {
+                "id": "TV006",
+                "raw_text": "55",
+                "template_visual": True,
+                "semantic_role": "wall_segment",
+                "bbox": {"x_min": 280, "y_min": 888, "x_max": 300, "y_max": 916},
+            },
+        ],
+    }
+
+    [opening] = ai._opening_specs_from_dimension_chain_tokens(ocr_assist, edges)
+
+    assert opening.wall_index == 1
+    assert opening.offset_mm == 30
+    assert opening.width_mm == 800
+    assert opening.evidence_ids == ["TV001", "TV004", "TV005", "TV006"]
 
 
 def test_fixture_kind_from_model_is_normalized() -> None:

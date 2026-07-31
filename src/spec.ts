@@ -1,5 +1,8 @@
 import type { FixtureKind, FixtureSpec, Point2D, RoomSpec, ValidationIssue } from './types'
 
+export const defaultWallThicknessMm = 200
+export const defaultFinishSurfaceOffsetMm = 20
+
 export const fixtureLabels: Record<FixtureKind, string> = {
   toilet: '马桶',
   vanity: '台盆 / 浴室柜',
@@ -39,7 +42,8 @@ export function manualRoom(widthMm: number, depthMm: number, heightMm: number): 
       { x_mm: 0, z_mm: depthMm },
     ],
     height_mm: heightMm,
-    wall_thickness_mm: 100,
+    wall_thickness_mm: defaultWallThicknessMm,
+    finish_surface_offset_mm: defaultFinishSurfaceOffsetMm,
     openings: [],
     fixtures: [],
     observations: [
@@ -71,6 +75,83 @@ export function wallLength(points: Point2D[], index: number) {
   const start = points[index]
   const end = points[(index + 1) % points.length]
   return Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm)
+}
+
+export function wallThickness(spec: RoomSpec, index: number) {
+  return spec.wall_profiles?.find((profile) => profile.wall_index === index)?.thickness_mm ?? spec.wall_thickness_mm
+}
+
+export function finishSurfaceOffset(spec: RoomSpec) {
+  return spec.finish_surface_offset_mm ?? defaultFinishSurfaceOffsetMm
+}
+
+export function polygonSignedArea(points: Point2D[]) {
+  return points.reduce((sum, point, index) => {
+    const next = points[(index + 1) % points.length]
+    return sum + point.x_mm * next.z_mm - next.x_mm * point.z_mm
+  }, 0) / 2
+}
+
+export function wallOutwardNormal(points: Point2D[], index: number) {
+  const start = points[index]
+  const end = points[(index + 1) % points.length]
+  const dx = end.x_mm - start.x_mm
+  const dz = end.z_mm - start.z_mm
+  const length = Math.hypot(dx, dz) || 1
+  const clockwiseInScreenSpace = polygonSignedArea(points) > 0
+  const normal = clockwiseInScreenSpace
+    ? { x: dz / length, z: -dx / length }
+    : { x: -dz / length, z: dx / length }
+  return {
+    x: Math.abs(normal.x) < 1e-9 ? 0 : normal.x,
+    z: Math.abs(normal.z) < 1e-9 ? 0 : normal.z,
+  }
+}
+
+type OffsetLine = { start: Point2D; end: Point2D }
+
+function offsetLine(points: Point2D[], index: number, distanceMm: number): OffsetLine {
+  const start = points[index]
+  const end = points[(index + 1) % points.length]
+  const normal = wallOutwardNormal(points, index)
+  return {
+    start: { x_mm: start.x_mm + normal.x * distanceMm, z_mm: start.z_mm + normal.z * distanceMm },
+    end: { x_mm: end.x_mm + normal.x * distanceMm, z_mm: end.z_mm + normal.z * distanceMm },
+  }
+}
+
+function intersectLines(first: OffsetLine, second: OffsetLine): Point2D | null {
+  const x1 = first.start.x_mm
+  const z1 = first.start.z_mm
+  const x2 = first.end.x_mm
+  const z2 = first.end.z_mm
+  const x3 = second.start.x_mm
+  const z3 = second.start.z_mm
+  const x4 = second.end.x_mm
+  const z4 = second.end.z_mm
+  const denominator = (x1 - x2) * (z3 - z4) - (z1 - z2) * (x3 - x4)
+  if (Math.abs(denominator) < 1e-9) return null
+  const firstCross = x1 * z2 - z1 * x2
+  const secondCross = x3 * z4 - z3 * x4
+  return {
+    x_mm: (firstCross * (x3 - x4) - (x1 - x2) * secondCross) / denominator,
+    z_mm: (firstCross * (z3 - z4) - (z1 - z2) * secondCross) / denominator,
+  }
+}
+
+export function offsetBoundary(points: Point2D[], distanceMm: number): Point2D[] {
+  if (points.length < 3 || distanceMm === 0) return points.map((point) => ({ ...point }))
+  return points.map((point, index) => {
+    const previousLine = offsetLine(points, (index - 1 + points.length) % points.length, distanceMm)
+    const currentLine = offsetLine(points, index, distanceMm)
+    const intersection = intersectLines(previousLine, currentLine)
+    if (intersection) return {
+      x_mm: Math.round(intersection.x_mm * 1000) / 1000,
+      z_mm: Math.round(intersection.z_mm * 1000) / 1000,
+    }
+    const normal = wallOutwardNormal(points, index)
+    return { x_mm: point.x_mm + normal.x * distanceMm, z_mm: point.z_mm + normal.z * distanceMm }
+  })
 }
 
 export function cloneSpec(spec: RoomSpec): RoomSpec {

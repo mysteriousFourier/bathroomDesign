@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -29,6 +30,173 @@ def test_runtime_topology_prompts_do_not_contain_sample_answers() -> None:
     for prompt in prompts:
         assert "2855" not in prompt
         assert "5582" not in prompt
+
+
+def test_hough_line_segments_accepts_flat_and_nested_opencv_shapes() -> None:
+    flat = np.array([[1, 2, 3, 4], [5, 6, 7, 8]], dtype=np.int32)
+    nested = flat.reshape(2, 1, 4)
+
+    assert ai._hough_line_segments(flat) == [(1, 2, 3, 4), (5, 6, 7, 8)]
+    assert ai._hough_line_segments(nested) == [(1, 2, 3, 4), (5, 6, 7, 8)]
+
+
+def test_ocr_rotation_candidates_skip_template_visual_tokens() -> None:
+    bbox = {"x_min": 100, "y_min": 100, "x_max": 120, "y_max": 180}
+    candidates = ai._ocr_rotation_candidates({
+        "tokens": [
+            {
+                "id": "TV001",
+                "raw_text": "D1 CG 0 CK 800 CH 2055",
+                "bbox": bbox,
+                "confidence": 1.0,
+                "template_visual": True,
+            },
+            {
+                "id": "E001",
+                "raw_text": "4105",
+                "bbox": bbox,
+                "confidence": 0.8,
+            },
+        ]
+    })
+
+    assert [token["id"] for token in candidates] == ["E001"]
+
+
+def test_template_dimension_strip_views_cover_each_measurement_band() -> None:
+    names = {name for name, _, _ in ai.TEMPLATE_DIMENSION_STRIP_VIEWS}
+
+    assert {
+        "strip-top-total",
+        "strip-top-left",
+        "strip-top-mid",
+        "strip-top-right",
+        "strip-top-full-chain",
+        "strip-recess-left",
+        "strip-recess-right",
+        "strip-recess-bottom",
+        "strip-recess-full",
+        "strip-left-upper",
+        "strip-left-main",
+        "strip-left-full-chain",
+        "strip-right-main",
+        "strip-right-total",
+        "strip-right-full-chain",
+        "strip-bottom-door",
+        "strip-bottom-main",
+        "strip-bottom-total",
+        "strip-bottom-total-tight",
+        "strip-bottom-full-chain",
+    } <= names
+    assert any(orientation == "vertical" for _, _, orientation in ai.TEMPLATE_DIMENSION_STRIP_VIEWS)
+    for _, bbox, orientation in ai.TEMPLATE_DIMENSION_STRIP_VIEWS:
+        assert bbox.x_min < bbox.x_max
+        assert orientation in {"horizontal", "vertical", "free"}
+        assert bbox.y_min < bbox.y_max
+        assert 0 <= bbox.x_min <= 1000
+        assert 0 <= bbox.x_max <= 1000
+        assert 0 <= bbox.y_min <= 1000
+        assert 0 <= bbox.y_max <= 1000
+    bottom_total = ai.TEMPLATE_DIMENSION_STRIP_REGIONS["strip-bottom-total"]
+    assert bottom_total.y_min < 820
+    assert bottom_total.y_max <= 900
+
+
+def test_shape_dimension_strip_views_follow_wall_edges() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=160, y=390),
+        ShapeCorner(x=160, y=720),
+        ShapeCorner(x=310, y=720),
+        ShapeCorner(x=310, y=675),
+        ShapeCorner(x=605, y=675),
+        ShapeCorner(x=605, y=340),
+        ShapeCorner(x=420, y=340),
+        ShapeCorner(x=420, y=420),
+        ShapeCorner(x=350, y=420),
+        ShapeCorner(x=350, y=345),
+        ShapeCorner(x=195, y=345),
+        ShapeCorner(x=195, y=390),
+    ], closed=True)
+
+    views = ai._shape_dimension_strip_views(shape)
+
+    assert len(views) == 12
+    by_id = {view_id: (region, orientation) for view_id, region, orientation in views}
+    bottom_region, bottom_orientation = by_id["wall-1-h"]
+    assert bottom_orientation == "horizontal"
+    assert bottom_region.x_min <= 45
+    assert bottom_region.x_max >= 425
+    assert bottom_region.y_min <= 545
+    assert bottom_region.y_max >= 895
+    left_region, left_orientation = by_id["wall-0-v"]
+    assert left_orientation == "vertical"
+    assert left_region.x_min == 0
+    assert left_region.x_max >= 330
+
+
+def test_extract_evidence_report_accepts_top_level_arrays() -> None:
+    report = ai._extract_evidence_report(
+        '[{"id":"S1","kind":"dimension","text":"2855",'
+        '"bbox":{"x_min":300,"y_min":200,"x_max":500,"y_max":250},'
+        '"orientation":"horizontal","related_to":"dimension_chain:bottom",'
+        '"view_id":"strip","confidence":0.9}]'
+    )
+
+    assert [item.text for item in report.evidence] == ["2855"]
+
+    wrapped = ai._extract_evidence_report(
+        '[{"rotation_degrees":0,"evidence":[{"id":"S1","kind":"dimension","text":"4110",'
+        '"bbox":{"x_min":300,"y_min":200,"x_max":500,"y_max":250},'
+        '"orientation":"horizontal","related_to":"dimension_chain:bottom",'
+        '"view_id":"strip","confidence":0.9}],"uncertain":[]}]'
+    )
+
+    assert [item.text for item in wrapped.evidence] == ["4110"]
+
+
+def test_template_dimension_strip_rejects_unusable_bboxes() -> None:
+    assert ai._dimension_bbox_is_usable("800", ImageBBox(x_min=200, y_min=888, x_max=240, y_max=916))
+    assert not ai._dimension_bbox_is_usable("800", ImageBBox(x_min=290, y_min=880, x_max=500, y_max=1000))
+    assert not ai._dimension_bbox_is_usable("400", ImageBBox(x_min=169, y_min=734, x_max=175, y_max=745))
+    assert not ai._dimension_bbox_is_usable("1640", ImageBBox(x_min=315, y_min=280, x_max=332, y_max=336))
+    assert not ai._dimension_bbox_is_usable("260", ImageBBox(x_min=148, y_min=377, x_max=161, y_max=395))
+
+
+def test_coarse_template_bbox_is_ocr_only_not_wall_binding() -> None:
+    coarse = ImageBBox(x_min=120, y_min=200, x_max=520, y_max=620)
+
+    assert ai._template_bbox_quality("wall-3-h", coarse) == "coarse_strip"
+    assert not ai._template_token_bbox_can_bind_wall({
+        "raw_text": "2855",
+        "bbox": coarse.model_dump(),
+        "bbox_quality": "coarse_strip",
+        "view_id": "wall-3-h",
+        "orientation": "horizontal",
+    })
+
+
+def test_program_topology_fallback_keeps_supported_non_rectangular_candidate() -> None:
+    candidates = [
+        TopologyCandidate(
+            id="C1",
+            corners=[
+                ShapeCorner(x=100, y=100), ShapeCorner(x=100, y=900),
+                ShapeCorner(x=300, y=900), ShapeCorner(x=300, y=800),
+                ShapeCorner(x=900, y=800), ShapeCorner(x=900, y=100),
+            ],
+            pixel_support=0.82,
+        ),
+        TopologyCandidate(
+            id="C2",
+            corners=[
+                ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
+                ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
+            ],
+            pixel_support=0.70,
+        ),
+    ]
+
+    assert ai._program_topology_fallback(candidates).id == "C1"
 
 
 def shape_with_short_returns() -> ShapeTraceResult:

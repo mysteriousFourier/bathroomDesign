@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { metricBoundaryFromEdges, reconcileBoundaryEdges, solveBoundaryEdges } from './geometry'
+import { defaultFinishSurfaceOffsetMm, defaultWallThicknessMm, manualRoom, offsetBoundary, wallOutwardNormal } from './spec'
 import type { BoundaryEdge, ImageBoundaryPoint } from './types'
 
 const edge = (direction: BoundaryEdge['direction'], length_mm: number): BoundaryEdge => ({
@@ -76,5 +77,54 @@ describe('boundary edge reconciliation', () => {
     const result = reconcileBoundaryEdges(next, boundary, edges)
 
     expect(result.map((item) => item.length_mm)).toEqual([null, null, 1003, 1004])
+  })
+})
+
+describe('finished-surface wall expansion', () => {
+  it('uses editable defaults for finished surface offset and wall thickness', () => {
+    const room = manualRoom(3000, 2000, 2600)
+
+    expect(room.finish_surface_offset_mm).toBe(defaultFinishSurfaceOffsetMm)
+    expect(room.wall_thickness_mm).toBe(defaultWallThicknessMm)
+  })
+
+  it('expands walls outward from a clockwise finished boundary', () => {
+    const room = manualRoom(3000, 2000, 2600)
+
+    expect(wallOutwardNormal(room.boundary, 0)).toEqual({ x: 0, z: -1 })
+    expect(wallOutwardNormal(room.boundary, 1)).toEqual({ x: 1, z: 0 })
+    expect(wallOutwardNormal(room.boundary, 2)).toEqual({ x: 0, z: 1 })
+    expect(wallOutwardNormal(room.boundary, 3)).toEqual({ x: -1, z: 0 })
+  })
+
+  it('builds a continuous outer offset boundary for a rectangle', () => {
+    const room = manualRoom(3000, 2000, 2600)
+
+    expect(offsetBoundary(room.boundary, 220)).toEqual([
+      { x_mm: -220, z_mm: -220 },
+      { x_mm: 3220, z_mm: -220 },
+      { x_mm: 3220, z_mm: 2220 },
+      { x_mm: -220, z_mm: 2220 },
+    ])
+  })
+
+  it('keeps concave and convex corners connected as one offset loop', () => {
+    const boundary = [
+      { x_mm: 0, z_mm: 0 },
+      { x_mm: 3000, z_mm: 0 },
+      { x_mm: 3000, z_mm: 1000 },
+      { x_mm: 2000, z_mm: 1000 },
+      { x_mm: 2000, z_mm: 2000 },
+      { x_mm: 0, z_mm: 2000 },
+    ]
+
+    expect(offsetBoundary(boundary, 200)).toEqual([
+      { x_mm: -200, z_mm: -200 },
+      { x_mm: 3200, z_mm: -200 },
+      { x_mm: 3200, z_mm: 1200 },
+      { x_mm: 2200, z_mm: 1200 },
+      { x_mm: 2200, z_mm: 2200 },
+      { x_mm: -200, z_mm: 2200 },
+    ])
   })
 })

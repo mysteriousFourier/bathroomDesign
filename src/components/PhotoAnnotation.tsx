@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { drawableEvidence, observationId, reviewEvidence } from '../evidence'
 import { reconcileBoundaryEdges, solveBoundaryEdges } from '../geometry'
 import { cloneSpec } from '../spec'
-import type { Asset, BoundaryEdge, ImageBoundaryPoint, RoomSpec } from '../types'
+import type { Asset, BoundaryEdge, FixtureSpec, ImageBoundaryPoint, Point2D, RoomSpec } from '../types'
 
 const canvasWidth = 1000
 const canvasHeight = 750
@@ -37,6 +37,72 @@ function pointAtRatio(start: CanvasPoint, end: CanvasPoint, ratio: number): Canv
   return { x: start.x + (end.x - start.x) * ratio, y: start.y + (end.y - start.y) * ratio }
 }
 
+function bounds<T>(items: T[], x: (item: T) => number, y: (item: T) => number) {
+  return {
+    minX: Math.min(...items.map(x)),
+    maxX: Math.max(...items.map(x)),
+    minY: Math.min(...items.map(y)),
+    maxY: Math.max(...items.map(y)),
+  }
+}
+
+function fixtureToCanvas(fixture: FixtureSpec, spec: RoomSpec, points: ImageBoundaryPoint[]): CanvasPoint | null {
+  const evidenceId = fixture.evidence_ids?.[0]
+  const observation = evidenceId
+    ? spec.observations.find((item) => item.field === `visual_evidence:${evidenceId}` && item.bbox)
+    : undefined
+  if (observation?.bbox && fixture.source !== 'user') {
+    return toCanvas({
+      x: (observation.bbox.x_min + observation.bbox.x_max) / 2,
+      y: (observation.bbox.y_min + observation.bbox.y_max) / 2,
+    })
+  }
+  if (spec.boundary.length >= 3 && points.length >= 3) {
+    const imageBounds = bounds(points, (point) => point.x, (point) => point.y)
+    const roomBounds = bounds(spec.boundary, (point) => point.x_mm, (point) => point.z_mm)
+    if (imageBounds.maxX > imageBounds.minX && imageBounds.maxY > imageBounds.minY && roomBounds.maxX > roomBounds.minX && roomBounds.maxY > roomBounds.minY) {
+      return toCanvas({
+        x: imageBounds.minX + (fixture.x_mm - roomBounds.minX) * (imageBounds.maxX - imageBounds.minX) / (roomBounds.maxX - roomBounds.minX),
+        y: imageBounds.minY + (fixture.z_mm - roomBounds.minY) * (imageBounds.maxY - imageBounds.minY) / (roomBounds.maxY - roomBounds.minY),
+      })
+    }
+  }
+  if (points.length >= 3) {
+    const imageBounds = bounds(points, (point) => point.x, (point) => point.y)
+    if (imageBounds.maxX > imageBounds.minX && imageBounds.maxY > imageBounds.minY) {
+      return toCanvas({
+        x: imageBounds.minX + fixture.x_mm * (imageBounds.maxX - imageBounds.minX) / 1000,
+        y: imageBounds.minY + fixture.z_mm * (imageBounds.maxY - imageBounds.minY) / 1000,
+      })
+    }
+  }
+  return null
+}
+
+function canvasToFixturePosition(location: CanvasPoint, spec: RoomSpec, points: ImageBoundaryPoint[]): Point2D | null {
+  const imagePoint = toImage(location)
+  if (spec.boundary.length >= 3 && points.length >= 3) {
+    const imageBounds = bounds(points, (point) => point.x, (point) => point.y)
+    const roomBounds = bounds(spec.boundary, (point) => point.x_mm, (point) => point.z_mm)
+    if (imageBounds.maxX > imageBounds.minX && imageBounds.maxY > imageBounds.minY && roomBounds.maxX > roomBounds.minX && roomBounds.maxY > roomBounds.minY) {
+      return {
+        x_mm: Math.round(roomBounds.minX + (imagePoint.x - imageBounds.minX) * (roomBounds.maxX - roomBounds.minX) / (imageBounds.maxX - imageBounds.minX)),
+        z_mm: Math.round(roomBounds.minY + (imagePoint.y - imageBounds.minY) * (roomBounds.maxY - roomBounds.minY) / (imageBounds.maxY - imageBounds.minY)),
+      }
+    }
+  }
+  if (points.length >= 3) {
+    const imageBounds = bounds(points, (point) => point.x, (point) => point.y)
+    if (imageBounds.maxX > imageBounds.minX && imageBounds.maxY > imageBounds.minY) {
+      return {
+        x_mm: Math.round((imagePoint.x - imageBounds.minX) * 1000 / (imageBounds.maxX - imageBounds.minX)),
+        z_mm: Math.round((imagePoint.y - imageBounds.minY) * 1000 / (imageBounds.maxY - imageBounds.minY)),
+      }
+    }
+  }
+  return null
+}
+
 function edgeBreakdown(edge: BoundaryEdge, wallIndex: number, spec: RoomSpec) {
   if (!edge.length_mm) return null
   const openings = spec.openings
@@ -68,6 +134,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
   const [tool, setTool] = useState<AnnotationTool>('edit')
   const [points, setPoints] = useState<ImageBoundaryPoint[]>(annotation?.boundary ?? [])
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null)
+  const [dragFixtureId, setDragFixtureId] = useState<string | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [boxStart, setBoxStart] = useState<CanvasPoint | null>(null)
   const [boxEnd, setBoxEnd] = useState<CanvasPoint | null>(null)
@@ -101,6 +168,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     ? evidence
     : evidence.filter((item) => observationId(item) === activeEvidenceId)
   const pendingDimensions = edgeChain.filter((edge) => !edge.length_mm).length
+  const pointFixtures = useMemo(() => spec.fixtures.filter((fixture) => fixture.evidence_ids?.some((id) => id.startsWith('point-marker-'))), [spec.fixtures])
   const activeEvidence = spec.observations.find((item) => (
     item.field === `ocr:${activeEvidenceId}` && (!plan?.id || item.asset_id === plan.id)
   ))
@@ -225,6 +293,24 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     setPoints(next); setSelectedPoint(null); commitBoundary(next)
   }
 
+  const movePointFixture = (fixtureId: string, location: CanvasPoint) => {
+    const position = canvasToFixturePosition(location, spec, points)
+    if (!position) return
+    const draft = cloneSpec(spec)
+    const fixture = draft.fixtures.find((item) => item.id === fixtureId)
+    if (!fixture) return
+    fixture.x_mm = position.x_mm
+    fixture.z_mm = position.z_mm
+    fixture.source = 'user'
+    fixture.confidence = 1
+    const evidenceId = fixture.evidence_ids?.[0]
+    const observation = evidenceId ? draft.observations.find((item) => item.field === `visual_evidence:${evidenceId}`) : undefined
+    if (observation) {
+      observation.review_required = false
+    }
+    onChange(draft)
+  }
+
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -308,6 +394,10 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
       onPointerMove={(event) => {
         const location = localPoint(event.clientX, event.clientY)
         if (dragIndex !== null) setPoints((current) => current.map((point, index) => index === dragIndex ? toImage(location) : point))
+        else if (dragFixtureId) {
+          const target = event.currentTarget.querySelector(`[data-fixture-id="${dragFixtureId}"]`)
+          target?.setAttribute('transform', `translate(${location.x} ${location.y})`)
+        }
         else if (wallRangeDrag) {
           const start = canvasPoints[wallRangeDrag.wallIndex]
           const end = canvasPoints[(wallRangeDrag.wallIndex + 1) % canvasPoints.length]
@@ -321,6 +411,10 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
           const next = points.map((point, index) => index === dragIndex ? toImage(location) : point)
           setPoints(next); commitBoundary(next); setDragIndex(null)
         }
+        if (dragFixtureId) {
+          movePointFixture(dragFixtureId, localPoint(event.clientX, event.clientY))
+          setDragFixtureId(null)
+        }
         if (wallRangeDrag) bindDoorRange(wallRangeDrag)
         if (boxStart && boxEnd) {
           if (tool === 'region') bindEvidenceRegion(boxStart, boxEnd)
@@ -331,7 +425,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
         if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
       }}
       onPointerCancel={(event) => {
-        setDragIndex(null); setBoxStart(null); setBoxEnd(null); setWallRangeDrag(null)
+        setDragIndex(null); setDragFixtureId(null); setBoxStart(null); setBoxEnd(null); setWallRangeDrag(null)
         if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
       }}>
       <rect width={canvasWidth} height={canvasHeight} className="annotation-background" />
@@ -411,6 +505,19 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
         <circle className="annotation-point-hit" r="20" />
         <circle className="annotation-point-dot" r="8" />
       </g>)}
+      {pointFixtures.map((fixture) => {
+        const point = fixtureToCanvas(fixture, spec, points)
+        if (!point) return null
+        return <g key={`annotation-fixture-${fixture.id}`} data-fixture-id={fixture.id} className="annotation-marker" transform={`translate(${point.x} ${point.y})`}
+          onPointerDown={(event) => {
+            if (tool !== 'edit') return
+            event.preventDefault(); event.stopPropagation(); setDragFixtureId(fixture.id); event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
+          }}>
+          <circle className="annotation-marker-hit" r="22" />
+          <circle className="annotation-marker-dot" r="10" />
+          <text y="-14">{fixture.label}</text>
+        </g>
+      })}
       {boxStart && boxEnd && <rect className="annotation-selection" x={Math.min(boxStart.x, boxEnd.x)} y={Math.min(boxStart.y, boxEnd.y)} width={Math.abs(boxEnd.x - boxStart.x)} height={Math.abs(boxEnd.y - boxStart.y)} />}
     </svg>
   </div>

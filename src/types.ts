@@ -114,6 +114,7 @@ export interface RoomSpec {
   boundary: Point2D[]
   height_mm: number | null
   wall_thickness_mm: number
+  finish_surface_offset_mm?: number
   wall_profiles?: WallProfile[]
   openings: OpeningSpec[]
   fixtures: FixtureSpec[]

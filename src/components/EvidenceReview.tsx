@@ -96,7 +96,7 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
   const wallBindingLabel = doorRangeMatch
     ? `W${Number(doorRangeMatch[1]) + 1} · 洞口内宽 ${Math.round(Number(doorRangeMatch[2]) * 100)}%–${Math.round(Number(doorRangeMatch[3]) * 100)}%`
     : role === 'door_size'
-      ? (wallMatch ? `请沿 W${Number(wallMatch[1]) + 1} 的洞口内宽拖选` : '在照片中沿洞口内宽拖选')
+      ? (wallMatch ? `W${Number(wallMatch[1]) + 1} · 使用尺寸链或拖选洞口内宽` : '点照片中的目标墙线或沿洞口内宽拖选')
       : wallMatch ? `W${Number(wallMatch[1]) + 1}${wallMatch[2] ? ` · ${Math.round(Number(wallMatch[2]) * 100)}%` : ''}` : '点照片中的目标墙线'
   const nextDrainTarget = `drain:${Math.max(0, ...usedDrainIds) + 1}`
   const nextFixtureTarget = `fixture:${Math.max(0, ...usedFixtureIds) + 1}`
@@ -112,7 +112,7 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
     else if (nextRole === 'ceiling_height') nextTarget = targetId.startsWith('ceiling:') ? targetId : ''
     else if (nextRole === 'pipe_box') nextTarget = targetId.startsWith('pipe_box:') ? targetId : ''
     else if (nextRole === 'other') nextTarget = ''
-    else if (nextRole === 'door_size' && !targetId.match(/^wall:\d+@[01](?:\.\d+)?:[01](?:\.\d+)?$/)) nextTarget = ''
+    else if (nextRole === 'door_size' && !targetId.startsWith('wall:')) nextTarget = ''
     else if (!targetId.startsWith('wall:')) nextTarget = ''
     setTargetId(nextTarget)
     onDraftChange?.(observationId(active), nextRole, nextTarget || null)
@@ -154,7 +154,7 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
         </div>
         <div className="evidence-commands">
           <button className="button ghost compact" onClick={() => onApply(observationId(active), value, 'other', null, true)}><SkipForward size={14} />不用于建模</button>
-          <button className="button primary compact" disabled={!value.trim() || (requiresTarget && (role === 'door_size' ? !doorRangeMatch : !targetId))} onClick={() => onApply(observationId(active), value.trim(), role, targetId || null)}><Check size={14} />确认并应用</button>
+          <button className="button primary compact" disabled={!value.trim() || (requiresTarget && (role === 'door_size' ? !wallMatch : !targetId))} onClick={() => onApply(observationId(active), value.trim(), role, targetId || null)}><Check size={14} />确认并应用</button>
         </div>
       </div>
     </section>

@@ -553,7 +553,8 @@ class RoomSpec(BaseModel):
     name: str = "卫生间"
     boundary: list[Point2D] = Field(default_factory=list)
     height_mm: int | None = Field(default=None, gt=0)
-    wall_thickness_mm: int = Field(default=100, gt=0)
+    wall_thickness_mm: int = Field(default=200, gt=0)
+    finish_surface_offset_mm: int = Field(default=20, ge=0)
     wall_profiles: list[WallProfile] = Field(default_factory=list)
     openings: list[OpeningSpec] = Field(default_factory=list)
     fixtures: list[FixtureSpec] = Field(default_factory=list)

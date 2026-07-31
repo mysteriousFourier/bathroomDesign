@@ -223,10 +223,16 @@ p, h1, h2, figure { margin: 0; }
 .annotation-point.selected circle { fill: #f3c44e; stroke: #8a5a00; }
 .annotation-point.selected .annotation-point-hit { fill: transparent; stroke: transparent; }
 .annotation-point text { fill: #7b201b; text-anchor: middle; font: 11px Consolas, monospace; paint-order: stroke; stroke: #fff; stroke-width: 3; pointer-events: none; }
+.annotation-marker { cursor: grab; }
+.annotation-marker:active { cursor: grabbing; }
+.annotation-marker-hit { fill: transparent; stroke: transparent; pointer-events: all; }
+.annotation-marker-dot { fill: #dce9e2; stroke: #2d6a51; stroke-width: 3; vector-effect: non-scaling-stroke; }
+.annotation-marker text { fill: #234c3b; text-anchor: middle; font: 700 11px system-ui, sans-serif; paint-order: stroke; stroke: #fff; stroke-width: 4; pointer-events: none; }
 .annotation-evidence { fill: rgb(37 99 235 / 5%); stroke: #2166c2; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
 .annotation-evidence.pending { fill: rgb(202 50 42 / 9%); stroke: #c2362d; stroke-width: 3; }
 .annotation-evidence:hover { fill: rgb(245 183 38 / 18%); stroke: #9a6815; }
 .annotation-selection { fill: rgb(245 183 38 / 12%); stroke: #9a6815; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.wall-finish-layer .wall-ring { fill: rgb(97 102 95 / 18%); stroke: #777d75; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .dimension-label circle { fill: #faf9f6; stroke: #b7bbb3; stroke-width: 1; }
 .dimension-label text { fill: #656b64; text-anchor: middle; font: 8px Consolas, monospace; pointer-events: none; }
 .opening-line { stroke: #b78022; stroke-width: 11; stroke-linecap: butt; cursor: pointer; }

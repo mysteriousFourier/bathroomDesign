@@ -11,6 +11,7 @@ import { ProjectRail } from './components/ProjectRail'
 import { SolutionList } from './components/SolutionList'
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
+import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { clientValidate, cloneSpec, manualRoom } from './spec'
 import type { BoundaryEdge, EvidenceRole, Health, ImageBoundaryPoint, Project, RoomSpec, Selection } from './types'
 
@@ -52,12 +53,6 @@ const imageRegion = (spec: RoomSpec, targetId: string, prefix: 'ceiling' | 'pipe
       { x_mm: maxX, z_mm: maxZ }, { x_mm: minX, z_mm: maxZ },
     ],
   }
-}
-
-const wallTarget = (targetId: string | null) => {
-  const match = targetId?.match(/^wall:(\d+)(?:@(0(?:\.\d+)?|1(?:\.0+)?)(?::(0(?:\.\d+)?|1(?:\.0+)?))?)?$/)
-  if (!match) return null
-  return { wallIndex: Number(match[1]), startRatio: match[2] === undefined ? null : Number(match[2]), endRatio: match[3] === undefined ? null : Number(match[3]) }
 }
 
 export default function App() {
@@ -243,36 +238,11 @@ export default function App() {
 
   const applyEvidence = (id: string, value: string, role: EvidenceRole, targetId: string | null = null, ignored = false) => {
     if (!spec) return
-    const next = cloneSpec(spec)
+    const next = applyEvidenceToSpec(spec, id, value, role, targetId, ignored)
     const observation = next.observations.find((item) => item.field === `ocr:${id}`)
     if (!observation) return
-    observation.value = value
-    observation.source = 'user'
-    observation.confidence = 1
-    observation.confirmed = true
-    observation.review_required = false
-    observation.semantic_role = role
-    observation.target_id = targetId
     if (!ignored) {
-      const numbers = [...value.matchAll(/\d+(?:[.,]\d+)?/g)].map((match) => {
-        const raw = match[0].replace(',', '.')
-        const parsed = Number(raw)
-        return raw.includes('.') && parsed < 20 ? Math.round(parsed * 1000) : Math.round(parsed)
-      }).filter((item) => item > 0)
-      if (role === 'room_height' && numbers[0]) next.height_mm = numbers[0]
-      if (role === 'wall_segment' && numbers[0] && targetId?.startsWith('wall:') && next.plan_annotation) {
-        const wallIndex = Number(targetId.slice(5).split('@')[0])
-        const edge = next.plan_annotation.edge_chain?.[wallIndex]
-        if (edge && Number.isInteger(wallIndex) && wallIndex >= 0 && wallIndex < next.plan_annotation.boundary.length) {
-          edge.length_mm = numbers[0]
-          edge.measured_length_mm = numbers[0]
-          edge.closure_adjustment_mm = 0
-          edge.source = 'user'
-          edge.confidence = 1
-          edge.evidence_ids = [...new Set([...(edge.evidence_ids ?? []), id])]
-          next.plan_annotation.confirmed = false
-        }
-      }
+      const numbers = measurementNumbers(value)
       if (role === 'wall_thickness' && numbers[0] && targetId?.startsWith('wall:')) {
         const wallIndex = Number(targetId.slice(5).split('@')[0])
         if (Number.isInteger(wallIndex) && wallIndex >= 0 && wallIndex < next.boundary.length) {
@@ -280,35 +250,6 @@ export default function App() {
           const profile = profiles.find((item) => item.wall_index === wallIndex)
           if (profile) { profile.thickness_mm = numbers[0]; profile.source = 'user'; profile.confidence = 1; profile.evidence_ids = [...new Set([...(profile.evidence_ids ?? []), id])] }
           else profiles.push({ wall_index: wallIndex, kind: 'interior', thickness_mm: numbers[0], source: 'user', confidence: 1, evidence_ids: [id] })
-        }
-      }
-      if (role === 'door_size') {
-        const codedValues = Object.fromEntries(
-          [...value.matchAll(/\b(CG|CK|CH)\s*[:：=]?\s*(\d+)/gi)].map((match) => [match[1].toUpperCase(), Number(match[2])]),
-        ) as Partial<Record<'CG' | 'CK' | 'CH', number>>
-        const usesCodedValues = /\b(?:CG|CK|CH)\b/i.test(value)
-        const width = codedValues.CK ?? numbers.find((item) => item >= 500 && item <= 1600)
-        const height = codedValues.CH ?? numbers.find((item) => item >= 1800 && item <= 2800) ?? numbers[1]
-        const sill = codedValues.CG ?? (usesCodedValues ? undefined : 0)
-        const target = wallTarget(targetId)
-        const wallCount = next.plan_annotation?.boundary.length ?? next.boundary.length
-        if (width && height && sill !== undefined && target && Number.isInteger(target.wallIndex) && target.wallIndex >= 0 && target.wallIndex < wallCount) {
-          const openingCode = value.match(/\b([DW][12])\b/i)?.[1].toUpperCase()
-          const openingKind = openingCode?.startsWith('W') ? 'window' : 'door'
-          const opening = next.openings.find((item) => item.evidence_ids?.includes(id))
-          const start = next.boundary[target.wallIndex]
-          const end = next.boundary.length ? next.boundary[(target.wallIndex + 1) % next.boundary.length] : undefined
-          const length = next.plan_annotation?.edge_chain?.[target.wallIndex]?.length_mm
-            ?? (start && end ? Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm) : 0)
-          const offset = target.startRatio === null ? 0 : target.endRatio === null
-            ? Math.max(0, Math.round(target.startRatio * length - width / 2))
-            : Math.max(0, Math.round(Math.min(target.startRatio, target.endRatio) * length))
-          if (opening) {
-            opening.kind = openingKind; opening.wall_index = target.wallIndex; opening.offset_mm = offset
-            opening.width_mm = width; opening.height_mm = height; opening.sill_mm = sill; opening.thickness_mm = null
-            opening.label = openingCode ?? (openingKind === 'window' ? '窗洞' : '门洞')
-            opening.source = 'user'; opening.confidence = 1; opening.evidence_ids = [...new Set([...(opening.evidence_ids ?? []), id])]
-          } else next.openings.push({ id: `${openingKind}-${crypto.randomUUID().slice(0, 8)}`, kind: openingKind, wall_index: target.wallIndex, offset_mm: offset, width_mm: width, height_mm: height, thickness_mm: null, sill_mm: sill, label: openingCode ?? (openingKind === 'window' ? '窗洞' : '门洞'), source: 'user', confidence: 1, evidence_ids: [id] })
         }
       }
       if (role === 'door_position' && numbers[0]) {
@@ -353,11 +294,7 @@ export default function App() {
 
   const deleteEvidence = (id: string) => {
     if (!spec) return
-    const next = cloneSpec(spec)
-    next.observations = next.observations.filter((item) => item.field !== `ocr:${id}`)
-    next.openings = next.openings.filter((item) => !(item.evidence_ids?.includes(id) && item.evidence_ids.length === 1))
-    next.fixtures = next.fixtures.filter((item) => !(item.evidence_ids?.includes(id) && item.evidence_ids.length === 1))
-    commitSpec(next)
+    commitSpec(deleteEvidenceFromSpec(spec, id))
     setFocusEvidenceId(null)
   }
 

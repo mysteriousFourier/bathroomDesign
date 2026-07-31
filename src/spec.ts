@@ -1,10 +1,16 @@
 import type { FixtureKind, FixtureSpec, Point2D, RoomSpec, ValidationIssue } from './types'
 
+export const defaultWallThicknessMm = 200
+export const defaultFinishSurfaceOffsetMm = 20
+
 export const fixtureLabels: Record<FixtureKind, string> = {
   toilet: '马桶',
   vanity: '台盆 / 浴室柜',
   shower: '淋浴区',
   floor_drain: '地漏',
+  drain: '排水',
+  water: '给水',
+  electric: '电点',
   pipe: '管道',
   column: '柱 / 包管',
   radiator: '暖气',
@@ -16,6 +22,9 @@ export const fixtureDefaults: Record<FixtureKind, Pick<FixtureSpec, 'width_mm' |
   vanity: { width_mm: 800, depth_mm: 520, height_mm: 850 },
   shower: { width_mm: 900, depth_mm: 900, height_mm: 2000 },
   floor_drain: { width_mm: 120, depth_mm: 120, height_mm: 10 },
+  drain: { width_mm: 60, depth_mm: 60, height_mm: 10 },
+  water: { width_mm: 40, depth_mm: 40, height_mm: 10 },
+  electric: { width_mm: 40, depth_mm: 40, height_mm: 10 },
   pipe: { width_mm: 110, depth_mm: 110, height_mm: 2400 },
   column: { width_mm: 400, depth_mm: 400, height_mm: 2600 },
   radiator: { width_mm: 500, depth_mm: 120, height_mm: 800 },
@@ -33,7 +42,8 @@ export function manualRoom(widthMm: number, depthMm: number, heightMm: number): 
       { x_mm: 0, z_mm: depthMm },
     ],
     height_mm: heightMm,
-    wall_thickness_mm: 100,
+    wall_thickness_mm: defaultWallThicknessMm,
+    finish_surface_offset_mm: defaultFinishSurfaceOffsetMm,
     openings: [],
     fixtures: [],
     observations: [
@@ -67,14 +77,134 @@ export function wallLength(points: Point2D[], index: number) {
   return Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm)
 }
 
+export function wallThickness(spec: RoomSpec, index: number) {
+  return spec.wall_profiles?.find((profile) => profile.wall_index === index)?.thickness_mm ?? spec.wall_thickness_mm
+}
+
+export function finishSurfaceOffset(spec: RoomSpec) {
+  return spec.finish_surface_offset_mm ?? defaultFinishSurfaceOffsetMm
+}
+
+export function polygonSignedArea(points: Point2D[]) {
+  return points.reduce((sum, point, index) => {
+    const next = points[(index + 1) % points.length]
+    return sum + point.x_mm * next.z_mm - next.x_mm * point.z_mm
+  }, 0) / 2
+}
+
+export function wallOutwardNormal(points: Point2D[], index: number) {
+  const start = points[index]
+  const end = points[(index + 1) % points.length]
+  const dx = end.x_mm - start.x_mm
+  const dz = end.z_mm - start.z_mm
+  const length = Math.hypot(dx, dz) || 1
+  const clockwiseInScreenSpace = polygonSignedArea(points) > 0
+  const normal = clockwiseInScreenSpace
+    ? { x: dz / length, z: -dx / length }
+    : { x: -dz / length, z: dx / length }
+  return {
+    x: Math.abs(normal.x) < 1e-9 ? 0 : normal.x,
+    z: Math.abs(normal.z) < 1e-9 ? 0 : normal.z,
+  }
+}
+
+type OffsetLine = { start: Point2D; end: Point2D }
+
+function offsetLine(points: Point2D[], index: number, distanceMm: number): OffsetLine {
+  const start = points[index]
+  const end = points[(index + 1) % points.length]
+  const normal = wallOutwardNormal(points, index)
+  return {
+    start: { x_mm: start.x_mm + normal.x * distanceMm, z_mm: start.z_mm + normal.z * distanceMm },
+    end: { x_mm: end.x_mm + normal.x * distanceMm, z_mm: end.z_mm + normal.z * distanceMm },
+  }
+}
+
+function intersectLines(first: OffsetLine, second: OffsetLine): Point2D | null {
+  const x1 = first.start.x_mm
+  const z1 = first.start.z_mm
+  const x2 = first.end.x_mm
+  const z2 = first.end.z_mm
+  const x3 = second.start.x_mm
+  const z3 = second.start.z_mm
+  const x4 = second.end.x_mm
+  const z4 = second.end.z_mm
+  const denominator = (x1 - x2) * (z3 - z4) - (z1 - z2) * (x3 - x4)
+  if (Math.abs(denominator) < 1e-9) return null
+  const firstCross = x1 * z2 - z1 * x2
+  const secondCross = x3 * z4 - z3 * x4
+  return {
+    x_mm: (firstCross * (x3 - x4) - (x1 - x2) * secondCross) / denominator,
+    z_mm: (firstCross * (z3 - z4) - (z1 - z2) * secondCross) / denominator,
+  }
+}
+
+export function offsetBoundary(points: Point2D[], distanceMm: number): Point2D[] {
+  if (points.length < 3 || distanceMm === 0) return points.map((point) => ({ ...point }))
+  return points.map((point, index) => {
+    const previousLine = offsetLine(points, (index - 1 + points.length) % points.length, distanceMm)
+    const currentLine = offsetLine(points, index, distanceMm)
+    const intersection = intersectLines(previousLine, currentLine)
+    if (intersection) return {
+      x_mm: Math.round(intersection.x_mm * 1000) / 1000,
+      z_mm: Math.round(intersection.z_mm * 1000) / 1000,
+    }
+    const normal = wallOutwardNormal(points, index)
+    return { x_mm: point.x_mm + normal.x * distanceMm, z_mm: point.z_mm + normal.z * distanceMm }
+  })
+}
+
 export function cloneSpec(spec: RoomSpec): RoomSpec {
   return structuredClone(spec)
+}
+
+function orientation(a: Point2D, b: Point2D, c: Point2D) {
+  const value = (b.z_mm - a.z_mm) * (c.x_mm - b.x_mm) - (b.x_mm - a.x_mm) * (c.z_mm - b.z_mm)
+  return value === 0 ? 0 : value > 0 ? 1 : 2
+}
+
+function pointOnSegment(a: Point2D, b: Point2D, point: Point2D) {
+  return point.x_mm >= Math.min(a.x_mm, b.x_mm) && point.x_mm <= Math.max(a.x_mm, b.x_mm)
+    && point.z_mm >= Math.min(a.z_mm, b.z_mm) && point.z_mm <= Math.max(a.z_mm, b.z_mm)
+}
+
+function segmentsIntersect(a: Point2D, b: Point2D, c: Point2D, d: Point2D) {
+  const first = orientation(a, b, c)
+  const second = orientation(a, b, d)
+  const third = orientation(c, d, a)
+  const fourth = orientation(c, d, b)
+  if (first !== second && third !== fourth) return true
+  return (first === 0 && pointOnSegment(a, b, c))
+    || (second === 0 && pointOnSegment(a, b, d))
+    || (third === 0 && pointOnSegment(c, d, a))
+    || (fourth === 0 && pointOnSegment(c, d, b))
+}
+
+function hasSelfIntersection(points: Point2D[]) {
+  for (let first = 0; first < points.length; first += 1) {
+    for (let second = first + 1; second < points.length; second += 1) {
+      if (second === first + 1 || (first === 0 && second === points.length - 1)) continue
+      if (segmentsIntersect(
+        points[first], points[(first + 1) % points.length],
+        points[second], points[(second + 1) % points.length],
+      )) return true
+    }
+  }
+  return false
 }
 
 export function clientValidate(spec: RoomSpec): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   if (spec.boundary.length < 3) issues.push({ id: 'boundary', severity: 'error', code: 'invalid_boundary', message: '房间轮廓未闭合' })
-  if (!spec.height_mm || spec.height_mm < 1000) issues.push({ id: 'height', severity: 'error', code: 'missing_height', message: '缺少有效层高' })
+  spec.boundary.forEach((start, index) => {
+    const end = spec.boundary[(index + 1) % spec.boundary.length]
+    const deltaX = end.x_mm - start.x_mm
+    const deltaZ = end.z_mm - start.z_mm
+    if (deltaX === 0 && deltaZ === 0) issues.push({ id: `boundary-zero-${index}`, severity: 'error', code: 'zero_length_boundary', message: `W${index + 1} 是零长度线段，请合并重复端点`, target_id: `wall:${index}` })
+    else if (deltaX !== 0 && deltaZ !== 0) issues.push({ id: `boundary-orthogonal-${index}`, severity: 'error', code: 'non_orthogonal_boundary', message: `W${index + 1} 不是水平或垂直线段，禁止进入建模`, target_id: `wall:${index}` })
+  })
+  if (spec.boundary.length >= 3 && hasSelfIntersection(spec.boundary)) issues.push({ id: 'boundary-cross', severity: 'error', code: 'self_intersection', message: '房间轮廓存在自相交' })
+  if (!spec.height_mm || spec.height_mm < 1000) issues.push({ id: 'height', severity: 'error', code: 'missing_height', message: '缺少有效净高' })
   for (const opening of spec.openings) {
     if (opening.wall_index >= spec.boundary.length) {
       issues.push({ id: `opening-wall-${opening.id}`, severity: 'error', code: 'opening_wall', message: `${opening.label} 未关联到有效墙面`, target_id: opening.id })
@@ -88,9 +218,9 @@ export function clientValidate(spec: RoomSpec): ValidationIssue[] {
     if (fixture.confidence < 0.6 && fixture.source !== 'user') issues.push({ id: `confidence-${fixture.id}`, severity: 'warning', code: 'low_confidence', message: `${fixture.label} 为低置信度识别结果`, target_id: fixture.id })
   }
   spec.fixtures.forEach((left, index) => {
-    if (left.kind === 'floor_drain' || left.kind === 'pipe') return
+    if (['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(left.kind)) return
     spec.fixtures.slice(index + 1).forEach((right) => {
-      if (right.kind === 'floor_drain' || right.kind === 'pipe') return
+      if (['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(right.kind)) return
       const overlapsX = Math.abs(left.x_mm - right.x_mm) * 2 < left.width_mm + right.width_mm
       const overlapsZ = Math.abs(left.z_mm - right.z_mm) * 2 < left.depth_mm + right.depth_mm
       if (overlapsX && overlapsZ) issues.push({ id: `collision-${left.id}-${right.id}`, severity: 'warning', code: 'fixture_collision', message: `${left.label} 与 ${right.label} 的占地范围重叠`, target_id: left.id })

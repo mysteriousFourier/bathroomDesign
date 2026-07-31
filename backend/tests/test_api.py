@@ -1,4 +1,5 @@
 from io import BytesIO
+from pathlib import Path
 from uuid import UUID
 
 import httpx
@@ -6,7 +7,7 @@ import pytest
 from PIL import Image
 
 from backend.app.database import db
-from backend.app.config import settings
+from backend.app.config import PROJECT_ROOT, settings
 from backend.app import main as main_module
 from backend.app.ai import AIResponseError
 from backend.app.main import app
@@ -17,6 +18,21 @@ def configure_temp_database(tmp_path) -> None:
     db.data_dir = tmp_path
     db.db_path = tmp_path / "studio.sqlite3"
     db.asset_dir = tmp_path / "projects"
+
+
+@pytest.mark.asyncio
+async def test_frontend_and_template_routes_do_not_depend_on_working_directory(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        homepage = await client.get("/")
+        template = await client.get("/measurement-template.html")
+
+    assert homepage.status_code == 200
+    assert '<div id="root"></div>' in homepage.text
+    assert template.status_code == 200
+    assert "单房间量房记录" in template.text
+    assert PROJECT_ROOT == Path(__file__).resolve().parents[2]
+    assert settings.app_data_dir.is_absolute()
 
 
 @pytest.mark.asyncio
@@ -124,6 +140,37 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_uploading_new_floorplan_invalidates_previous_spec_and_measurement(tmp_path) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "replace plan"})).json()["id"]
+        spec = RoomSpec(
+            boundary=[
+                Point2D(x_mm=0, z_mm=0), Point2D(x_mm=1800, z_mm=0),
+                Point2D(x_mm=1800, z_mm=2400), Point2D(x_mm=0, z_mm=2400),
+            ],
+            height_mm=2600,
+            confirmed=True,
+        )
+        await client.put(f"/api/projects/{project_id}/spec", json=spec.model_dump(mode="json"))
+        image_data = BytesIO()
+        Image.new("RGB", (640, 480), "white").save(image_data, "JPEG")
+
+        uploaded = await client.post(
+            f"/api/projects/{project_id}/assets",
+            data={"role": "floorplan"},
+            files={"file": ("replacement.jpg", image_data.getvalue(), "image/jpeg")},
+        )
+        refreshed = await client.get(f"/api/projects/{project_id}")
+
+    assert uploaded.status_code == 201
+    assert refreshed.json()["status"] == "draft"
+    assert refreshed.json()["spec"] is None
+    assert refreshed.json()["measurement"] is None
+
+
+@pytest.mark.asyncio
 async def test_incomplete_pixel_annotation_saves_without_measurement(tmp_path) -> None:
     configure_temp_database(tmp_path)
     db.initialize()
@@ -153,6 +200,48 @@ async def test_incomplete_pixel_annotation_saves_without_measurement(tmp_path) -
         assert saved.json()["measurement"] is None
         assert saved.json()["spec"]["boundary"] == []
         assert len(saved.json()["spec"]["plan_annotation"]["edge_chain"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_incomplete_plan_analysis_returns_null_measurement(tmp_path, monkeypatch) -> None:
+    configure_temp_database(tmp_path)
+
+    async def incomplete_analysis(*_args, **_kwargs):
+        return RoomSpec(
+            boundary=[],
+            plan_annotation=PlanAnnotation(
+                boundary=[
+                    ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
+                    ShapeCorner(x=900, y=900), ShapeCorner(x=100, y=900),
+                ],
+                edge_chain=[
+                    {"direction": "right", "length_mm": None},
+                    {"direction": "down", "length_mm": None},
+                    {"direction": "left", "length_mm": None},
+                    {"direction": "up", "length_mm": None},
+                ],
+                confirmed=False,
+            ),
+        )
+
+    monkeypatch.setattr(main_module, "analyze_floorplan", incomplete_analysis)
+    db.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "识别尺寸待补"})).json()["id"]
+        image_data = BytesIO()
+        Image.new("RGB", (320, 240), "white").save(image_data, "JPEG")
+        await client.post(
+            f"/api/projects/{project_id}/assets",
+            data={"role": "floorplan"},
+            files={"file": ("plan.jpg", image_data.getvalue(), "image/jpeg")},
+        )
+
+        analyzed = await client.post(f"/api/projects/{project_id}/analyze-plan")
+
+        assert analyzed.status_code == 200
+        assert analyzed.json()["measurement"] is None
+        assert analyzed.json()["spec"]["boundary"] == []
+        assert analyzed.json()["sufficient"] is False
 
 
 @pytest.mark.asyncio
@@ -206,6 +295,47 @@ async def test_rejects_non_image_upload(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_floorplan_invalidates_old_geometry_but_site_photo_does_not(tmp_path) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    image_data = BytesIO()
+    Image.new("RGB", (320, 240), "white").save(image_data, "JPEG")
+    payload = image_data.getvalue()
+    spec = RoomSpec(
+        boundary=[
+            Point2D(x_mm=0, z_mm=0), Point2D(x_mm=2400, z_mm=0),
+            Point2D(x_mm=2400, z_mm=1600), Point2D(x_mm=0, z_mm=1600),
+        ],
+        height_mm=2600,
+    ).model_dump(mode="json")
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "底图隔离"})).json()["id"]
+        assert (await client.put(f"/api/projects/{project_id}/spec", json=spec)).status_code == 200
+
+        floorplan = await client.post(
+            f"/api/projects/{project_id}/assets", data={"role": "floorplan"},
+            files={"file": ("new-plan.jpg", payload, "image/jpeg")},
+        )
+        assert floorplan.status_code == 201
+        refreshed = (await client.get(f"/api/projects/{project_id}")).json()
+        assert refreshed["spec"] is None
+        assert refreshed["measurement"] is None
+        assert refreshed["status"] == "draft"
+
+        assert (await client.put(f"/api/projects/{project_id}/spec", json=spec)).status_code == 200
+        photo = await client.post(
+            f"/api/projects/{project_id}/assets", data={"role": "photo"},
+            files={"file": ("site.jpg", payload, "image/jpeg")},
+        )
+        assert photo.status_code == 201
+        retained = (await client.get(f"/api/projects/{project_id}")).json()
+        assert retained["spec"] is not None
+        assert retained["measurement"] is not None
+        assert retained["status"] == "review"
+
+
+@pytest.mark.asyncio
 async def test_failed_reanalysis_marks_old_spec_stale_without_deleting_it(tmp_path, monkeypatch) -> None:
     configure_temp_database(tmp_path)
     db.initialize()
@@ -238,3 +368,18 @@ async def test_failed_reanalysis_marks_old_spec_stale_without_deleting_it(tmp_pa
         assert project["spec"]["height_mm"] == 2600
         assert project["measurement"]["heights"]["room_height_mm"] == 2600
         assert len(project["measurement"]["walls"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_project_cannot_be_deleted_during_analysis(tmp_path) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "识别中项目"})).json()["id"]
+        db.set_status(project_id, "analysis_running")
+
+        response = await client.delete(f"/api/projects/{project_id}")
+
+        assert response.status_code == 409
+        assert "正在识别" in response.json()["detail"]
+        assert (await client.get(f"/api/projects/{project_id}")).status_code == 200

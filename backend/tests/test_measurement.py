@@ -13,6 +13,7 @@ from backend.app.models import (
     RoomSpec,
     SourceKind,
 )
+from backend.app.validation import wall_length
 
 
 def non_rectangular_spec() -> RoomSpec:
@@ -203,6 +204,19 @@ def test_measurement_rejects_broken_wall_chain() -> None:
     assert not sufficient
     assert any(issue.code == "wall_chain_gap" for issue in issues)
     assert any(issue.code == "wall_length_mismatch" for issue in issues)
+
+
+def test_measurement_rejects_diagonal_wall_before_modeling() -> None:
+    measurement = measurement_from_spec(non_rectangular_spec(), "measurement-1")
+    measurement.walls[0].end.z_mm += 100
+    measurement.walls[1].start.z_mm += 100
+    measurement.walls[0].length_mm = round(wall_length(measurement.walls[0].start, measurement.walls[0].end))
+    measurement.walls[1].length_mm = round(wall_length(measurement.walls[1].start, measurement.walls[1].end))
+
+    issues, sufficient, _, _ = validate_measurement(measurement)
+
+    assert not sufficient
+    assert any(issue.code == "non_orthogonal_boundary" for issue in issues)
 
 
 def test_measurement_rejects_invalid_opening_host_and_outside_anchor() -> None:

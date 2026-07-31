@@ -1,18 +1,22 @@
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", extra="ignore")
 
     openai_base_url: str = ""
     openai_api_key: str = ""
     openai_model: str = ""
+    openai_vision_model: str = ""
     openai_fast_model: str = "glm-4v-flash"
-    openai_quality_model: str = ""
     openai_fallback_model: str = ""
-    app_data_dir: Path = Path("backend/data")
+    openai_coordinator_model: str = "glm-4.7-flash"
+    app_data_dir: Path = PROJECT_ROOT / "backend" / "data"
     max_upload_mb: int = 20
     max_image_pixels: int = 30_000_000
     ai_timeout_seconds: int = 120
@@ -21,15 +25,19 @@ class Settings(BaseSettings):
     ai_max_tool_rounds: int = 4
     ai_trace_enabled: bool = True
     ai_compare_topology_models: bool = False
-    ai_quality_timeout_seconds: int = 35
     ai_wall_crop_concurrency: int = 4
     # Keep the refined OCR run as the canonical cache so wall-crop and
     # global-vision alternatives survive between analysis stages.
-    ocr_cache_dir: Path = Path(".tmp/ocr-fast")
+    ocr_cache_dir: Path = PROJECT_ROOT / ".tmp" / "ocr-fast"
     ocr_cache_ttl_hours: int = 24
     ocr_engine: str = "paddle"
     paddleocr_python: str = ""
     ocr_timeout_seconds: int = 180
+
+    @field_validator("app_data_dir", "ocr_cache_dir", mode="after")
+    @classmethod
+    def resolve_project_path(cls, value: Path) -> Path:
+        return value if value.is_absolute() else PROJECT_ROOT / value
 
     @classmethod
     def settings_customise_sources(
@@ -45,7 +53,8 @@ class Settings(BaseSettings):
 
     @property
     def ai_configured(self) -> bool:
-        return bool(self.openai_base_url and self.openai_api_key and self.openai_model)
+        visual_model = self.openai_vision_model or self.openai_fast_model or self.openai_model
+        return bool(self.openai_base_url and self.openai_api_key and visual_model)
 
 
 settings = Settings()

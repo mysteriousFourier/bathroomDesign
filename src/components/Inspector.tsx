@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, fixtureDefaults, fixtureLabels, roomBounds, roomCentroid, wallLength } from '../spec'
+import { cloneSpec, defaultFinishSurfaceOffsetMm, fixtureDefaults, fixtureLabels, finishSurfaceOffset, roomBounds, roomCentroid, wallLength } from '../spec'
 import type { Asset, EvidenceRole, FixtureKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -95,8 +95,9 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             <label className="text-field"><span>空间名称</span><input value={spec.name} onChange={(event) => edit((draft) => { draft.name = event.target.value })} /></label>
             <NumberField label="净宽" value={bounds.width} min={500} onChange={(value) => resizeBoundary(value, bounds.depth)} />
             <NumberField label="净深" value={bounds.depth} min={500} onChange={(value) => resizeBoundary(bounds.width, value)} />
-            <NumberField label="层高" value={spec.height_mm ?? 0} min={1000} onChange={(value) => edit((draft) => { draft.height_mm = value })} />
+            <NumberField label="净高" value={spec.height_mm ?? 0} min={1000} onChange={(value) => edit((draft) => { draft.height_mm = value })} />
             <NumberField label="墙厚" value={spec.wall_thickness_mm} min={50} onChange={(value) => edit((draft) => { draft.wall_thickness_mm = value })} />
+            <NumberField label="完成面刨除" value={finishSurfaceOffset(spec)} min={0} onChange={(value) => edit((draft) => { draft.finish_surface_offset_mm = value || defaultFinishSurfaceOffsetMm })} />
             <div className="boundary-editor">
               <div className="boundary-editor-heading"><strong>轮廓折点</strong><span>{spec.boundary.length} 点</span></div>
               {spec.boundary.map((point, index) => (
@@ -126,10 +127,9 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
           <div className="field-stack">
             <div className="object-heading"><strong>{selectedOpening.label}</strong><SourceBadge source={selectedOpening.source} confidence={selectedOpening.confidence} /></div>
             <label className="text-field"><span>类型</span><select value={selectedOpening.kind} onChange={(event) => edit((draft) => { draft.openings.find((item) => item.id === selectedOpening.id)!.kind = event.target.value as typeof selectedOpening.kind })}><option value="door">门</option><option value="window">窗</option><option value="opening">洞口</option></select></label>
-            {(['wall_index', 'offset_mm', 'width_mm', 'height_mm', 'sill_mm'] as const).map((field) => (
-              <NumberField key={field} label={{ wall_index: '墙面编号', offset_mm: '距墙起点', width_mm: '宽度', height_mm: '高度', sill_mm: '离地高度' }[field]} value={selectedOpening[field]} unit={field === 'wall_index' ? '' : 'mm'} step={field === 'wall_index' ? 1 : 10} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id)!; item[field] = value })} />
+            {(['wall_index', 'offset_mm', 'sill_mm', 'width_mm', 'height_mm'] as const).map((field) => (
+              <NumberField key={field} label={{ wall_index: '墙面编号', offset_mm: '距墙起点', sill_mm: 'CG 距地', width_mm: 'CK 内宽', height_mm: 'CH 内高' }[field]} value={selectedOpening[field]} unit={field === 'wall_index' ? '' : 'mm'} step={field === 'wall_index' ? 1 : 10} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id)!; item[field] = value })} />
             ))}
-            <NumberField label="门厚" value={selectedOpening.thickness_mm ?? 0} min={0} step={5} onChange={(value) => edit((draft) => { draft.openings.find((candidate) => candidate.id === selectedOpening.id)!.thickness_mm = value || null })} />
             <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.openings = draft.openings.filter((item) => item.id !== selectedOpening.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除洞口</button>
           </div>
         )}

@@ -1,6 +1,8 @@
-import { AlertTriangle, CheckCircle2, ChevronDown, FileImage, ImagePlus, LoaderCircle, Plus, ScanLine, Trash2, Upload } from 'lucide-react'
-import { useRef, useState } from 'react'
-import type { Asset, Health, Project } from '../types'
+import { AlertTriangle, BookOpen, CheckCircle2, ChevronDown, CircleAlert, FileImage, ImagePlus, LoaderCircle, Plus, ScanLine, Trash2, Upload } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { studioApi } from '../api'
+import type { Asset, CaptureAssessment, Health, Project } from '../types'
+import { CaptureGuide } from './CaptureGuide'
 
 interface ProjectRailProps {
   projects: Project[]
@@ -38,6 +40,19 @@ export function ProjectRail(props: ProjectRailProps) {
   const photoInput = useRef<HTMLInputElement>(null)
   const plans = props.project?.assets.filter((asset) => asset.role === 'floorplan') ?? []
   const photos = props.project?.assets.filter((asset) => asset.role === 'photo') ?? []
+  const latestPlan = plans.at(-1)
+  const [guideOpen, setGuideOpen] = useState(false)
+  const [assessment, setAssessment] = useState<CaptureAssessment | null>(null)
+
+  useEffect(() => {
+    let active = true
+    setAssessment(null)
+    if (!latestPlan) return () => { active = false }
+    studioApi.captureAssessment(latestPlan.id)
+      .then((result) => { if (active) setAssessment(result) })
+      .catch(() => { if (active) setAssessment(null) })
+    return () => { active = false }
+  }, [latestPlan?.id])
 
   const create = async () => {
     if (!name.trim()) return
@@ -50,7 +65,7 @@ export function ProjectRail(props: ProjectRailProps) {
       <section className="rail-section project-switcher">
         <label>当前项目</label>
         <div className="select-wrap">
-          <select value={props.project?.id ?? ''} onChange={(event) => props.onSelectProject(event.target.value)} disabled={!props.projects.length}>
+          <select value={props.project?.id ?? ''} onChange={(event) => props.onSelectProject(event.target.value)} disabled={!props.projects.length || !!props.busy}>
             {!props.projects.length && <option value="">没有项目</option>}
             {props.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
@@ -65,7 +80,7 @@ export function ProjectRail(props: ProjectRailProps) {
         ) : (
           <div className="inline-actions">
             <button className="text-button" onClick={() => setCreating(true)}><Plus size={15} />新建</button>
-            <button className="icon-button danger" onClick={props.onDeleteProject} disabled={!props.project} title="删除项目"><Trash2 size={15} /></button>
+            <button className="icon-button danger" onClick={props.onDeleteProject} disabled={!props.project || !!props.busy || props.project.status === 'analysis_running'} title="删除项目"><Trash2 size={15} /></button>
           </div>
         )}
       </section>
@@ -79,6 +94,14 @@ export function ProjectRail(props: ProjectRailProps) {
         <div className="step-index">01</div>
         <div className="section-title"><span>测量图</span><FileImage size={16} /></div>
         <AssetStrip assets={plans} />
+        <button className="capture-rules-link" onClick={() => setGuideOpen(true)}><BookOpen size={14} />查看量房规则与打印模板</button>
+        {latestPlan && <div className={`capture-assessment ${assessment?.status ?? 'checking'}`}>
+          {assessment?.status === 'ready' ? <CheckCircle2 size={15} /> : assessment ? <CircleAlert size={15} /> : <LoaderCircle className="spin" size={15} />}
+          <div>
+            <strong>{assessment?.status === 'ready' ? '图片质量良好' : assessment?.status === 'usable' ? '图片可用，建议复核' : assessment?.status === 'retake' ? '建议重新拍摄' : '正在检查图片'}</strong>
+            {assessment && <span>{assessment.checks.filter((item) => item.status !== 'pass').map((item) => item.detail).join('；') || `${assessment.width} x ${assessment.height} · 清晰度通过`}</span>}
+          </div>
+        </div>}
         {!!plans.length && <div className="plan-rotation-field">
           <label htmlFor="plan-rotation">图片方向</label>
           <div className="select-wrap">
@@ -117,6 +140,7 @@ export function ProjectRail(props: ProjectRailProps) {
           {props.busy === 'photos' ? <LoaderCircle className="spin" size={16} /> : <ScanLine size={16} />}{props.busy === 'photos' ? '正在识别' : '补充固定设施'}
         </button>
       </section>
+      <CaptureGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
     </aside>
   )
 }

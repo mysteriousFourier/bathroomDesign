@@ -1,5 +1,6 @@
 import { Check, ChevronLeft, ChevronRight, ImageIcon, SkipForward, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { observationId, reviewEvidence } from '../evidence'
 import type { Asset, EvidenceRole, Observation, RoomSpec } from '../types'
 
 const roleLabels: Record<EvidenceRole, string> = {
@@ -8,7 +9,7 @@ const roleLabels: Record<EvidenceRole, string> = {
   wall_thickness: '墙体厚度',
   room_height: '室内净高',
   ceiling_height: '吊顶高度与范围',
-  door_size: '门洞宽×高×门厚',
+  door_size: '门窗洞口 CG / CK / CH',
   door_position: '门洞位置',
   drain_position: '排水点',
   pipe_box: '包管 / 柱',
@@ -21,10 +22,6 @@ const roleOptions: EvidenceRole[] = [
   'room_dimension', 'wall_segment', 'wall_thickness', 'room_height', 'ceiling_height',
   'door_size', 'drain_position', 'pipe_box', 'fixture_dimension', 'other',
 ]
-
-function evidenceId(observation: Observation) {
-  return observation.field.startsWith('ocr:') ? observation.field.slice(4) : observation.field
-}
 
 function cropUrl(observation: Observation, assets: Asset[]) {
   if (!observation.asset_id || !observation.bbox) return null
@@ -47,14 +44,13 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
   onActiveChange?: (id: string | null) => void
   onDraftChange?: (id: string, role: EvidenceRole, targetId: string | null) => void
 }) {
+  const planId = assets.filter((asset) => asset.role === 'floorplan').at(-1)?.id
   const observations = useMemo(() => spec.observations.filter((item) => (
-    item.field.startsWith('ocr:')
-  )), [spec.observations])
-  const pending = useMemo(() => spec.observations.filter((item) => (
-    item.field.startsWith('ocr:') && item.review_required && !item.confirmed
-  )), [spec.observations])
+    item.field.startsWith('ocr:') && (!planId || item.asset_id === planId)
+  )), [planId, spec.observations])
+  const pending = useMemo(() => reviewEvidence(spec, planId), [planId, spec])
   const [index, setIndex] = useState(0)
-  const focused = focusId ? observations.find((item) => evidenceId(item) === focusId) : undefined
+  const focused = focusId ? observations.find((item) => observationId(item) === focusId) : undefined
   const active = focused ?? pending[Math.min(index, Math.max(0, pending.length - 1))]
   const [value, setValue] = useState(active?.value ?? '')
   const [role, setRole] = useState<EvidenceRole>(active?.semantic_role ?? 'other')
@@ -66,7 +62,7 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
 
   useEffect(() => {
     if (!focusId) return
-    const focused = pending.findIndex((item) => evidenceId(item) === focusId)
+    const focused = pending.findIndex((item) => observationId(item) === focusId)
     if (focused >= 0) setIndex(focused)
   }, [focusId, pending])
 
@@ -74,8 +70,8 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
     setValue(active?.value ?? '')
     setRole(active?.semantic_role ?? 'other')
     setTargetId(active?.target_id ?? '')
-    onActiveChange?.(active ? evidenceId(active) : null)
-  }, [active?.field])
+    onActiveChange?.(active ? observationId(active) : null)
+  }, [active?.asset_id, active?.field, active?.semantic_role, active?.target_id, active?.value])
 
   useEffect(() => {
     setTargetId(active?.target_id ?? '')
@@ -98,9 +94,9 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
   const wallMatch = targetId.match(/^wall:(\d+)(?:@([01](?:\.\d+)?)(?::([01](?:\.\d+)?))?)?$/)
   const doorRangeMatch = role === 'door_size' ? targetId.match(/^wall:(\d+)@([01](?:\.\d+)?):([01](?:\.\d+)?)$/) : null
   const wallBindingLabel = doorRangeMatch
-    ? `W${Number(doorRangeMatch[1]) + 1} · 门宽 ${Math.round(Number(doorRangeMatch[2]) * 100)}%–${Math.round(Number(doorRangeMatch[3]) * 100)}%`
+    ? `W${Number(doorRangeMatch[1]) + 1} · 洞口内宽 ${Math.round(Number(doorRangeMatch[2]) * 100)}%–${Math.round(Number(doorRangeMatch[3]) * 100)}%`
     : role === 'door_size'
-      ? (wallMatch ? `请沿 W${Number(wallMatch[1]) + 1} 的门宽拖选` : '在照片中沿门宽拖选')
+      ? (wallMatch ? `W${Number(wallMatch[1]) + 1} · 使用尺寸链或拖选洞口内宽` : '点照片中的目标墙线或沿洞口内宽拖选')
       : wallMatch ? `W${Number(wallMatch[1]) + 1}${wallMatch[2] ? ` · ${Math.round(Number(wallMatch[2]) * 100)}%` : ''}` : '点照片中的目标墙线'
   const nextDrainTarget = `drain:${Math.max(0, ...usedDrainIds) + 1}`
   const nextFixtureTarget = `fixture:${Math.max(0, ...usedFixtureIds) + 1}`
@@ -116,19 +112,19 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
     else if (nextRole === 'ceiling_height') nextTarget = targetId.startsWith('ceiling:') ? targetId : ''
     else if (nextRole === 'pipe_box') nextTarget = targetId.startsWith('pipe_box:') ? targetId : ''
     else if (nextRole === 'other') nextTarget = ''
-    else if (nextRole === 'door_size' && !targetId.match(/^wall:\d+@[01](?:\.\d+)?:[01](?:\.\d+)?$/)) nextTarget = ''
+    else if (nextRole === 'door_size' && !targetId.startsWith('wall:')) nextTarget = ''
     else if (!targetId.startsWith('wall:')) nextTarget = ''
     setTargetId(nextTarget)
-    onDraftChange?.(evidenceId(active), nextRole, nextTarget || null)
+    onDraftChange?.(observationId(active), nextRole, nextTarget || null)
   }
   return (
     <section className="inspector-section evidence-review">
       <div className="inspector-title"><span>{focused ? '图片校正' : '待校正'}</span><span>{focused ? `待处理 ${pending.length}` : `${index + 1} / ${pending.length}`}</span></div>
       <div className="evidence-crop">
-        {image ? <img src={image} alt={`原图裁片 ${evidenceId(active)}`} /> : <ImageIcon size={22} />}
+        {image ? <img src={image} alt={`原图裁片 ${observationId(active)}`} /> : <ImageIcon size={22} />}
       </div>
       <div className="evidence-meta">
-        <span>{evidenceId(active)}</span>
+        <span>{observationId(active)}</span>
         <span>OCR {Math.round(active.confidence * 100)}%</span>
       </div>
       <label className="evidence-field">
@@ -147,18 +143,18 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
           <option value="room:width">房间总宽</option>
           <option value="room:depth">房间总深</option>
         </select>
-      </label> : wallBinding ? <div className={`evidence-binding${role === 'door_size' ? (doorRangeMatch ? ' bound' : '') : (wallMatch ? ' bound' : '')}`}><span>{role === 'door_size' ? '门宽对应线段' : '对应墙线'}</span><strong>{wallBindingLabel}</strong></div>
+      </label> : wallBinding ? <div className={`evidence-binding${role === 'door_size' ? (doorRangeMatch ? ' bound' : '') : (wallMatch ? ' bound' : '')}`}><span>{role === 'door_size' ? '洞口对应线段' : '对应墙线'}</span><strong>{wallBindingLabel}</strong></div>
         : regionBinding ? <div className={`evidence-binding${targetId.startsWith(`${role === 'ceiling_height' ? 'ceiling' : 'pipe_box'}:`) ? ' bound' : ''}`}><span>覆盖范围</span><strong>{targetId ? '已在照片圈定' : '在照片框选对应区域'}</strong></div>
-        : role !== 'other' ? <div className="evidence-binding bound"><span>对应对象</span><strong>{role === 'room_height' ? '房间层高' : role === 'drain_position' ? `排水点 ${targetId.split(':')[1]}` : `设施 ${targetId.split(':')[1]}`}</strong></div> : null}
+        : role !== 'other' ? <div className="evidence-binding bound"><span>对应对象</span><strong>{role === 'room_height' ? '房间净高' : role === 'drain_position' ? `图中点位 ${targetId.split(':')[1]}` : `设施 ${targetId.split(':')[1]}`}</strong></div> : null}
       <div className="evidence-actions">
         <div className="evidence-nav">
           <button className="icon-button" title="上一项" disabled={Boolean(focused) || index === 0} onClick={() => setIndex((current) => current - 1)}><ChevronLeft size={16} /></button>
-          {onDelete && <button className="icon-button danger" title="删除误识别标注" onClick={() => onDelete(evidenceId(active))}><Trash2 size={15} /></button>}
+          {onDelete && <button className="icon-button danger" title="删除误识别标注" onClick={() => onDelete(observationId(active))}><Trash2 size={15} /></button>}
           <button className="icon-button" title="下一项" disabled={Boolean(focused) || index >= pending.length - 1} onClick={() => setIndex((current) => current + 1)}><ChevronRight size={16} /></button>
         </div>
         <div className="evidence-commands">
-          <button className="button ghost compact" onClick={() => onApply(evidenceId(active), value, 'other', null, true)}><SkipForward size={14} />不用于建模</button>
-          <button className="button primary compact" disabled={!value.trim() || (requiresTarget && (role === 'door_size' ? !doorRangeMatch : !targetId))} onClick={() => onApply(evidenceId(active), value.trim(), role, targetId || null)}><Check size={14} />确认并应用</button>
+          <button className="button ghost compact" onClick={() => onApply(observationId(active), value, 'other', null, true)}><SkipForward size={14} />不用于建模</button>
+          <button className="button primary compact" disabled={!value.trim() || (requiresTarget && (role === 'door_size' ? !wallMatch : !targetId))} onClick={() => onApply(observationId(active), value.trim(), role, targetId || null)}><Check size={14} />确认并应用</button>
         </div>
       </div>
     </section>

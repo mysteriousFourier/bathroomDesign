@@ -1,6 +1,6 @@
-import { Eye, EyeOff, Focus, Move, ZoomIn, ZoomOut } from 'lucide-react'
+import { Focus, Move, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
-import { fixtureLabels, roomBounds, wallLength } from '../spec'
+import { finishSurfaceOffset, fixtureLabels, offsetBoundary, roomBounds, wallLength } from '../spec'
 import type { Asset, RoomSpec, Selection } from '../types'
 
 const canvasWidth = 920
@@ -15,11 +15,18 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onE
   onFixtureMove: (id: string, xMm: number, zMm: number) => void
   onEvidenceSelect?: (id: string) => void
 }) {
-  const [showSource, setShowSource] = useState(true)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const panSession = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null)
-  const bounds = useMemo(() => roomBounds(spec.boundary), [spec.boundary])
+  const wallRing = useMemo(() => {
+    const innerOffset = finishSurfaceOffset(spec)
+    const outerOffset = innerOffset + spec.wall_thickness_mm
+    return {
+      inner: offsetBoundary(spec.boundary, innerOffset),
+      outer: offsetBoundary(spec.boundary, outerOffset),
+    }
+  }, [spec])
+  const bounds = useMemo(() => roomBounds([...spec.boundary, ...wallRing.inner, ...wallRing.outer]), [spec.boundary, wallRing])
   const scale = Math.min((canvasWidth - pad * 2) / Math.max(bounds.width, 1), (canvasHeight - pad * 2) / Math.max(bounds.depth, 1))
   const offsetX = (canvasWidth - bounds.width * scale) / 2 - bounds.minX * scale
   const offsetZ = (canvasHeight - bounds.depth * scale) / 2 - bounds.minZ * scale
@@ -28,15 +35,10 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onE
   const mmX = (x: number) => Math.round((x - offsetX) / scale / 10) * 10
   const mmZ = (z: number) => Math.round((z - offsetZ) / scale / 10) * 10
   const points = spec.boundary.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')
-  const sourceRotation = spec.observations.find((item) => item.field.startsWith('ocr:'))?.rotation_degrees ?? 0
-  const sourceImage = sourceRotation === 90
-    ? { width: canvasHeight, height: canvasWidth, transform: `translate(${canvasWidth} 0) rotate(90)` }
-    : sourceRotation === 270
-      ? { width: canvasHeight, height: canvasWidth, transform: `translate(0 ${canvasHeight}) rotate(-90)` }
-      : sourceRotation === 180
-        ? { width: canvasWidth, height: canvasHeight, transform: `translate(${canvasWidth} ${canvasHeight}) rotate(180)` }
-        : { width: canvasWidth, height: canvasHeight, transform: undefined }
-
+  const wallRingPath = [
+    `M ${wallRing.outer.map((point) => `${sx(point.x_mm)} ${sz(point.z_mm)}`).join(' L ')} Z`,
+    `M ${wallRing.inner.map((point) => `${sx(point.x_mm)} ${sz(point.z_mm)}`).join(' L ')} Z`,
+  ].join(' ')
   const svgPoint = (svg: SVGSVGElement, clientX: number, clientY: number) => {
     const point = svg.createSVGPoint()
     point.x = clientX
@@ -59,9 +61,6 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onE
           <button className="icon-button" title="缩小" onClick={() => zoomAt(0.8)}><ZoomOut size={17} /></button>
           <button className="icon-button" title="放大" onClick={() => zoomAt(1.25)}><ZoomIn size={17} /></button>
           <button className="icon-button" title="适配视图" onClick={fitView}><Focus size={17} /></button>
-          <button className="icon-button" title={showSource ? '隐藏未配准原图' : '显示未配准原图'} onClick={() => setShowSource((value) => !value)}>
-            {showSource ? <Eye size={17} /> : <EyeOff size={17} />}
-          </button>
         </div>
       </div>
       <svg
@@ -100,7 +99,9 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onE
         </defs>
         <rect width={canvasWidth} height={canvasHeight} fill="url(#major-grid)" data-pan-surface="true" />
         <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
-        {plan && showSource && <g opacity="0.2" pointerEvents="none"><image href={plan.url} x="0" y="0" width={sourceImage.width} height={sourceImage.height} transform={sourceImage.transform} preserveAspectRatio="none" /></g>}
+        <g className="wall-finish-layer" pointerEvents="none">
+          <path className="wall-ring" d={wallRingPath} fillRule="evenodd" />
+        </g>
         <polygon points={points} className={selection.type === 'room' ? 'room-polygon selected' : 'room-polygon'} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'room' }) }} />
         {(spec.ceiling_zones ?? []).map((zone) => {
           const zonePoints = zone.boundary.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')
@@ -161,21 +162,6 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onE
             </g>
           )
         })}
-        {showSource && <g className="ocr-evidence-layer">
-          {spec.observations.filter((item) => item.field.startsWith('ocr:') && item.bbox).map((item) => {
-            const bbox = item.bbox!
-            const evidenceId = item.field.slice(4)
-            const pending = item.review_required && !item.confirmed
-            const left = bbox.x_min * canvasWidth / 1000
-            const top = bbox.y_min * canvasHeight / 1000
-            const width = Math.max(3, (bbox.x_max - bbox.x_min) * canvasWidth / 1000)
-            const height = Math.max(3, (bbox.y_max - bbox.y_min) * canvasHeight / 1000)
-            return <g key={evidenceId} data-evidence-id={evidenceId} role="button" tabIndex={0} aria-label={`校正 OCR ${evidenceId} ${item.value}`} className={pending ? 'ocr-evidence pending' : 'ocr-evidence'} onClick={(event) => { event.stopPropagation(); onEvidenceSelect?.(evidenceId) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onEvidenceSelect?.(evidenceId) } }}>
-              <rect x={left} y={top} width={width} height={height} />
-              {pending && <text x={left + 3} y={Math.max(12, top - 3)}>{evidenceId} {item.value.slice(0, 12)}</text>}
-            </g>
-          })}
-        </g>}
         </g>
       </svg>
     </div>

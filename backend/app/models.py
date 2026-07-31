@@ -75,6 +75,9 @@ class FixtureSpec(BaseModel):
         "vanity",
         "shower",
         "floor_drain",
+        "drain",
+        "water",
+        "electric",
         "pipe",
         "column",
         "radiator",
@@ -400,6 +403,9 @@ class BoundaryEdge(BaseModel):
 
     direction: Literal["right", "down", "left", "up"]
     length_mm: int | None = Field(default=None, gt=0)
+    measured_length_mm: int | None = Field(default=None, gt=0)
+    closure_adjustment_mm: int = 0
+    source: SourceKind = SourceKind.measured
     role: Literal["wall", "door_jamb", "structure_return", "other"] = "wall"
     evidence_ids: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.5, ge=0, le=1)
@@ -473,7 +479,7 @@ class TopologyCandidateSelection(BaseModel):
 
 
 class FixtureCandidate(BaseModel):
-    kind: Literal["floor_drain", "pipe", "column", "other"]
+    kind: Literal["floor_drain", "drain", "water", "electric", "pipe", "column", "other"]
     label: str
     x_mm: int | None = None
     z_mm: int | None = None
@@ -487,13 +493,21 @@ class FixtureCandidate(BaseModel):
     @classmethod
     def normalize_kind(cls, value: object) -> str:
         text = str(value).lower()
-        if any(token in text for token in ("drain", "地漏", "排水")):
+        if "地漏" in text or "floor_drain" in text or "floor drain" in text:
             return "floor_drain"
+        if "排水" in text or "drain" in text:
+            return "drain"
+        if "给水" in text or text == "water":
+            return "water"
+        if "电点" in text or text == "electric":
+            return "electric"
         if any(token in text for token in ("pipe", "管")):
             return "pipe"
         if any(token in text for token in ("column", "柱")):
             return "column"
-        return text if text in {"floor_drain", "pipe", "column", "other"} else "other"
+        return text if text in {
+            "floor_drain", "drain", "water", "electric", "pipe", "column", "other"
+        } else "other"
 
 
 class PlanExtraction(BaseModel):
@@ -539,7 +553,8 @@ class RoomSpec(BaseModel):
     name: str = "卫生间"
     boundary: list[Point2D] = Field(default_factory=list)
     height_mm: int | None = Field(default=None, gt=0)
-    wall_thickness_mm: int = Field(default=100, gt=0)
+    wall_thickness_mm: int = Field(default=200, gt=0)
+    finish_surface_offset_mm: int = Field(default=20, ge=0)
     wall_profiles: list[WallProfile] = Field(default_factory=list)
     openings: list[OpeningSpec] = Field(default_factory=list)
     fixtures: list[FixtureSpec] = Field(default_factory=list)
@@ -618,7 +633,8 @@ class MeasurementOpening(BaseModel):
 class MeasurementAnchor(BaseModel):
     id: str = Field(min_length=1, max_length=80)
     kind: Literal[
-        "toilet", "vanity", "shower", "floor_drain", "pipe", "column", "radiator", "other"
+        "toilet", "vanity", "shower", "floor_drain", "drain", "water", "electric",
+        "pipe", "column", "radiator", "other"
     ]
     label: str
     x_mm: int
@@ -698,6 +714,23 @@ class AssetResponse(BaseModel):
     url: str
 
 
+class CaptureCheck(BaseModel):
+    code: Literal["resolution", "sharpness", "exposure", "contrast"]
+    status: Literal["pass", "warning", "error"]
+    label: str
+    detail: str
+
+
+class CaptureAssessment(BaseModel):
+    status: Literal["ready", "usable", "retake"]
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    sharpness: float = Field(ge=0)
+    brightness: float = Field(ge=0, le=255)
+    contrast: float = Field(ge=0)
+    checks: list[CaptureCheck]
+
+
 class ProjectResponse(BaseModel):
     id: str
     name: str
@@ -711,7 +744,7 @@ class ProjectResponse(BaseModel):
 
 class AnalysisResponse(BaseModel):
     spec: RoomSpec
-    measurement: MeasurementModel
+    measurement: MeasurementModel | None = None
     sufficient: bool
     missing: list[str]
 

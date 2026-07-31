@@ -16,8 +16,8 @@ sys.path.insert(0, str(ROOT))
 from backend.app import ai
 
 
-DEFAULT_IMAGE = ROOT / "evidence" / "samples" / "real" / "agen-17-long-term" / "source.jpg"
-EXPECTED_VALUES = {1590, 1840, 2855, 800, 2055}
+DEFAULT_IMAGE = ROOT / "test0.jpg"
+EXPECTED_VALUES = {4105, 4110, 1590, 1640, 615, 1840, 2855, 800, 2090}
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,13 +47,20 @@ async def run(args: argparse.Namespace) -> dict:
     ) if corners else 0
     recalled = sorted(EXPECTED_VALUES & recognized_values)
     recall = len(recalled) / len(EXPECTED_VALUES)
+    metric_edges = spec.plan_annotation.edge_chain
+    closure_adjustments = [
+        edge.closure_adjustment_mm for edge in metric_edges if edge.closure_adjustment_mm
+    ]
     checks = {
         "flash_model_only": ai.settings.openai_fast_model == "glm-4v-flash",
         "latency_within_budget": elapsed <= args.max_seconds,
         "non_rectangular_topology": len(corners) >= 8 and len(directions) == len(corners),
         "short_returns_preserved": short_edges >= 2,
-        "no_fabricated_metric_boundary": not spec.boundary,
-        "no_overall_extent_binding": not any(item.target_id in {"room:width", "room:depth"} for item in observations),
+        "metric_boundary_generated": len(spec.boundary) == len(corners) and len(spec.boundary) >= 8,
+        "dimension_chain_fully_solved": bool(metric_edges) and all(edge.length_mm for edge in metric_edges),
+        "both_horizontal_total_readings_preserved": {4105, 4110} <= recognized_values,
+        "five_mm_measurement_error_absorbed": any(abs(value) == 5 for value in closure_adjustments),
+        "no_pixel_scaled_metric_edges": all(edge.source != "estimated" for edge in metric_edges),
         "known_bad_reading_absent": 5582 not in recognized_values and all(edge.length_mm != 5582 for edge in spec.plan_annotation.edge_chain),
         "handwriting_recall": recall >= args.min_value_recall,
         "critical_value_is_local": any(
@@ -73,6 +80,7 @@ async def run(args: argparse.Namespace) -> dict:
         "recognized_expected_values": recalled,
         "value_recall": round(recall, 3),
         "auto_edge_lengths": [edge.length_mm for edge in spec.plan_annotation.edge_chain if edge.length_mm],
+        "closure_adjustments_mm": closure_adjustments,
         "checks": checks,
     }
 

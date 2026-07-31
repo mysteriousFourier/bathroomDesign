@@ -29,8 +29,26 @@ def _orientation(a: Point2D, b: Point2D, c: Point2D) -> int:
     return 1 if value > 0 else 2
 
 
+def _point_on_segment(a: Point2D, b: Point2D, point: Point2D) -> bool:
+    return (
+        min(a.x_mm, b.x_mm) <= point.x_mm <= max(a.x_mm, b.x_mm)
+        and min(a.z_mm, b.z_mm) <= point.z_mm <= max(a.z_mm, b.z_mm)
+    )
+
+
 def _segments_intersect(a: Point2D, b: Point2D, c: Point2D, d: Point2D) -> bool:
-    return _orientation(a, b, c) != _orientation(a, b, d) and _orientation(c, d, a) != _orientation(c, d, b)
+    first = _orientation(a, b, c)
+    second = _orientation(a, b, d)
+    third = _orientation(c, d, a)
+    fourth = _orientation(c, d, b)
+    if first != second and third != fourth:
+        return True
+    return (
+        (first == 0 and _point_on_segment(a, b, c))
+        or (second == 0 and _point_on_segment(a, b, d))
+        or (third == 0 and _point_on_segment(c, d, a))
+        or (fourth == 0 and _point_on_segment(c, d, b))
+    )
 
 
 def has_self_intersection(points: list[Point2D]) -> bool:
@@ -62,6 +80,22 @@ def point_in_polygon(x: int, z: int, points: list[Point2D]) -> bool:
 def validate_spec(spec: RoomSpec) -> tuple[list[ValidationIssue], bool, list[str]]:
     issues: list[ValidationIssue] = []
     missing: list[str] = []
+    for index, start in enumerate(spec.boundary):
+        end = spec.boundary[(index + 1) % len(spec.boundary)]
+        delta_x = end.x_mm - start.x_mm
+        delta_z = end.z_mm - start.z_mm
+        if delta_x == 0 and delta_z == 0:
+            issues.append(ValidationIssue(
+                id=f"boundary-zero-{index}", severity="error", code="zero_length_boundary",
+                message=f"W{index + 1} 是零长度线段，请合并重复端点", target_id=f"wall:{index}",
+            ))
+        elif delta_x != 0 and delta_z != 0:
+            issues.append(ValidationIssue(
+                id=f"boundary-orthogonal-{index}", severity="error", code="non_orthogonal_boundary",
+                message=f"W{index + 1} 不是水平或垂直线段，禁止进入建模", target_id=f"wall:{index}",
+            ))
+    if any(issue.code in {"zero_length_boundary", "non_orthogonal_boundary"} for issue in issues):
+        missing.append("仅由水平和垂直非零线段组成的房间轮廓")
     if len(spec.boundary) < 3 or polygon_area(spec.boundary) < 100_000:
         issues.append(ValidationIssue(id="boundary", severity="error", code="invalid_boundary", message="房间轮廓未闭合或面积过小"))
         missing.append("闭合且有尺度的房间轮廓")
@@ -69,8 +103,8 @@ def validate_spec(spec: RoomSpec) -> tuple[list[ValidationIssue], bool, list[str
         issues.append(ValidationIssue(id="boundary-cross", severity="error", code="self_intersection", message="房间轮廓存在自相交"))
 
     if spec.height_mm is None:
-        issues.append(ValidationIssue(id="height", severity="error", code="missing_height", message="缺少房间层高，请手动填写或补充照片"))
-        missing.append("房间层高")
+        issues.append(ValidationIssue(id="height", severity="error", code="missing_height", message="缺少房间净高，请手动填写或补充照片"))
+        missing.append("房间净高")
 
     for opening in spec.openings:
         if opening.wall_index >= len(spec.boundary):

@@ -1,4 +1,4 @@
-import type { AnalysisResponse, Asset, Health, Project, RoomSpec } from './types'
+import type { AnalysisResponse, Asset, CaptureAssessment, Health, Project, RoomSpec } from './types'
 
 const defaultTimeoutMs = 90_000
 
@@ -51,6 +51,7 @@ export const studioApi = {
     form.append('file', file)
     return request<Asset>(`/api/projects/${id}/assets`, { method: 'POST', body: form })
   },
+  captureAssessment: (assetId: string) => request<CaptureAssessment>(`/api/assets/${assetId}/capture-assessment`),
   analyzePlan: (id: string, rotationDegrees: number | null = null) => request<AnalysisResponse>(
     `/api/projects/${id}/analyze-plan${rotationDegrees === null ? '' : `?rotation_degrees=${rotationDegrees}`}`,
     // PaddleOCR plus the visual topology review can legitimately take several minutes.

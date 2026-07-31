@@ -251,11 +251,13 @@ function Invoke-Startup {
     }
     Open-AppBrowser
 
-    if ($ExitAfterReady) {
-        return
+    Write-Host "The backend will continue running after this launcher closes."
+    # Ownership is handed off after readiness. The old behavior stopped the
+    # backend from finally{} whenever the launcher window closed.
+    $script:BackendProcess = $null
+    if (-not $ExitAfterReady) {
+        Write-Host "Close this window when finished; the service stays available on port 8000."
     }
-    Write-Host ""
-    Read-Host "Press Enter to stop the system and close this window" | Out-Null
 }
 
 try {

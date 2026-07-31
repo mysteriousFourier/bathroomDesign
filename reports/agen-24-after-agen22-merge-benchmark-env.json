@@ -1,0 +1,41 @@
+{
+  "passed": false,
+  "model": "glm-4v-flash",
+  "elapsed_seconds": 209.04,
+  "corner_count": 12,
+  "short_edge_count": 6,
+  "recognized_expected_values": [
+    615,
+    800,
+    1590,
+    1640,
+    2855,
+    4105
+  ],
+  "value_recall": 0.667,
+  "auto_edge_lengths": [
+    320,
+    1255,
+    647,
+    2400,
+    615,
+    610,
+    1640,
+    1640
+  ],
+  "closure_adjustments_mm": [],
+  "checks": {
+    "flash_model_only": true,
+    "latency_within_budget": true,
+    "non_rectangular_topology": true,
+    "short_returns_preserved": true,
+    "metric_boundary_generated": false,
+    "dimension_chain_fully_solved": false,
+    "both_horizontal_total_readings_preserved": false,
+    "five_mm_measurement_error_absorbed": false,
+    "no_pixel_scaled_metric_edges": true,
+    "known_bad_reading_absent": true,
+    "handwriting_recall": false,
+    "critical_value_is_local": false
+  }
+}

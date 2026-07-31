@@ -17,6 +17,9 @@ export interface ImageBoundaryPoint {
 export interface BoundaryEdge {
   direction: 'right' | 'down' | 'left' | 'up'
   length_mm: number | null
+  measured_length_mm?: number | null
+  closure_adjustment_mm?: number
+  source?: SourceKind
   role: 'wall' | 'door_jamb' | 'structure_return' | 'other'
   evidence_ids: string[]
   confidence: number
@@ -61,7 +64,7 @@ export interface OpeningSpec {
   evidence_ids?: string[]
 }
 
-export type FixtureKind = 'toilet' | 'vanity' | 'shower' | 'floor_drain' | 'pipe' | 'column' | 'radiator' | 'other'
+export type FixtureKind = 'toilet' | 'vanity' | 'shower' | 'floor_drain' | 'drain' | 'water' | 'electric' | 'pipe' | 'column' | 'radiator' | 'other'
 
 export interface FixtureSpec {
   id: string
@@ -111,6 +114,7 @@ export interface RoomSpec {
   boundary: Point2D[]
   height_mm: number | null
   wall_thickness_mm: number
+  finish_surface_offset_mm?: number
   wall_profiles?: WallProfile[]
   openings: OpeningSpec[]
   fixtures: FixtureSpec[]
@@ -189,6 +193,23 @@ export interface Asset {
   url: string
 }
 
+export interface CaptureCheck {
+  code: 'resolution' | 'sharpness' | 'exposure' | 'contrast'
+  status: 'pass' | 'warning' | 'error'
+  label: string
+  detail: string
+}
+
+export interface CaptureAssessment {
+  status: 'ready' | 'usable' | 'retake'
+  width: number
+  height: number
+  sharpness: number
+  brightness: number
+  contrast: number
+  checks: CaptureCheck[]
+}
+
 export interface Project {
   id: string
   name: string
@@ -202,7 +223,7 @@ export interface Project {
 
 export interface AnalysisResponse {
   spec: RoomSpec
-  measurement: MeasurementModel
+  measurement: MeasurementModel | null
   sufficient: boolean
   missing: string[]
 }

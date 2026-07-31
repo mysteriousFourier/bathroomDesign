@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "units": "mm",
+  "dimensionBasis": ["finished_surface_clear", "rough_surface_clear"],
+  "defaultDimensionBasis": "finished_surface_clear",
+  "recommendedCapture": {
+    "paperSizes": ["A4", "A3"],
+    "minimumLongEdgePx": 2000,
+    "requireSingleRoomPerSheet": true,
+    "preferredInk": {
+      "singleColor": true,
+      "color": "black_or_dark_blue"
+    },
+    "requireClosedBoundary": true,
+    "wallLineScaleMeaningful": false,
+    "wallLengthSource": "dimension_annotations_only",
+    "requireHorizontalDigits": true,
+    "requireIntegerMillimetres": true,
+    "requireAxisDimensionChains": true,
+    "requireAxisOverallDimensions": true,
+    "pointCaptureMode": "symbol_center_relative_to_boundary",
+    "pointTableRequired": false,
+    "pointSymbols": {
+      "floorDrain": "⊗",
+      "drain": "○",
+      "water": "△",
+      "electric": "□"
+    },
+    "openingSlots": ["D1", "W1", "W2"],
+    "openingFields": {
+      "CG": "sill_mm",
+      "CK": "width_mm",
+      "CH": "height_mm"
+    },
+    "roomHeightLabel": "净高",
+    "allowCentralOverallCeilingHeight": true
+  },
+  "criticalFields": [
+    "boundary",
+    "wall_lengths",
+    "opening_wall",
+    "opening_offset",
+    "opening_width",
+    "opening_height",
+    "room_height"
+  ],
+  "automaticAcceptance": {
+    "requireClosedBoundary": true,
+    "requireNonSelfIntersectingBoundary": true,
+    "requireTraceableCriticalEvidence": true,
+    "dimensionChainClosure": {
+      "automaticallyAbsorbWithinTolerance": true,
+      "minimumToleranceMm": 20,
+      "relativeTolerance": 0.015,
+      "maximumToleranceMm": 100,
+      "adjustOrdinaryWallBeforeReturnsOrJambs": true,
+      "preserveMeasuredLength": true,
+      "recordClosureAdjustmentMm": true,
+      "modelLengthSource": "derived"
+    },
+    "allowFabricatedCriticalValues": false,
+    "allowEstimatedCriticalValues": false,
+    "requireOpeningWithinHostWall": true,
+    "requireAnchorsWithinBoundary": true,
+    "maximumTargetedQuestions": 3
+  },
+  "legacySketch": {
+    "accepted": true,
+    "visualOutputIsCandidateOnly": true,
+    "failClosedOnAmbiguity": true,
+    "preserveOriginalReadings": true
+  }
+}

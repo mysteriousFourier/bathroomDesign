@@ -1,4 +1,4 @@
-import { Box, Check, Download, FileJson, Redo2, Save, Undo2 } from 'lucide-react'
+import { Box, Check, Download, FileJson, Printer, Redo2, Save, Undo2 } from 'lucide-react'
 
 interface HeaderProps {
   projectName?: string
@@ -29,6 +29,8 @@ export function Header({ projectName, dirty, canUndo, canRedo, canConfirm, canMo
         {projectName && <span className={dirty ? 'save-state dirty' : 'save-state'}>{dirty ? '有未保存修改' : '已保存'}</span>}
       </div>
       <div className="header-actions">
+        <a className="button secondary" href="/measurement-template.html" target="_blank" rel="noreferrer" title="打开可打印量房模板"><Printer size={16} />量房模板</a>
+        <span className="toolbar-separator" />
         <button className="icon-button" onClick={onUndo} disabled={!canUndo} title="撤销"><Undo2 size={17} /></button>
         <button className="icon-button" onClick={onRedo} disabled={!canRedo} title="重做"><Redo2 size={17} /></button>
         <span className="toolbar-separator" />

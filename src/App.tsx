@@ -12,8 +12,8 @@ import { SolutionList } from './components/SolutionList'
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, projectPointToWall, snapPointToNearestWall, wetZoneBoundaryValid } from './spec'
-import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, Project, RoomSpec, Selection } from './types'
+import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, projectPointToWall, snapPointToNearestWall, syncToiletWithDrain, wetZoneBoundaryValid } from './spec'
+import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model'
 
@@ -459,10 +459,11 @@ export default function App() {
                     const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`
                     const projected = wallIndex === null ? null : projectPointToWall(finishedRoomBoundary(next), wallIndex, { x_mm: xMm, z_mm: zMm })
                     if (kind === 'floor_drain' && pointUsage === 'shower') next.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
-                    next.fixtures.push({ id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : fixtureLabels[kind], x_mm: projected?.point.x_mm ?? xMm, z_mm: projected?.point.z_mm ?? zMm, ...defaults, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: projected ? wallIndex : null, point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined })
+                    next.fixtures.push({ id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : kind === 'drain' && pointUsage === 'toilet' ? '马桶排水' : fixtureLabels[kind], x_mm: projected?.point.x_mm ?? xMm, z_mm: projected?.point.z_mm ?? zMm, ...defaults, width_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.width_mm, depth_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.depth_mm, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: projected ? wallIndex : null, point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined })
                     if (kind === 'floor_drain' && pointUsage === 'shower') next.dry_wet_zones = generateDryWetZones(next)
+                    if (kind === 'drain' && pointUsage === 'toilet') syncToiletWithDrain(next, id)
                     commitSpec(next)
-                    setSelection({ type: 'fixture', id })
+                    setSelection({ type: 'fixture', id: kind === 'drain' && pointUsage === 'toilet' ? `toilet-for-${id}` : id })
                   }}
                   onFixtureMove={(id, x, z) => {
                     const next = cloneSpec(spec)
@@ -473,8 +474,25 @@ export default function App() {
                       fixture.bound_wall_index = snap?.wall_index ?? null
                       fixture.source = 'user'; fixture.confidence = 1
                       if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') next.dry_wet_zones = generateDryWetZones(next)
+                      if (fixture.kind === 'drain' && fixturePointUsage(fixture) === 'toilet') syncToiletWithDrain(next, fixture.id)
                       commitSpec(next)
                     }
+                  }}
+                  onPlanLineAdd={(kind: PlanLineKind, points: Point2D[]) => {
+                    const next = cloneSpec(spec)
+                    const labels: Record<PlanLineKind, string> = { pipe_chase: '包管线', inner_wall: '内墙线', door_line: '门线' }
+                    const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`
+                    ;(next.plan_lines ??= []).push({ id, kind, label: labels[kind], points, source: 'user', confidence: 1 })
+                    commitSpec(next)
+                    return id
+                  }}
+                  onPlanLineExtend={(id, point) => {
+                    const next = cloneSpec(spec)
+                    const line = next.plan_lines?.find((item) => item.id === id)
+                    if (!line) return
+                    line.points.push(point)
+                    line.source = 'user'; line.confidence = 1
+                    commitSpec(next)
                   }}
                   onZoneChange={(id, boundary) => {
                     const next = cloneSpec(spec)

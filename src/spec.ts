@@ -4,6 +4,7 @@ export const defaultWallThicknessMm = 200
 export const defaultFinishSurfaceOffsetMm = 20
 export const defaultWallFinishThicknessMm = 20
 export const wallBindingSnapDistanceMm = 100
+export const toiletDrainRoughInMm = 305
 
 export const fixtureLabels: Record<FixtureKind, string> = {
   toilet: '马桶',
@@ -142,6 +143,11 @@ export function wallOutwardNormal(points: Point2D[], index: number) {
   }
 }
 
+export function wallInwardNormal(points: Point2D[], index: number) {
+  const normal = wallOutwardNormal(points, index)
+  return { x: -normal.x, z: -normal.z }
+}
+
 export function wallFinishThickness(spec: RoomSpec, index: number) {
   return spec.wall_finish_profiles?.find((profile) => profile.wall_index === index)?.thickness_mm ?? wallFinishBaseThickness(spec)
 }
@@ -198,6 +204,67 @@ export function fixtureBoundWallIndex(spec: RoomSpec, fixture: FixtureSpec) {
   if (wallIndex === undefined || wallIndex === null || !fixtureCanBindWall(fixture.kind)) return null
   const projection = projectPointToWall(finishedRoomBoundary(spec), wallIndex, fixture)
   return projection && projection.distance_mm <= 1 ? wallIndex : null
+}
+
+export function toiletRotationForWall(points: Point2D[], wallIndex: number) {
+  const normal = wallInwardNormal(points, wallIndex)
+  const degrees = Math.round(Math.atan2(normal.x, normal.z) * 180 / Math.PI)
+  if (Object.is(degrees, -0)) return 0
+  return degrees === -180 ? 180 : degrees
+}
+
+export function toiletPlacementFromDrain(spec: RoomSpec, drain: FixtureSpec) {
+  const roomBoundary = finishedRoomBoundary(spec)
+  const wallIndex = drain.bound_wall_index ?? nearestWallIndex(roomBoundary, drain)
+  const defaults = fixtureDefaults.toilet
+  if (wallIndex === null) return {
+    x_mm: drain.x_mm,
+    z_mm: drain.z_mm,
+    rotation_deg: drain.rotation_deg,
+    bound_wall_index: null,
+  }
+  const projection = projectPointToWall(roomBoundary, wallIndex, drain)
+  const wallDistance = projection?.distance_mm ?? 0
+  const inward = wallInwardNormal(roomBoundary, wallIndex)
+  const offsetMm = Math.max(0, defaults.depth_mm / 2 - toiletDrainRoughInMm - wallDistance)
+  return {
+    x_mm: Math.round(drain.x_mm + inward.x * offsetMm),
+    z_mm: Math.round(drain.z_mm + inward.z * offsetMm),
+    rotation_deg: toiletRotationForWall(roomBoundary, wallIndex),
+    bound_wall_index: wallIndex,
+  }
+}
+
+export function syncToiletWithDrain(spec: RoomSpec, drainId: string, toiletId = `toilet-for-${drainId}`) {
+  const drain = spec.fixtures.find((fixture) => fixture.id === drainId)
+  if (!drain || drain.kind !== 'drain' || fixturePointUsage(drain) !== 'toilet') return null
+  const placement = toiletPlacementFromDrain(spec, drain)
+  const linkedEvidenceId = `toilet-drain:${drain.id}`
+  let toilet = spec.fixtures.find((fixture) => fixture.kind === 'toilet' && fixture.evidence_ids?.includes(linkedEvidenceId))
+    ?? spec.fixtures.find((fixture) => fixture.id === toiletId)
+  if (!toilet) {
+    toilet = {
+      id: toiletId,
+      kind: 'toilet',
+      label: fixtureLabels.toilet,
+      x_mm: placement.x_mm,
+      z_mm: placement.z_mm,
+      ...fixtureDefaults.toilet,
+      rotation_deg: placement.rotation_deg,
+      source: 'derived',
+      confidence: Math.min(0.92, drain.confidence),
+      evidence_ids: [linkedEvidenceId],
+    }
+    spec.fixtures.push(toilet)
+  } else {
+    toilet.x_mm = placement.x_mm
+    toilet.z_mm = placement.z_mm
+    toilet.rotation_deg = placement.rotation_deg
+    toilet.source = drain.source === 'user' ? 'derived' : drain.source
+    toilet.confidence = Math.min(0.92, Math.max(0.6, drain.confidence))
+    toilet.evidence_ids = [...new Set([...(toilet.evidence_ids ?? []), linkedEvidenceId])]
+  }
+  return toilet.id
 }
 
 function coordinateBounds(spec: RoomSpec) {

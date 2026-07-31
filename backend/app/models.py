@@ -69,6 +69,22 @@ class OpeningSpec(BaseModel):
 
 
 class FixtureSpec(BaseModel):
+    class ModelAsset(BaseModel):
+        id: str = Field(min_length=1, max_length=120)
+        src: str = Field(min_length=1, max_length=500)
+        format: Literal["gltf", "glb"] | None = None
+        label: str = Field(min_length=1, max_length=120)
+        unit: Literal["m"] = "m"
+        fit: Literal["contain"] = "contain"
+        version: str | None = Field(default=None, max_length=40)
+        sha256: str | None = Field(default=None, min_length=64, max_length=64)
+        bytes: int | None = Field(default=None, gt=0)
+        thumbnail: str | None = Field(default=None, max_length=500)
+        source: str | None = Field(default=None, max_length=200)
+        source_asset_id: str | None = Field(default=None, max_length=120)
+        lifecycle: Literal["approved", "needs_conversion", "deprecated"] | None = None
+        legacy_source_ids: list[str] = Field(default_factory=list)
+
     id: str
     kind: Literal[
         "toilet",
@@ -95,6 +111,7 @@ class FixtureSpec(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
     bound_wall_index: int | None = Field(default=None, ge=0)
     point_usage: Literal["general", "toilet", "shower", "basin"] | None = None
+    model_asset: ModelAsset | None = None
 
 
 class WallProfile(BaseModel):
@@ -132,6 +149,26 @@ class WallFinishProfile(BaseModel):
     source: SourceKind = SourceKind.derived
     confidence: float = Field(default=0.5, ge=0, le=1)
     generated_from_bound_point: bool = False
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class PlanLineSpec(BaseModel):
+    id: str = Field(min_length=1, max_length=80)
+    kind: Literal["pipe_chase", "inner_wall", "door_line"]
+    label: str = ""
+    points: list[Point2D] = Field(min_length=2)
+    source: SourceKind = SourceKind.user
+    confidence: float = Field(default=1, ge=0, le=1)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class PlanLabelSpec(BaseModel):
+    id: str = Field(min_length=1, max_length=80)
+    text: str = ""
+    x_mm: int
+    z_mm: int
+    source: SourceKind = SourceKind.user
+    confidence: float = Field(default=1, ge=0, le=1)
     evidence_ids: list[str] = Field(default_factory=list)
 
 
@@ -584,6 +621,8 @@ class RoomSpec(BaseModel):
     ceiling_zones: list[CeilingZone] = Field(default_factory=list)
     dry_wet_zones: list[DryWetZone] = Field(default_factory=list)
     wall_finish_profiles: list[WallFinishProfile] = Field(default_factory=list)
+    plan_lines: list[PlanLineSpec] = Field(default_factory=list)
+    plan_labels: list[PlanLabelSpec] = Field(default_factory=list)
     observations: list[Observation] = Field(default_factory=list)
     plan_annotation: PlanAnnotation | None = None
     issues: list[ValidationIssue] = Field(default_factory=list)
@@ -591,7 +630,7 @@ class RoomSpec(BaseModel):
 
     @model_validator(mode="after")
     def unique_ids(self) -> RoomSpec:
-        ids = [item.id for item in [*self.openings, *self.fixtures, *self.ceiling_zones, *self.dry_wet_zones]]
+        ids = [item.id for item in [*self.openings, *self.fixtures, *self.ceiling_zones, *self.dry_wet_zones, *self.plan_lines, *self.plan_labels]]
         if len(ids) != len(set(ids)):
             raise ValueError("opening, fixture and ceiling zone ids must be unique")
         wall_indexes = [item.wall_index for item in self.wall_profiles]

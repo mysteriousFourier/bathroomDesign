@@ -1,11 +1,11 @@
-import { ContactShadows, Edges, Grid, OrbitControls, PerspectiveCamera } from '@react-three/drei'
+import { ContactShadows, Edges, Grid, OrbitControls, PerspectiveCamera, useGLTF } from '@react-three/drei'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
 import { Eye, EyeOff, Focus, Layers, Move3d } from 'lucide-react'
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Shape } from 'three'
+import { Suspense, forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { Box3, BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Shape, Vector3 } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { finishedRoomBoundary, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerPolygons, wallLength } from '../spec'
-import type { FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
+import type { FixtureModelAsset, FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
 
 export interface ModelCanvasHandle {
   exportGLB: (filename: string) => Promise<void>
@@ -83,6 +83,61 @@ function CeilingZoneMesh({ boundary, heightMm }: { boundary: { x_mm: number; z_m
   </mesh>
 }
 
+function modelAssetFormat(asset: FixtureModelAsset) {
+  if (asset.format) return asset.format
+  return /\.glb($|\?)/i.test(asset.src) ? 'glb' : 'gltf'
+}
+
+function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: FixtureSpec; selected: boolean; object: Group }) {
+  const { scene, scale, position } = useMemo(() => {
+    const scene = object.clone(true)
+    scene.traverse((child) => {
+      if ('castShadow' in child) {
+        child.castShadow = true
+        child.receiveShadow = true
+      }
+    })
+    const box = new Box3().setFromObject(scene)
+    const size = new Vector3()
+    const center = new Vector3()
+    box.getSize(size)
+    box.getCenter(center)
+    const target = new Vector3(fixture.width_mm / 1000, fixture.height_mm / 1000, fixture.depth_mm / 1000)
+    const scale = Math.min(
+      target.x / Math.max(size.x, 0.001),
+      target.y / Math.max(size.y, 0.001),
+      target.z / Math.max(size.z, 0.001),
+    )
+    return {
+      scene,
+      scale,
+      position: new Vector3(-center.x * scale, -box.min.y * scale, -center.z * scale),
+    }
+  }, [fixture.depth_mm, fixture.height_mm, fixture.width_mm, object])
+
+  return <>
+    <primitive object={scene} position={position} scale={scale} />
+    <mesh position={[0, 0.01, 0]} visible={selected}>
+      <boxGeometry args={[fixture.width_mm / 1000, 0.02, fixture.depth_mm / 1000]} />
+      <meshStandardMaterial color="#c89638" transparent opacity={0.22} />
+      <Edges color="#8a6725" />
+    </mesh>
+  </>
+}
+
+function GltfFixtureAsset({ fixture, selected, src }: { fixture: FixtureSpec; selected: boolean; src: string }) {
+  const gltf = useGLTF(src)
+  return <NormalizedFixtureAsset fixture={fixture} selected={selected} object={gltf.scene} />
+}
+
+function FixtureAssetModel({ fixture, selected }: { fixture: FixtureSpec; selected: boolean }) {
+  const asset = fixture.model_asset
+  if (!asset) return null
+  const format = modelAssetFormat(asset)
+  if (format !== 'gltf' && format !== 'glb') return null
+  return <GltfFixtureAsset fixture={fixture} selected={selected} src={asset.src} />
+}
+
 function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; selected: boolean; onSelect: () => void }) {
   const width = fixture.width_mm / 1000
   const depth = fixture.depth_mm / 1000
@@ -92,8 +147,9 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
   const ceramic = selected ? '#f2dcae' : '#f2f1ec'
   const common = { castShadow: true, receiveShadow: true, onClick: select }
   return (
-    <group position={[fixture.x_mm / 1000, 0, fixture.z_mm / 1000]} rotation={[0, -fixture.rotation_deg * Math.PI / 180, 0]} userData={{ id: fixture.id, kind: fixture.kind, source: fixture.source }}>
-      {fixture.kind === 'toilet' && <>
+    <group position={[fixture.x_mm / 1000, 0, fixture.z_mm / 1000]} rotation={[0, -fixture.rotation_deg * Math.PI / 180, 0]} userData={{ id: fixture.id, kind: fixture.kind, source: fixture.source, model_asset: fixture.model_asset?.id }} onClick={select}>
+      {fixture.model_asset && <FixtureAssetModel fixture={fixture} selected={selected} />}
+      {!fixture.model_asset && fixture.kind === 'toilet' && <>
         <mesh {...common} position={[0, height * 0.28, depth * 0.08]} scale={[width, height * 0.55, depth * 0.7]}><sphereGeometry args={[0.5, 28, 20]} /><meshStandardMaterial color={ceramic} roughness={0.25} /><Edges color={outline} threshold={35} /></mesh>
         <mesh {...common} position={[0, height * 0.65, -depth * 0.3]}><boxGeometry args={[width * 0.9, height * 0.62, depth * 0.25]} /><meshStandardMaterial color={ceramic} roughness={0.25} /><Edges color={outline} /></mesh>
       </>}
@@ -112,7 +168,7 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
       {fixture.kind === 'electric' && <mesh {...common} position={[0, Math.max(height / 2, 0.04), 0]}><boxGeometry args={[Math.max(width, 0.05), Math.max(height, 0.05), Math.max(depth, 0.018)]} /><meshStandardMaterial color={selected ? '#d0a54e' : '#bf8a26'} roughness={0.45} /><Edges color={outline} /></mesh>}
       {fixture.kind === 'pipe' && <mesh {...common} position={[0, height / 2, 0]}><cylinderGeometry args={[width / 2, width / 2, height, 24]} /><meshStandardMaterial color={selected ? '#d4a650' : '#90958e'} metalness={0.35} roughness={0.4} /><Edges color={outline} /></mesh>}
       {fixture.kind === 'radiator' && <mesh {...common} position={[0, height / 2, 0]}><boxGeometry args={[width, height, depth]} /><meshStandardMaterial color={ceramic} metalness={0.2} roughness={0.35} /><Edges color={outline} /></mesh>}
-      {(fixture.kind === 'column' || fixture.kind === 'other') && <mesh {...common} position={[0, height / 2, 0]}><boxGeometry args={[width, height, depth]} /><meshStandardMaterial color={selected ? '#d8c8a5' : '#c9cbc5'} roughness={0.82} /><Edges color={outline} /></mesh>}
+      {!fixture.model_asset && (fixture.kind === 'column' || fixture.kind === 'other') && <mesh {...common} position={[0, height / 2, 0]}><boxGeometry args={[width, height, depth]} /><meshStandardMaterial color={selected ? '#d8c8a5' : '#c9cbc5'} roughness={0.82} /><Edges color={outline} /></mesh>}
     </group>
   )
 }
@@ -192,7 +248,9 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
         <PerspectiveCamera makeDefault position={[center.x / 1000 + extent * 1.65, extent * 2.05, center.z / 1000 + extent * 1.65]} fov={42} near={0.01} far={100} />
         <ambientLight intensity={1.3} />
         <directionalLight position={[4, 7, 3]} intensity={2.2} castShadow shadow-mapSize={[2048, 2048]} />
-        <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} onSelect={onSelect} groupRef={groupRef} />
+        <Suspense fallback={null}>
+          <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} onSelect={onSelect} groupRef={groupRef} />
+        </Suspense>
         <Grid position={[center.x / 1000, -0.006, center.z / 1000]} args={[12, 12]} cellSize={0.1} cellThickness={0.45} cellColor="#c4c7bf" sectionSize={1} sectionThickness={0.8} sectionColor="#aeb2aa" fadeDistance={12} fadeStrength={1.2} infiniteGrid />
         <ContactShadows position={[0, -0.002, 0]} opacity={0.3} scale={12} blur={2.3} far={5} />
         <OrbitControls makeDefault enableDamping dampingFactor={0.08} screenSpacePanning panSpeed={0.9} rotateSpeed={0.75} zoomSpeed={0.9} target={[center.x / 1000, Math.min(1.05, extent * 0.38), center.z / 1000]} minDistance={0.7} maxDistance={Math.max(18, extent * 6)} maxPolarAngle={Math.PI / 2.02} />

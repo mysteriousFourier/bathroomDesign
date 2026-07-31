@@ -6,6 +6,28 @@ export interface Point2D {
   z_mm: number
 }
 
+export type PlanLineKind = 'pipe_chase' | 'inner_wall' | 'door_line'
+
+export interface PlanLineSpec {
+  id: string
+  kind: PlanLineKind
+  label: string
+  points: Point2D[]
+  source: SourceKind
+  confidence: number
+  evidence_ids?: string[]
+}
+
+export interface PlanLabelSpec {
+  id: string
+  text: string
+  x_mm: number
+  z_mm: number
+  source: SourceKind
+  confidence: number
+  evidence_ids?: string[]
+}
+
 export interface ImageBoundaryPoint {
   x: number
   y: number
@@ -67,6 +89,26 @@ export interface OpeningSpec {
 export type FixtureKind = 'toilet' | 'vanity' | 'shower' | 'floor_drain' | 'drain' | 'water' | 'electric' | 'pipe' | 'column' | 'radiator' | 'other'
 export type FixturePointUsage = 'general' | 'toilet' | 'shower' | 'basin'
 
+export type ModelAssetFormat = 'gltf' | 'glb'
+export type ModelAssetLifecycle = 'approved' | 'needs_conversion' | 'deprecated'
+
+export interface FixtureModelAsset {
+  id: string
+  src: string
+  format?: ModelAssetFormat
+  label: string
+  unit: 'm'
+  fit: 'contain'
+  version?: string
+  sha256?: string
+  bytes?: number
+  thumbnail?: string
+  source?: string
+  source_asset_id?: string
+  lifecycle?: ModelAssetLifecycle
+  legacy_source_ids?: string[]
+}
+
 export interface FixtureSpec {
   id: string
   kind: FixtureKind
@@ -82,6 +124,7 @@ export interface FixtureSpec {
   evidence_ids?: string[]
   bound_wall_index?: number | null
   point_usage?: FixturePointUsage
+  model_asset?: FixtureModelAsset | null
 }
 
 export interface WallProfile {
@@ -145,6 +188,8 @@ export interface RoomSpec {
   ceiling_zones?: CeilingZone[]
   dry_wet_zones?: DryWetZone[]
   wall_finish_profiles?: WallFinishProfile[]
+  plan_lines?: PlanLineSpec[]
+  plan_labels?: PlanLabelSpec[]
   observations: Observation[]
   plan_annotation?: PlanAnnotation | null
   issues: ValidationIssue[]
@@ -268,4 +313,4 @@ export interface Health {
   ocr_configured?: boolean
 }
 
-export type Selection = { type: 'room' } | { type: 'fixture'; id: string } | { type: 'opening'; id: string } | { type: 'dry_wet_zone'; id: string }
+export type Selection = { type: 'room' } | { type: 'fixture'; id: string } | { type: 'opening'; id: string } | { type: 'dry_wet_zone'; id: string } | { type: 'plan_line'; id: string } | { type: 'plan_label'; id: string }

@@ -1,10 +1,11 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, projectPointToWall, roomBounds, roomCentroid, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
-import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, RoomSpec, Selection, SourceKind } from '../types'
+import { showerSeatModelAsset, washerGlbModelAsset } from '../modelAssets'
+import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, projectPointToWall, roomBounds, roomCentroid, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
+import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
 const sourceLabels: Record<SourceKind, string> = { measured: '测量', derived: '推导', estimated: '估算', user: '用户' }
-
+const planLineLabels: Record<PlanLineKind, string> = { pipe_chase: '包管线', inner_wall: '内墙线', door_line: '门线' }
 function NumberField({ label, value, unit = 'mm', min = 0, step = 10, disabled = false, onChange }: { label: string; value: number; unit?: string; min?: number; step?: number; disabled?: boolean; onChange: (value: number) => void }) {
   return <label className="number-field"><span>{label}</span><div><input type="number" value={Math.round(value)} min={min} step={step} disabled={disabled} onChange={(event) => onChange(Number(event.target.value))} /><em>{unit}</em></div></label>
 }
@@ -29,6 +30,8 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
   const selectedFixture = selection.type === 'fixture' ? spec.fixtures.find((item) => item.id === selection.id) : undefined
   const selectedOpening = selection.type === 'opening' ? spec.openings.find((item) => item.id === selection.id) : undefined
   const selectedZone = selection.type === 'dry_wet_zone' ? spec.dry_wet_zones?.find((item) => item.id === selection.id && item.kind === 'wet') : undefined
+  const selectedPlanLine = selection.type === 'plan_line' ? spec.plan_lines?.find((item) => item.id === selection.id) : undefined
+  const selectedPlanLabel = selection.type === 'plan_label' ? spec.plan_labels?.find((item) => item.id === selection.id) : undefined
   const selectedFixtureWall = selectedFixture ? fixtureBoundWallIndex(spec, selectedFixture) : null
   const directBounds = roomBounds(spec.boundary)
   const structuralBounds = roomBounds(structuralInnerBoundary(spec))
@@ -78,11 +81,38 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
     edit((draft) => {
       if (kind === 'floor_drain' && pointUsage === 'shower') draft.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
       draft.fixtures.push({
-        id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : fixtureLabels[kind], x_mm: Math.round(center.x), z_mm: Math.round(center.z),
-        ...defaults, rotation_deg: 0, source: 'user', confidence: 1,
+        id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : kind === 'drain' && pointUsage === 'toilet' ? '马桶排水' : fixtureLabels[kind], x_mm: Math.round(center.x), z_mm: Math.round(center.z),
+        ...defaults, width_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.width_mm, depth_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.depth_mm, rotation_deg: 0, source: 'user', confidence: 1,
         point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined,
       })
       if (kind === 'floor_drain' && pointUsage === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
+      if (kind === 'drain' && pointUsage === 'toilet') syncToiletWithDrain(draft, id)
+    })
+    onSelect({ type: 'fixture', id: kind === 'drain' && pointUsage === 'toilet' ? `toilet-for-${id}` : id })
+  }
+
+  const addShowerSeat = () => {
+    const center = roomCentroid(finishedBoundary)
+    const id = `seat-${crypto.randomUUID().slice(0, 8)}`
+    edit((draft) => {
+      draft.fixtures.push({
+        id, kind: 'other', label: '淋浴坐凳', x_mm: Math.round(center.x), z_mm: Math.round(center.z),
+        width_mm: 580, depth_mm: 520, height_mm: 450, rotation_deg: 0, source: 'user', confidence: 1,
+        model_asset: showerSeatModelAsset,
+      })
+    })
+    onSelect({ type: 'fixture', id })
+  }
+
+  const addWasherModel = () => {
+    const center = roomCentroid(finishedBoundary)
+    const id = `washer-${crypto.randomUUID().slice(0, 8)}`
+    edit((draft) => {
+      draft.fixtures.push({
+        id, kind: 'other', label: '洗衣机', x_mm: Math.round(center.x), z_mm: Math.round(center.z),
+        width_mm: 600, depth_mm: 620, height_mm: 850, rotation_deg: 0, source: 'user', confidence: 1,
+        model_asset: washerGlbModelAsset,
+      })
     })
     onSelect({ type: 'fixture', id })
   }
@@ -94,6 +124,15 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
       thickness_mm: null, sill_mm: 0, label: '门洞', source: 'user', confidence: 1,
     }))
     onSelect({ type: 'opening', id })
+  }
+
+  const addPlanLabel = () => {
+    const id = `label-${crypto.randomUUID().slice(0, 8)}`
+    const center = roomCentroid(finishedBoundary)
+    edit((draft) => {
+      ;(draft.plan_labels ??= []).push({ id, text: draft.name || '卫生间', x_mm: Math.round(center.x), z_mm: Math.round(center.z), source: 'user', confidence: 1 })
+    })
+    onSelect({ type: 'plan_label', id })
   }
 
   const addZone = () => {
@@ -138,10 +177,16 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
     <aside className="inspector">
       <EvidenceReview spec={spec} assets={assets} onApply={onEvidenceApply} onDelete={onEvidenceDelete} focusId={focusEvidenceId} />
       <section className="inspector-section">
-        <div className="inspector-title"><span>属性</span><span className="selection-path">{selection.type === 'room' ? '空间' : selection.type === 'fixture' ? '设施' : selection.type === 'dry_wet_zone' ? '湿区' : '洞口'} <ChevronRight size={13} /></span></div>
+          <div className="inspector-title"><span>属性</span><span className="selection-path">{selection.type === 'room' ? '空间' : selection.type === 'fixture' ? '设施' : selection.type === 'dry_wet_zone' ? '湿区' : selection.type === 'plan_line' ? '线条' : selection.type === 'plan_label' ? '文字' : '洞口'} <ChevronRight size={13} /></span></div>
         {selection.type === 'room' && (
           <div className="field-stack">
             <label className="text-field"><span>空间名称</span><input value={spec.name} onChange={(event) => edit((draft) => { draft.name = event.target.value })} /></label>
+            <label className="text-field"><span>平面图文字</span><input value={(spec.plan_labels?.[0]?.text ?? spec.name)} onChange={(event) => edit((draft) => {
+              const center = roomCentroid(finishedRoomBoundary(draft))
+              const labels = draft.plan_labels ?? (draft.plan_labels = [])
+              if (labels[0]) { labels[0].text = event.target.value; labels[0].source = 'user'; labels[0].confidence = 1 }
+              else labels.push({ id: 'room-label', text: event.target.value, x_mm: Math.round(center.x), z_mm: Math.round(center.z), source: 'user', confidence: 1 })
+            })} /></label>
             <div className="surface-dimension-summary">
               <div><span>直测净尺寸</span><strong>{Math.round(directBounds.width)} x {Math.round(directBounds.depth)}</strong></div>
               <div><span>刨除后结构内尺寸</span><strong>{Math.round(structuralBounds.width)} x {Math.round(structuralBounds.depth)}</strong></div>
@@ -190,6 +235,12 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
               const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!
               if (item.kind === 'floor_drain' && usage === 'shower') draft.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain' && fixture.id !== item.id) { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
               item.point_usage = usage
+              if (item.kind === 'drain' && usage === 'toilet') {
+                item.label = '马桶排水'
+                item.width_mm = 110
+                item.depth_mm = 110
+                syncToiletWithDrain(draft, item.id)
+              }
               if (item.kind === 'floor_drain') {
                 if (usage === 'shower') item.label = '淋浴地漏'
                 else if (item.label === '淋浴地漏') item.label = '地漏'
@@ -205,8 +256,15 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
                   if (projection) { item.x_mm = projection.point.x_mm; item.z_mm = projection.point.z_mm }
                 }
                 if ((field === 'x_mm' || field === 'z_mm') && item.kind === 'floor_drain' && fixturePointUsage(item) === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
+                if ((field === 'x_mm' || field === 'z_mm') && item.kind === 'drain' && fixturePointUsage(item) === 'toilet') syncToiletWithDrain(draft, item.id)
               })} />
             ))}
+            {selectedFixture.model_asset && <div className="asset-summary">
+              <div><span>模型资产</span><strong>{selectedFixture.model_asset.label}</strong></div>
+              <div><span>主格式</span><strong>{(selectedFixture.model_asset.format ?? 'gltf').toUpperCase()}</strong></div>
+              <div><span>版本</span><strong>{selectedFixture.model_asset.version ?? '1.0.0'}</strong></div>
+              <div><span>SHA256</span><code>{selectedFixture.model_asset.sha256?.slice(0, 12) ?? '未登记'}</code></div>
+            </div>}
             {fixtureCanBindWall(selectedFixture.kind) && <label className="text-field"><span>绑定墙段</span><select value={selectedFixtureWall ?? ''} onChange={(event) => edit((draft) => {
               const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!
               if (event.target.value === '') { item.bound_wall_index = null; return }
@@ -214,6 +272,7 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
               const projection = projectPointToWall(finishedRoomBoundary(draft), wallIndex, item)
               item.bound_wall_index = projection ? wallIndex : null
               if (projection) { item.x_mm = projection.point.x_mm; item.z_mm = projection.point.z_mm }
+              if (item.kind === 'drain' && fixturePointUsage(item) === 'toilet') syncToiletWithDrain(draft, item.id)
             })}><option value="">未绑定</option>{spec.boundary.map((_, index) => <option key={index} value={index}>W{index + 1}</option>)}</select></label>}
             <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.fixtures = draft.fixtures.filter((item) => item.id !== selectedFixture.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除设施</button>
           </div>
@@ -237,21 +296,62 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.openings = draft.openings.filter((item) => item.id !== selectedOpening.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除洞口</button>
           </div>
         )}
+        {selectedPlanLine && (
+          <div className="field-stack">
+            <div className="object-heading"><strong>{selectedPlanLine.label || planLineLabels[selectedPlanLine.kind]}</strong><SourceBadge source={selectedPlanLine.source} confidence={selectedPlanLine.confidence} /></div>
+            <label className="text-field"><span>线型</span><select value={selectedPlanLine.kind} onChange={(event) => edit((draft) => {
+              const item = draft.plan_lines?.find((candidate) => candidate.id === selectedPlanLine.id)
+              if (!item) return
+              item.kind = event.target.value as PlanLineKind
+              item.label = planLineLabels[item.kind]
+              item.source = 'user'; item.confidence = 1
+            })}><option value="pipe_chase">包管线</option><option value="inner_wall">内墙线</option><option value="door_line">门线</option></select></label>
+            <label className="text-field"><span>名称</span><input value={selectedPlanLine.label} onChange={(event) => edit((draft) => { const item = draft.plan_lines?.find((candidate) => candidate.id === selectedPlanLine.id); if (item) item.label = event.target.value })} /></label>
+            {selectedPlanLine.points.map((point, index) => <div className="boundary-point-row" key={`${selectedPlanLine.id}-${index}`}>
+              <span className="boundary-point-index">P{index + 1}</span>
+              <NumberField label="X" value={point.x_mm} min={0} onChange={(value) => edit((draft) => { const item = draft.plan_lines?.find((candidate) => candidate.id === selectedPlanLine.id); if (item) item.points[index].x_mm = value })} />
+              <NumberField label="Z" value={point.z_mm} min={0} onChange={(value) => edit((draft) => { const item = draft.plan_lines?.find((candidate) => candidate.id === selectedPlanLine.id); if (item) item.points[index].z_mm = value })} />
+            </div>)}
+            <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.plan_lines = draft.plan_lines?.filter((item) => item.id !== selectedPlanLine.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除线条</button>
+          </div>
+        )}
+        {selectedPlanLabel && (
+          <div className="field-stack">
+            <div className="object-heading"><strong>平面图文字</strong><SourceBadge source={selectedPlanLabel.source} confidence={selectedPlanLabel.confidence} /></div>
+            <label className="text-field"><span>文字</span><input value={selectedPlanLabel.text} onChange={(event) => edit((draft) => { const item = draft.plan_labels?.find((candidate) => candidate.id === selectedPlanLabel.id); if (item) item.text = event.target.value })} /></label>
+            <NumberField label="X 位置" value={selectedPlanLabel.x_mm} min={0} onChange={(value) => edit((draft) => { const item = draft.plan_labels?.find((candidate) => candidate.id === selectedPlanLabel.id); if (item) item.x_mm = value })} />
+            <NumberField label="Z 位置" value={selectedPlanLabel.z_mm} min={0} onChange={(value) => edit((draft) => { const item = draft.plan_labels?.find((candidate) => candidate.id === selectedPlanLabel.id); if (item) item.z_mm = value })} />
+            <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.plan_labels = draft.plan_labels?.filter((item) => item.id !== selectedPlanLabel.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除文字</button>
+          </div>
+        )}
       </section>
 
       <section className="inspector-section object-list-section">
-        <div className="inspector-title"><span>模型对象</span><span>{spec.openings.length + spec.fixtures.length + (spec.dry_wet_zones?.filter((zone) => zone.kind === 'wet').length ?? 0)}</span></div>
+        <div className="inspector-title"><span>模型对象</span><span>{spec.openings.length + spec.fixtures.length + (spec.plan_lines?.length ?? 0) + (spec.plan_labels?.length ?? 0) + (spec.dry_wet_zones?.filter((zone) => zone.kind === 'wet').length ?? 0)}</span></div>
         <button className={selection.type === 'room' ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'room' })}><span className="object-icon room" />空间结构 <small>{spec.boundary.length} 面墙</small></button>
         {spec.openings.map((opening) => <button key={opening.id} className={selection.type === 'opening' && selection.id === opening.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'opening', id: opening.id })}><span className="object-icon opening" />{opening.label}<small>{opening.width_mm} mm</small></button>)}
         {spec.fixtures.map((fixture) => <button key={fixture.id} className={selection.type === 'fixture' && selection.id === fixture.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'fixture', id: fixture.id })}><span className={`object-icon ${fixture.source}`} />{fixture.label}<small>{Math.round(fixture.confidence * 100)}%</small></button>)}
+        {(spec.plan_lines ?? []).map((line) => <button key={line.id} className={selection.type === 'plan_line' && selection.id === line.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'plan_line', id: line.id })}><span className={`object-icon ${line.kind}`} />{line.label || planLineLabels[line.kind]}<small>{line.points.length} 点</small></button>)}
+        {(spec.plan_labels ?? []).map((label) => <button key={label.id} className={selection.type === 'plan_label' && selection.id === label.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'plan_label', id: label.id })}><span className="object-icon label" />{label.text || '文字'}<small>文字</small></button>)}
         {(spec.dry_wet_zones ?? []).filter((zone) => zone.kind === 'wet').map((zone) => <button key={zone.id} className={selection.type === 'dry_wet_zone' && selection.id === zone.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'dry_wet_zone', id: zone.id })}><span className="object-icon zone-wet" />{zone.label}<small>湿区</small></button>)}
         <div className="add-row">
-          <select defaultValue="" onChange={(event) => { if (event.target.value === 'floor_drain:shower') addFixture('floor_drain', 'shower'); else if (event.target.value) addFixture(event.target.value as FixtureKind); event.target.value = '' }} aria-label="添加设施">
+          <select defaultValue="" onChange={(event) => {
+            if (event.target.value === 'floor_drain:shower') addFixture('floor_drain', 'shower')
+            else if (event.target.value === 'drain:toilet') addFixture('drain', 'toilet')
+            else if (event.target.value === 'asset:accessible-shower-seat-001') addShowerSeat()
+            else if (event.target.value === 'asset:washer-glb-test') addWasherModel()
+            else if (event.target.value) addFixture(event.target.value as FixtureKind)
+            event.target.value = ''
+          }} aria-label="添加设施">
             <option value="" disabled>添加设施…</option>
             {Object.entries(fixtureLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
             <option value="floor_drain:shower">淋浴地漏</option>
+            <option value="drain:toilet">马桶排水点</option>
+            <option value="asset:washer-glb-test">洗衣机（GLB）</option>
+            <option value="asset:accessible-shower-seat-001">淋浴坐凳（GLTF）</option>
           </select>
           <button className="icon-button" title="添加门窗洞口" onClick={addOpening}><Plus size={16} /></button>
+          <button className="icon-button" title="添加平面图文字" onClick={addPlanLabel}><ChevronRight size={16} /></button>
         </div>
       </section>
 

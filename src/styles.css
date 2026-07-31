@@ -169,10 +169,10 @@ p, h1, h2, figure { margin: 0; }
 .plan-canvas { display: block; width: calc(100% - 28px); height: calc(100% - 14px); margin: 0 14px 14px; border: 1px solid var(--line-strong); background: #faf9f6; box-shadow: var(--shadow-1); touch-action: none; }
 .plan-canvas [data-pan-surface="true"] { cursor: grab; }
 .plan-canvas:active [data-pan-surface="true"] { cursor: grabbing; }
-.wall-finish-body { fill: #eee9dc; stroke: #b9ab8d; stroke-width: 1; vector-effect: non-scaling-stroke; }
-.wall-body { fill: #c8c4ba; stroke: #7f7a70; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.room-polygon { fill: rgb(244 243 239 / 72%); stroke: #4d534c; stroke-width: 6; stroke-linejoin: miter; cursor: pointer; }
-.room-polygon.selected { stroke: var(--green); }
+.wall-finish-body { fill: #e6e5df; stroke: #4d534c; stroke-width: 0.8; vector-effect: non-scaling-stroke; }
+.wall-body { fill: #c8c4ba; stroke: #4d534c; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.room-polygon { fill: rgb(244 243 239 / 72%); stroke: #4d534c; stroke-width: 2.5; stroke-linejoin: miter; vector-effect: non-scaling-stroke; cursor: pointer; }
+.room-polygon.selected { stroke: #4d534c; }
 .dry-wet-zone polygon { stroke-width: 2; stroke-dasharray: 8 5; vector-effect: non-scaling-stroke; cursor: pointer; }
 .dry-wet-zone.dry polygon { fill: rgb(192 199 193 / 24%); stroke: #7b837a; }
 .dry-wet-zone.wet polygon { fill: rgb(73 134 169 / 22%); stroke: #2d6d8c; }
@@ -244,10 +244,30 @@ p, h1, h2, figure { margin: 0; }
 .annotation-evidence:hover { fill: rgb(245 183 38 / 18%); stroke: #9a6815; }
 .annotation-selection { fill: rgb(245 183 38 / 12%); stroke: #9a6815; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .wall-finish-layer .wall-ring { fill: rgb(97 102 95 / 18%); stroke: #777d75; stroke-width: 1; vector-effect: non-scaling-stroke; }
-.dimension-label circle { fill: #faf9f6; stroke: #b7bbb3; stroke-width: 1; }
-.dimension-label text { fill: #656b64; text-anchor: middle; font: 8px Consolas, monospace; pointer-events: none; }
-.opening-line { stroke: #b78022; stroke-width: 11; stroke-linecap: butt; cursor: pointer; }
-.opening-line.selected { stroke: #7e5010; stroke-width: 14; }
+.dimension-label { pointer-events: none; }
+.dimension-label line { stroke: #545b53; stroke-width: 0.8; vector-effect: non-scaling-stroke; }
+.dimension-label .dimension-extension { stroke: #747b72; }
+.dimension-label .dimension-line, .dimension-label .dimension-tick { stroke: #3f463f; }
+.dimension-label text { fill: #20231f; text-anchor: middle; dominant-baseline: middle; font: 9px Consolas, monospace; paint-order: stroke; stroke: #faf9f6; stroke-width: 4; pointer-events: none; }
+.opening-segment { cursor: pointer; }
+.opening-segment line { vector-effect: non-scaling-stroke; stroke-linecap: butt; }
+.opening-segment .opening-wall-cut { stroke: #f4f3ef; stroke-width: 18; }
+.opening-segment .opening-wall-part { stroke: #4d534c; stroke-width: 2.5; }
+.opening-segment .opening-gap-part { stroke: #b78022; stroke-width: 7; }
+.opening-segment .opening-jamb { fill: #faf9f6; stroke: #7e5010; stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+.opening-segment.selected .opening-gap-part { stroke: #7e5010; stroke-width: 9; }
+.opening-segment.selected .opening-wall-part { stroke: #4d534c; stroke-width: 4; }
+.plan-line { cursor: pointer; }
+.plan-line polyline { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.plan-line.pipe_chase polyline { stroke: #8662a2; stroke-dasharray: 13 6; }
+.plan-line.inner_wall polyline { stroke: #385f76; }
+.plan-line.door_line polyline { stroke: #b46b2c; stroke-dasharray: 4 5; }
+.plan-line.selected polyline { stroke-width: 8; }
+.plan-line.draft { pointer-events: none; opacity: 0.72; }
+.plan-line circle { fill: #fff; stroke: #20231f; stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+.plan-line text { text-anchor: middle; font: 700 10px "Microsoft YaHei", sans-serif; paint-order: stroke; stroke: #fff; stroke-width: 4; pointer-events: none; }
+.wall-node { fill: #faf9f6; stroke: #4d534c; stroke-width: 1.25; vector-effect: non-scaling-stroke; pointer-events: none; }
+.plan-center-label { fill: #323630; text-anchor: middle; dominant-baseline: middle; font: 700 20px "Microsoft YaHei", sans-serif; paint-order: stroke; stroke: #faf9f6; stroke-width: 5; cursor: pointer; }
 .fixture-shape { cursor: grab; }
 .fixture-shape:active { cursor: grabbing; }
 .fixture-shape .fixture-symbol { fill: #dce9e2; stroke: #3e715c; stroke-width: 2; vector-effect: non-scaling-stroke; }
@@ -312,6 +332,10 @@ p, h1, h2, figure { margin: 0; }
 .source-badge.measured, .source-badge.user { color: var(--green); background: var(--green-soft); }
 .source-badge.derived { color: #536052; background: #e1e5df; }
 .source-badge.estimated { color: var(--amber); background: var(--amber-soft); }
+.asset-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 8px; border: 1px solid var(--line); background: var(--surface-2); }
+.asset-summary div { min-width: 0; display: grid; gap: 2px; }
+.asset-summary span { color: var(--muted); font-size: 8px; }
+.asset-summary strong, .asset-summary code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font: 10px Consolas, monospace; }
 .object-list-section { padding-left: 9px; padding-right: 9px; }
 .object-list-section .inspector-title { padding: 0 6px; }
 .object-row { width: 100%; height: 34px; display: grid; grid-template-columns: 15px 1fr auto; align-items: center; gap: 7px; padding: 0 7px; border: 0; border-radius: 3px; background: transparent; color: #424741; font-size: 10px; text-align: left; cursor: pointer; }
@@ -321,6 +345,10 @@ p, h1, h2, figure { margin: 0; }
 .object-icon { width: 9px; height: 9px; border: 1px solid #9b9f98; background: #dddeda; }
 .object-icon.room { background: #555c54; }
 .object-icon.opening { background: #c29340; }
+.object-icon.pipe_chase { background: #8662a2; }
+.object-icon.inner_wall { background: #385f76; }
+.object-icon.door_line { background: #b46b2c; }
+.object-icon.label { background: #323630; }
 .object-icon.zone-dry { background: #9aa099; }
 .object-icon.zone-wet { background: #2d6d8c; }
 .object-icon.user, .object-icon.measured { background: var(--green); }

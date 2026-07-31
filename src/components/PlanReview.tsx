@@ -1,24 +1,35 @@
-import { Droplet, Focus, Move, Plug, Square, Waves, ZoomIn, ZoomOut } from 'lucide-react'
+import { CircleDot, DoorOpen, Droplet, Focus, Move, Plug, Square, Waves, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixtureLabels, fixturePointShape, roomBounds, snapPointToNearestWall, wallLayerPolygons, wallLength, wetZoneBoundaryValid } from '../spec'
-import type { Asset, FixtureKind, FixturePointUsage, Point2D, RoomSpec, Selection } from '../types'
+import { finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength, wetZoneBoundaryValid } from '../spec'
+import type { Asset, FixtureKind, FixturePointUsage, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
 
 const canvasWidth = 920
 const canvasHeight = 680
 const pad = 92
+const dimensionOffsetPx = 76
+const dimensionOriginGapPx = 9
+const dimensionOverrunPx = 10
+const dimensionTextOffsetPx = 13
+const dimensionTextGapMinPx = 28
+const dimensionTickPx = 8
+const lineKindLabels: Record<PlanLineKind, string> = { pipe_chase: '包管线', inner_wall: '内墙线', door_line: '门线' }
 
-export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onFixtureAdd, onZoneChange, onEvidenceSelect }: {
+export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onFixtureAdd, onPlanLineAdd, onPlanLineExtend, onZoneChange, onEvidenceSelect }: {
   spec: RoomSpec
   plan?: Asset
   selection: Selection
   onSelect: (selection: Selection) => void
   onFixtureMove: (id: string, xMm: number, zMm: number) => void
   onFixtureAdd?: (kind: FixtureKind, xMm: number, zMm: number, wallIndex: number | null, pointUsage?: FixturePointUsage) => void
+  onPlanLineAdd?: (kind: PlanLineKind, points: Point2D[]) => string | null
+  onPlanLineExtend?: (id: string, point: Point2D) => void
   onZoneChange?: (id: string, boundary: Point2D[]) => void
   onEvidenceSelect?: (id: string) => void
 }) {
   const [zoom, setZoom] = useState(1)
   const [addFixture, setAddFixture] = useState<{ kind: FixtureKind; pointUsage?: FixturePointUsage } | null>(null)
+  const [addLine, setAddLine] = useState<PlanLineKind | null>(null)
+  const [lineDraft, setLineDraft] = useState<{ id: string | null; points: Point2D[] }>({ id: null, points: [] })
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const panSession = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null)
   const suppressCanvasClick = useRef(false)
@@ -35,6 +46,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
   const mmX = (x: number) => Math.round((x - offsetX) / scale / 10) * 10
   const mmZ = (z: number) => Math.round((z - offsetZ) / scale / 10) * 10
   const points = roomBoundary.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')
+  const center = roomCentroid(roomBoundary)
+  const labels = spec.plan_labels?.length ? spec.plan_labels : [{ id: 'default-room-label', text: spec.name, x_mm: Math.round(center.x), z_mm: Math.round(center.z), source: 'derived' as const, confidence: 1 }]
   const svgPoint = (svg: SVGSVGElement, clientX: number, clientY: number) => {
     const point = svg.createSVGPoint()
     point.x = clientX
@@ -73,16 +86,143 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
     setAddFixture(null)
     return true
   }
+  const snapPlanPoint = (point: Point2D) => {
+    const nodes = [
+      ...roomBoundary,
+      ...(spec.plan_lines ?? []).flatMap((line) => line.points),
+      ...lineDraft.points,
+    ]
+    let best = point
+    let distance = 60
+    for (const node of nodes) {
+      const candidate = Math.hypot(point.x_mm - node.x_mm, point.z_mm - node.z_mm)
+      if (candidate < distance) { best = node; distance = candidate }
+    }
+    return { ...best }
+  }
+  const addLinePointAtEvent = (event: MouseEvent<SVGSVGElement>) => {
+    if (!addLine) return false
+    const point = svgPoint(event.currentTarget, event.clientX, event.clientY)
+    const nextPoint = snapPlanPoint({ x_mm: mmX((point.x - pan.x) / zoom), z_mm: mmZ((point.y - pan.y) / zoom) })
+    if (!lineDraft.points.length) {
+      setLineDraft({ id: null, points: [nextPoint] })
+      return true
+    }
+    if (lineDraft.id) {
+      onPlanLineExtend?.(lineDraft.id, nextPoint)
+      setLineDraft((draft) => ({ ...draft, points: [...draft.points, nextPoint] }))
+      return true
+    }
+    const id = onPlanLineAdd?.(addLine, [...lineDraft.points, nextPoint]) ?? null
+    setLineDraft({ id, points: [...lineDraft.points, nextPoint] })
+    if (id) onSelect({ type: 'plan_line', id })
+    return true
+  }
+  const chooseLineTool = (kind: PlanLineKind) => {
+    setAddFixture(null)
+    setAddLine((value) => value === kind ? null : kind)
+    setLineDraft({ id: null, points: [] })
+  }
+  const pointAtWallOffset = (start: Point2D, end: Point2D, offsetMm: number, lengthMm: number) => {
+    const t = Math.max(0, Math.min(1, offsetMm / Math.max(lengthMm, 1)))
+    return { x_mm: start.x_mm + (end.x_mm - start.x_mm) * t, z_mm: start.z_mm + (end.z_mm - start.z_mm) * t }
+  }
+  const wallDimension = (start: Point2D, end: Point2D, key: string, label: string) => {
+    const x1 = sx(start.x_mm)
+    const y1 = sz(start.z_mm)
+    const x2 = sx(end.x_mm)
+    const y2 = sz(end.z_mm)
+    const midX = (x1 + x2) / 2
+    const midY = (y1 + y2) / 2
+    const length = Math.max(Math.hypot(x2 - x1, y2 - y1), 1)
+    const ux = (x2 - x1) / length
+    const uy = (y2 - y1) / length
+    let normalX = -uy
+    let normalY = ux
+    const centerX = sx(center.x)
+    const centerY = sz(center.z)
+    if ((midX - centerX) * normalX + (midY - centerY) * normalY < 0) {
+      normalX *= -1
+      normalY *= -1
+    }
+    const dimX1 = x1 + normalX * dimensionOffsetPx
+    const dimY1 = y1 + normalY * dimensionOffsetPx
+    const dimX2 = x2 + normalX * dimensionOffsetPx
+    const dimY2 = y2 + normalY * dimensionOffsetPx
+    const extStartX1 = x1 + normalX * dimensionOriginGapPx
+    const extStartY1 = y1 + normalY * dimensionOriginGapPx
+    const extStartX2 = x2 + normalX * dimensionOriginGapPx
+    const extStartY2 = y2 + normalY * dimensionOriginGapPx
+    const extEndX1 = dimX1 + normalX * dimensionOverrunPx
+    const extEndY1 = dimY1 + normalY * dimensionOverrunPx
+    const extEndX2 = dimX2 + normalX * dimensionOverrunPx
+    const extEndY2 = dimY2 + normalY * dimensionOverrunPx
+    const textGap = Math.max(dimensionTextGapMinPx, label.length * 5.5 + 14)
+    const gap = Math.min(length / 2 - 4, textGap / 2)
+    const tickX = (ux - uy) * dimensionTickPx / Math.SQRT2
+    const tickY = (uy + ux) * dimensionTickPx / Math.SQRT2
+    const textX = (dimX1 + dimX2) / 2 + normalX * dimensionTextOffsetPx
+    const textY = (dimY1 + dimY2) / 2 + normalY * dimensionTextOffsetPx
+    return <g key={key} className="dimension-label">
+      <line className="dimension-extension" x1={extStartX1} y1={extStartY1} x2={extEndX1} y2={extEndY1} />
+      <line className="dimension-extension" x1={extStartX2} y1={extStartY2} x2={extEndX2} y2={extEndY2} />
+      <line className="dimension-line" x1={dimX1} y1={dimY1} x2={midX + normalX * dimensionOffsetPx - ux * gap} y2={midY + normalY * dimensionOffsetPx - uy * gap} />
+      <line className="dimension-line" x1={midX + normalX * dimensionOffsetPx + ux * gap} y1={midY + normalY * dimensionOffsetPx + uy * gap} x2={dimX2} y2={dimY2} />
+      <line className="dimension-tick" x1={dimX1 - tickX} y1={dimY1 - tickY} x2={dimX1 + tickX} y2={dimY1 + tickY} />
+      <line className="dimension-tick" x1={dimX2 - tickX} y1={dimY2 - tickY} x2={dimX2 + tickX} y2={dimY2 + tickY} />
+      <text x={textX} y={textY}>{label}</text>
+    </g>
+  }
+  const wallDimensions = spec.boundary.flatMap((start, index) => {
+    const end = spec.boundary[(index + 1) % spec.boundary.length]
+    const lengthMm = wallLength(spec.boundary, index)
+    const openings = spec.openings
+      .filter((opening) => opening.wall_index === index)
+      .sort((a, b) => a.offset_mm - b.offset_mm)
+    if (!openings.length) return [wallDimension(start, end, `wall-${index}`, `${Math.round(lengthMm)}`)]
+    const segments: Array<{ start: Point2D; end: Point2D; length: number; key: string }> = []
+    let cursor = 0
+    openings.forEach((opening) => {
+      const openingStart = Math.max(0, Math.min(lengthMm, opening.offset_mm))
+      const openingEnd = Math.max(openingStart, Math.min(lengthMm, opening.offset_mm + opening.width_mm))
+      segments.push({
+        start: pointAtWallOffset(start, end, cursor, lengthMm),
+        end: pointAtWallOffset(start, end, openingStart, lengthMm),
+        length: openingStart - cursor,
+        key: `wall-${index}-before-${opening.id}`,
+      })
+      segments.push({
+        start: pointAtWallOffset(start, end, openingStart, lengthMm),
+        end: pointAtWallOffset(start, end, openingEnd, lengthMm),
+        length: openingEnd - openingStart,
+        key: `wall-${index}-opening-${opening.id}`,
+      })
+      cursor = openingEnd
+    })
+    segments.push({
+      start: pointAtWallOffset(start, end, cursor, lengthMm),
+      end,
+      length: lengthMm - cursor,
+      key: `wall-${index}-after-openings`,
+    })
+    return segments
+      .filter((segment) => segment.length > 0)
+      .map((segment) => wallDimension(segment.start, segment.end, segment.key, `${Math.round(segment.length)}`))
+  })
 
   return (
     <div className="plan-review">
       <div className="canvas-toolbar">
         <span><Move size={15} />拖动空白处平移，滚轮缩放</span>
         <div>
-          <button className={`icon-button${addFixture?.kind === 'drain' ? ' active-tool' : ''}`} title="添加排水点" onClick={() => setAddFixture((value) => value?.kind === 'drain' ? null : { kind: 'drain', pointUsage: 'general' })}><Droplet size={17} /></button>
-          <button className={`icon-button${addFixture?.kind === 'water' ? ' active-tool' : ''}`} title="添加给水点" onClick={() => setAddFixture((value) => value?.kind === 'water' ? null : { kind: 'water', pointUsage: 'general' })}><Waves size={17} /></button>
-          <button className={`icon-button${addFixture?.kind === 'floor_drain' ? ' active-tool' : ''}`} title="添加淋浴地漏" onClick={() => setAddFixture((value) => value?.kind === 'floor_drain' ? null : { kind: 'floor_drain', pointUsage: 'shower' })}><Square size={17} /></button>
-          <button className={`icon-button${addFixture?.kind === 'electric' ? ' active-tool' : ''}`} title="添加电点" onClick={() => setAddFixture((value) => value?.kind === 'electric' ? null : { kind: 'electric' })}><Plug size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'drain' && addFixture.pointUsage !== 'toilet' ? ' active-tool' : ''}`} title="添加排水点" onClick={() => { setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'drain' && value.pointUsage !== 'toilet' ? null : { kind: 'drain', pointUsage: 'general' }) }}><Droplet size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'drain' && addFixture.pointUsage === 'toilet' ? ' active-tool' : ''}`} title="添加马桶排水点并吸附马桶" onClick={() => { setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'drain' && value.pointUsage === 'toilet' ? null : { kind: 'drain', pointUsage: 'toilet' }) }}><CircleDot size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'water' ? ' active-tool' : ''}`} title="添加给水点" onClick={() => { setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'water' ? null : { kind: 'water', pointUsage: 'general' }) }}><Waves size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'floor_drain' ? ' active-tool' : ''}`} title="添加淋浴地漏" onClick={() => { setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'floor_drain' ? null : { kind: 'floor_drain', pointUsage: 'shower' }) }}><Square size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'electric' ? ' active-tool' : ''}`} title="添加电点" onClick={() => { setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'electric' ? null : { kind: 'electric' }) }}><Plug size={17} /></button>
+          <button className={`icon-button${addLine === 'pipe_chase' ? ' active-tool' : ''}`} title="绘制包管线" onClick={() => chooseLineTool('pipe_chase')}><Square size={17} /></button>
+          <button className={`icon-button${addLine === 'inner_wall' ? ' active-tool' : ''}`} title="绘制内墙线" onClick={() => chooseLineTool('inner_wall')}><Move size={17} /></button>
+          <button className={`icon-button${addLine === 'door_line' ? ' active-tool' : ''}`} title="绘制门线" onClick={() => chooseLineTool('door_line')}><DoorOpen size={17} /></button>
           <button className="icon-button" title="缩小" onClick={() => zoomAt(0.8)}><ZoomOut size={17} /></button>
           <button className="icon-button" title="放大" onClick={() => zoomAt(1.25)}><ZoomIn size={17} /></button>
           <button className="icon-button" title="适配视图" onClick={fitView}><Focus size={17} /></button>
@@ -95,6 +235,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
         aria-label="二维测量图审图画布"
         onClickCapture={(event) => {
           if (addFixtureAtEvent(event)) { event.stopPropagation(); event.preventDefault() }
+          if (addLinePointAtEvent(event)) { event.stopPropagation(); event.preventDefault() }
         }}
         onClick={(event) => {
           if (suppressCanvasClick.current) { suppressCanvasClick.current = false; return }
@@ -195,12 +336,18 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
           const centerZ = zone.boundary.reduce((sum, point) => sum + sz(point.z_mm), 0) / zone.boundary.length
           return <g key={zone.id} className="ceiling-zone"><polygon points={zonePoints} /><text x={centerX} y={centerZ + 4}>吊顶 {zone.height_mm}</text></g>
         })}
-        {spec.boundary.map((start, index) => {
-          const end = spec.boundary[(index + 1) % spec.boundary.length]
-          const midX = (sx(start.x_mm) + sx(end.x_mm)) / 2
-          const midZ = (sz(start.z_mm) + sz(end.z_mm)) / 2
-          return <g key={`wall-${index}`} className="dimension-label"><circle cx={midX} cy={midZ} r="14" /><text x={midX} y={midZ + 4}>{Math.round(wallLength(spec.boundary, index))}</text></g>
-        })}
+        {wallDimensions}
+        {(spec.plan_lines ?? []).map((line) => <g key={line.id} className={`plan-line ${line.kind}${selection.type === 'plan_line' && selection.id === line.id ? ' selected' : ''}`} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'plan_line', id: line.id }) }}>
+          <polyline points={line.points.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')} />
+          {line.points.map((point, index) => <circle key={`${line.id}-${index}`} cx={sx(point.x_mm)} cy={sz(point.z_mm)} r="2.5" />)}
+          {line.points.length >= 2 && <text x={sx(line.points[0].x_mm + (line.points.at(-1)!.x_mm - line.points[0].x_mm) / 2)} y={sz(line.points[0].z_mm + (line.points.at(-1)!.z_mm - line.points[0].z_mm) / 2) - 8}>{line.label || lineKindLabels[line.kind]}</text>}
+        </g>)}
+        {addLine && lineDraft.points.length > 0 && <g className={`plan-line ${addLine} draft`}>
+          <polyline points={lineDraft.points.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')} />
+          {lineDraft.points.map((point, index) => <circle key={`draft-${index}`} cx={sx(point.x_mm)} cy={sz(point.z_mm)} r="2.5" />)}
+        </g>}
+        {roomBoundary.map((point, index) => <circle key={`wall-node-${index}`} className="wall-node" cx={sx(point.x_mm)} cy={sz(point.z_mm)} r="2.5" />)}
+        {labels.filter((label) => label.text.trim()).map((label) => <text key={label.id} className="plan-center-label" x={sx(label.x_mm)} y={sz(label.z_mm)} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'plan_label', id: label.id }) }}>{label.text}</text>)}
         {spec.openings.map((opening) => {
           const start = spec.boundary[opening.wall_index]
           const end = spec.boundary[(opening.wall_index + 1) % spec.boundary.length]
@@ -212,7 +359,14 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
           const y1 = sz(start.z_mm + (end.z_mm - start.z_mm) * startT)
           const x2 = sx(start.x_mm + (end.x_mm - start.x_mm) * endT)
           const y2 = sz(start.z_mm + (end.z_mm - start.z_mm) * endT)
-          return <line key={opening.id} x1={x1} y1={y1} x2={x2} y2={y2} className={selection.type === 'opening' && selection.id === opening.id ? 'opening-line selected' : 'opening-line'} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'opening', id: opening.id }) }} />
+          return <g key={opening.id} className={selection.type === 'opening' && selection.id === opening.id ? 'opening-segment selected' : 'opening-segment'} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'opening', id: opening.id }) }}>
+            <line className="opening-wall-cut" x1={x1} y1={y1} x2={x2} y2={y2} />
+            <line className="opening-wall-part" x1={sx(start.x_mm)} y1={sz(start.z_mm)} x2={x1} y2={y1} />
+            <line className="opening-gap-part" x1={x1} y1={y1} x2={x2} y2={y2} />
+            <line className="opening-wall-part" x1={x2} y1={y2} x2={sx(end.x_mm)} y2={sz(end.z_mm)} />
+            <circle className="opening-jamb" cx={x1} cy={y1} r="2.5" />
+            <circle className="opening-jamb" cx={x2} cy={y2} r="2.5" />
+          </g>
         })}
         {spec.fixtures.map((fixture) => {
           const selected = selection.type === 'fixture' && selection.id === fixture.id

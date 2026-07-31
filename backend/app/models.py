@@ -93,6 +93,7 @@ class FixtureSpec(BaseModel):
     source: SourceKind = SourceKind.estimated
     confidence: float = Field(default=0.5, ge=0, le=1)
     evidence_ids: list[str] = Field(default_factory=list)
+    bound_wall_index: int | None = Field(default=None, ge=0)
 
 
 class WallProfile(BaseModel):
@@ -111,6 +112,25 @@ class CeilingZone(BaseModel):
     height_mm: int = Field(gt=0)
     source: SourceKind = SourceKind.estimated
     confidence: float = Field(default=0.5, ge=0, le=1)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class DryWetZone(BaseModel):
+    id: str
+    kind: Literal["dry", "wet"]
+    label: str
+    boundary: list[Point2D] = Field(min_length=3)
+    source: SourceKind = SourceKind.derived
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class WallFinishProfile(BaseModel):
+    wall_index: int = Field(ge=0)
+    thickness_mm: int = Field(ge=0)
+    source: SourceKind = SourceKind.derived
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    generated_from_bound_point: bool = False
     evidence_ids: list[str] = Field(default_factory=list)
 
 
@@ -554,11 +574,15 @@ class RoomSpec(BaseModel):
     boundary: list[Point2D] = Field(default_factory=list)
     height_mm: int | None = Field(default=None, gt=0)
     wall_thickness_mm: int = Field(default=200, gt=0)
+    strip_existing_finish: bool = True
     finish_surface_offset_mm: int = Field(default=20, ge=0)
+    wall_finish_thickness_mm: int = Field(default=20, ge=0)
     wall_profiles: list[WallProfile] = Field(default_factory=list)
     openings: list[OpeningSpec] = Field(default_factory=list)
     fixtures: list[FixtureSpec] = Field(default_factory=list)
     ceiling_zones: list[CeilingZone] = Field(default_factory=list)
+    dry_wet_zones: list[DryWetZone] = Field(default_factory=list)
+    wall_finish_profiles: list[WallFinishProfile] = Field(default_factory=list)
     observations: list[Observation] = Field(default_factory=list)
     plan_annotation: PlanAnnotation | None = None
     issues: list[ValidationIssue] = Field(default_factory=list)
@@ -566,12 +590,15 @@ class RoomSpec(BaseModel):
 
     @model_validator(mode="after")
     def unique_ids(self) -> RoomSpec:
-        ids = [item.id for item in [*self.openings, *self.fixtures, *self.ceiling_zones]]
+        ids = [item.id for item in [*self.openings, *self.fixtures, *self.ceiling_zones, *self.dry_wet_zones]]
         if len(ids) != len(set(ids)):
             raise ValueError("opening, fixture and ceiling zone ids must be unique")
         wall_indexes = [item.wall_index for item in self.wall_profiles]
         if len(wall_indexes) != len(set(wall_indexes)):
             raise ValueError("wall profile indexes must be unique")
+        finish_wall_indexes = [item.wall_index for item in self.wall_finish_profiles]
+        if len(finish_wall_indexes) != len(set(finish_wall_indexes)):
+            raise ValueError("wall finish profile indexes must be unique")
         return self
 
 
@@ -669,12 +696,20 @@ class MeasurementEvidence(BaseModel):
     target_id: str | None = None
 
 
+class MeasurementSurfaceTreatment(BaseModel):
+    strip_existing_finish: bool = True
+    existing_finish_thickness_mm: int = Field(default=20, ge=0)
+    new_finish_thickness_mm: int = Field(default=20, ge=0)
+    wall_finish_profiles: list[WallFinishProfile] = Field(default_factory=list)
+
+
 class MeasurementModel(BaseModel):
     schema_version: Literal["1.0"] = "1.0"
     measurement_id: str = Field(min_length=1, max_length=100)
     revision: int = Field(default=1, ge=1)
     units: Literal["mm"] = "mm"
     coordinate_system: MeasurementCoordinateSystem = Field(default_factory=MeasurementCoordinateSystem)
+    surface_treatment: MeasurementSurfaceTreatment = Field(default_factory=MeasurementSurfaceTreatment)
     room: MeasurementRoom
     heights: MeasurementHeights = Field(default_factory=MeasurementHeights)
     walls: list[MeasurementWall] = Field(default_factory=list)

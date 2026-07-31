@@ -1,0 +1,19 @@
+{
+  "sample_id": "agen-27-dry-wet-zones-floorplan-001",
+  "issue_id": "718401fc-ec75-438f-97f9-bfe1da0b1344",
+  "issue_identifier": "AGEN-27",
+  "source_attachment_id": "019fb152-ad06-744b-872f-3648f8e35edc",
+  "source_filename": "test0.jpg",
+  "image_path": "source.jpg",
+  "content_type": "image/jpeg",
+  "size_bytes": 346634,
+  "sha256": "730063335afdc908ea91b569e1516a8df0f82c399d8fcaff4ebd9b03b24773b4",
+  "raw_dimensions": {
+    "width_px": 4096,
+    "height_px": 3072
+  },
+  "purpose": "Persistent real uploaded sample for AGEN-27 dry/wet zone, point binding, and wall-finish regression checks.",
+  "annotation_policy": "Use source.jpg as the stable base image. Overlays may annotate recognized points, dry/wet zones, wall bindings, and wall-finish surfaces, but must not replace the original uploaded image.",
+  "created_from_comment_id": "5c6994d8-1985-4db4-bf2b-3371078ee8cf",
+  "created_date": "2026-07-31"
+}

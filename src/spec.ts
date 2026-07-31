@@ -1,7 +1,9 @@
-import type { FixtureKind, FixtureSpec, Point2D, RoomSpec, ValidationIssue } from './types'
+import type { DryWetZone, FixtureKind, FixtureSpec, Point2D, RoomSpec, ValidationIssue, WallFinishProfile } from './types'
 
 export const defaultWallThicknessMm = 200
 export const defaultFinishSurfaceOffsetMm = 20
+export const defaultWallFinishThicknessMm = 20
+export const wallBindingSnapDistanceMm = 100
 
 export const fixtureLabels: Record<FixtureKind, string> = {
   toilet: '马桶',
@@ -43,7 +45,9 @@ export function manualRoom(widthMm: number, depthMm: number, heightMm: number): 
     ],
     height_mm: heightMm,
     wall_thickness_mm: defaultWallThicknessMm,
+    strip_existing_finish: true,
     finish_surface_offset_mm: defaultFinishSurfaceOffsetMm,
+    wall_finish_thickness_mm: defaultWallFinishThicknessMm,
     openings: [],
     fixtures: [],
     observations: [
@@ -85,6 +89,14 @@ export function finishSurfaceOffset(spec: RoomSpec) {
   return spec.finish_surface_offset_mm ?? defaultFinishSurfaceOffsetMm
 }
 
+export function stripsExistingFinish(spec: RoomSpec) {
+  return spec.strip_existing_finish ?? true
+}
+
+export function wallFinishBaseThickness(spec: RoomSpec) {
+  return spec.wall_finish_thickness_mm ?? defaultWallFinishThicknessMm
+}
+
 export function polygonSignedArea(points: Point2D[]) {
   return points.reduce((sum, point, index) => {
     const next = points[(index + 1) % points.length]
@@ -106,6 +118,198 @@ export function wallOutwardNormal(points: Point2D[], index: number) {
     x: Math.abs(normal.x) < 1e-9 ? 0 : normal.x,
     z: Math.abs(normal.z) < 1e-9 ? 0 : normal.z,
   }
+}
+
+export function wallFinishThickness(spec: RoomSpec, index: number) {
+  return spec.wall_finish_profiles?.find((profile) => profile.wall_index === index)?.thickness_mm ?? wallFinishBaseThickness(spec)
+}
+
+export function structuralInnerBoundary(spec: RoomSpec) {
+  return offsetBoundary(spec.boundary, stripsExistingFinish(spec) ? finishSurfaceOffset(spec) : 0)
+}
+
+export function finishedRoomBoundary(spec: RoomSpec) {
+  const structural = structuralInnerBoundary(spec)
+  return offsetBoundaryByWall(structural, spec.boundary.map((_, index) => -wallFinishThickness(spec, index)))
+}
+
+export function fixtureCanBindWall(kind: FixtureKind) {
+  return ['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(kind)
+}
+
+export function projectPointToSegment(point: Point2D, start: Point2D, end: Point2D) {
+  const dx = end.x_mm - start.x_mm
+  const dz = end.z_mm - start.z_mm
+  const lengthSquared = dx * dx + dz * dz
+  if (lengthSquared === 0) return { point: { ...start }, distance_mm: Math.hypot(point.x_mm - start.x_mm, point.z_mm - start.z_mm) }
+  const ratio = Math.max(0, Math.min(1, ((point.x_mm - start.x_mm) * dx + (point.z_mm - start.z_mm) * dz) / lengthSquared))
+  const projected = { x_mm: Math.round(start.x_mm + ratio * dx), z_mm: Math.round(start.z_mm + ratio * dz) }
+  return { point: projected, distance_mm: Math.hypot(point.x_mm - projected.x_mm, point.z_mm - projected.z_mm) }
+}
+
+export function nearestWallIndex(points: Point2D[], point: Point2D) {
+  if (points.length < 2) return null
+  let bestIndex = 0
+  let bestDistance = Number.POSITIVE_INFINITY
+  points.forEach((start, index) => {
+    const distance = projectPointToSegment(point, start, points[(index + 1) % points.length]).distance_mm
+    if (distance < bestDistance) { bestDistance = distance; bestIndex = index }
+  })
+  return bestIndex
+}
+
+export function projectPointToWall(points: Point2D[], wallIndex: number, point: Point2D) {
+  if (wallIndex < 0 || wallIndex >= points.length) return null
+  return projectPointToSegment(point, points[wallIndex], points[(wallIndex + 1) % points.length])
+}
+
+export function snapPointToNearestWall(points: Point2D[], point: Point2D, maxDistanceMm = wallBindingSnapDistanceMm) {
+  const wallIndex = nearestWallIndex(points, point)
+  if (wallIndex === null) return null
+  const projection = projectPointToWall(points, wallIndex, point)
+  if (!projection || projection.distance_mm > maxDistanceMm) return null
+  return { wall_index: wallIndex, point: projection.point, distance_mm: projection.distance_mm }
+}
+
+export function fixtureBoundWallIndex(spec: RoomSpec, fixture: FixtureSpec) {
+  const wallIndex = fixture.bound_wall_index
+  if (wallIndex === undefined || wallIndex === null || !fixtureCanBindWall(fixture.kind)) return null
+  const projection = projectPointToWall(finishedRoomBoundary(spec), wallIndex, fixture)
+  return projection && projection.distance_mm <= 1 ? wallIndex : null
+}
+
+function coordinateBounds(spec: RoomSpec) {
+  const imageBoundary = spec.plan_annotation?.boundary ?? []
+  if (!imageBoundary.length || !spec.boundary.length) return null
+  return {
+    imageMinX: Math.min(...imageBoundary.map((point) => point.x)), imageMaxX: Math.max(...imageBoundary.map((point) => point.x)),
+    imageMinY: Math.min(...imageBoundary.map((point) => point.y)), imageMaxY: Math.max(...imageBoundary.map((point) => point.y)),
+    roomMinX: Math.min(...spec.boundary.map((point) => point.x_mm)), roomMaxX: Math.max(...spec.boundary.map((point) => point.x_mm)),
+    roomMinZ: Math.min(...spec.boundary.map((point) => point.z_mm)), roomMaxZ: Math.max(...spec.boundary.map((point) => point.z_mm)),
+  }
+}
+
+export function imagePointToRoom(spec: RoomSpec, x: number, y: number): Point2D {
+  const bounds = coordinateBounds(spec)
+  if (!bounds) return { x_mm: 0, z_mm: 0 }
+  return {
+    x_mm: Math.round(bounds.roomMinX + (x - bounds.imageMinX) * (bounds.roomMaxX - bounds.roomMinX) / Math.max(1, bounds.imageMaxX - bounds.imageMinX)),
+    z_mm: Math.round(bounds.roomMinZ + (y - bounds.imageMinY) * (bounds.roomMaxZ - bounds.roomMinZ) / Math.max(1, bounds.imageMaxY - bounds.imageMinY)),
+  }
+}
+
+export function roomPointToImage(spec: RoomSpec, point: Point2D) {
+  const bounds = coordinateBounds(spec)
+  if (!bounds) return null
+  return {
+    x: Math.round(bounds.imageMinX + (point.x_mm - bounds.roomMinX) * (bounds.imageMaxX - bounds.imageMinX) / Math.max(1, bounds.roomMaxX - bounds.roomMinX)),
+    y: Math.round(bounds.imageMinY + (point.z_mm - bounds.roomMinZ) * (bounds.imageMaxY - bounds.imageMinY) / Math.max(1, bounds.roomMaxZ - bounds.roomMinZ)),
+  }
+}
+
+function rectZone(id: string, kind: DryWetZone['kind'], label: string, minX: number, minZ: number, maxX: number, maxZ: number): DryWetZone {
+  return { id, kind, label, source: 'derived', confidence: 0.86, boundary: [
+    { x_mm: Math.round(minX), z_mm: Math.round(minZ) }, { x_mm: Math.round(maxX), z_mm: Math.round(minZ) },
+    { x_mm: Math.round(maxX), z_mm: Math.round(maxZ) }, { x_mm: Math.round(minX), z_mm: Math.round(maxZ) },
+  ] }
+}
+
+type ZoneRect = { kind: DryWetZone['kind']; minX: number; minZ: number; maxX: number; maxZ: number }
+
+function fittedRange(minimum: number, maximum: number, roomMinimum: number, roomMaximum: number, minimumSize: number) {
+  const available = roomMaximum - roomMinimum
+  const size = Math.min(available, Math.max(maximum - minimum, minimumSize))
+  const center = (minimum + maximum) / 2
+  let start = center - size / 2
+  start = Math.max(roomMinimum, Math.min(roomMaximum - size, start))
+  return { minimum: start, maximum: start + size }
+}
+
+function pointInPolygon(points: Point2D[], point: Point2D) {
+  let inside = false
+  for (let index = 0, previous = points.length - 1; index < points.length; previous = index, index += 1) {
+    const current = points[index]
+    const before = points[previous]
+    const crosses = (current.z_mm > point.z_mm) !== (before.z_mm > point.z_mm)
+      && point.x_mm < (before.x_mm - current.x_mm) * (point.z_mm - current.z_mm) / (before.z_mm - current.z_mm) + current.x_mm
+    if (crosses) inside = !inside
+  }
+  return inside
+}
+
+function mergeZoneCells(rows: ZoneRect[][]) {
+  const merged: ZoneRect[] = []
+  let active = new Map<string, ZoneRect>()
+  for (const row of rows) {
+    const next = new Map<string, ZoneRect>()
+    for (const run of row) {
+      const key = `${run.kind}:${run.minX}:${run.maxX}`
+      const previous = active.get(key)
+      if (previous && previous.maxZ === run.minZ) {
+        previous.maxZ = run.maxZ
+        next.set(key, previous)
+      } else {
+        next.set(key, { ...run })
+      }
+    }
+    for (const [key, rectangle] of active) if (!next.has(key)) merged.push(rectangle)
+    active = next
+  }
+  merged.push(...active.values())
+  return merged
+}
+
+export function generateDryWetZones(spec: RoomSpec): DryWetZone[] {
+  const roomBoundary = finishedRoomBoundary(spec)
+  const bounds = roomBounds(roomBoundary)
+  const drains = spec.fixtures.filter((fixture) => fixture.kind === 'floor_drain' || fixture.kind === 'drain')
+  if (!drains.length) return []
+  const parents = drains.map((_, index) => index)
+  const find = (index: number): number => parents[index] === index ? index : (parents[index] = find(parents[index]))
+  const join = (left: number, right: number) => { const leftRoot = find(left), rightRoot = find(right); if (leftRoot !== rightRoot) parents[rightRoot] = leftRoot }
+  drains.forEach((left, index) => drains.slice(index + 1).forEach((right, offset) => {
+    if (Math.hypot(left.x_mm - right.x_mm, left.z_mm - right.z_mm) <= 1200) join(index, index + offset + 1)
+  }))
+  const clusters = new Map<number, FixtureSpec[]>()
+  drains.forEach((drain, index) => { const root = find(index); clusters.set(root, [...(clusters.get(root) ?? []), drain]) })
+  const wetRects = [...clusters.values()].map((cluster): ZoneRect => {
+    const x = fittedRange(Math.min(...cluster.map((fixture) => fixture.x_mm)) - 320, Math.max(...cluster.map((fixture) => fixture.x_mm)) + 320, bounds.minX, bounds.maxX, 900)
+    const z = fittedRange(Math.min(...cluster.map((fixture) => fixture.z_mm)) - 320, Math.max(...cluster.map((fixture) => fixture.z_mm)) + 320, bounds.minZ, bounds.maxZ, 900)
+    return { kind: 'wet', minX: Math.round(x.minimum), minZ: Math.round(z.minimum), maxX: Math.round(x.maximum), maxZ: Math.round(z.maximum) }
+  })
+  const xStops = [...new Set([...roomBoundary.map((point) => point.x_mm), ...wetRects.flatMap((rectangle) => [rectangle.minX, rectangle.maxX])])].sort((left, right) => left - right)
+  const zStops = [...new Set([...roomBoundary.map((point) => point.z_mm), ...wetRects.flatMap((rectangle) => [rectangle.minZ, rectangle.maxZ])])].sort((left, right) => left - right)
+  const rows: ZoneRect[][] = []
+  for (let zIndex = 0; zIndex < zStops.length - 1; zIndex += 1) {
+    const row: ZoneRect[] = []
+    let current: ZoneRect | null = null
+    for (let xIndex = 0; xIndex < xStops.length - 1; xIndex += 1) {
+      const minX = xStops[xIndex], maxX = xStops[xIndex + 1], minZ = zStops[zIndex], maxZ = zStops[zIndex + 1]
+      const middle = { x_mm: (minX + maxX) / 2, z_mm: (minZ + maxZ) / 2 }
+      if (!pointInPolygon(roomBoundary, middle)) { if (current) row.push(current); current = null; continue }
+      const kind: DryWetZone['kind'] = wetRects.some((rectangle) => middle.x_mm >= rectangle.minX && middle.x_mm <= rectangle.maxX && middle.z_mm >= rectangle.minZ && middle.z_mm <= rectangle.maxZ) ? 'wet' : 'dry'
+      const active = current as ZoneRect | null
+      if (active && active.kind === kind && active.maxX === minX) active.maxX = maxX
+      else { if (current) row.push(current); current = { kind, minX, minZ, maxX, maxZ } }
+    }
+    if (current) row.push(current)
+    rows.push(row)
+  }
+  const rectangles = mergeZoneCells(rows).filter((rectangle) => rectangle.kind === 'wet' && (rectangle.maxX - rectangle.minX) * (rectangle.maxZ - rectangle.minZ) >= 10_000)
+  return rectangles.map((rectangle) => {
+    const index = rectangles.indexOf(rectangle) + 1
+    return rectZone(`wet-auto-${index}`, 'wet', rectangles.length > 1 ? `湿区 ${index}` : '湿区', rectangle.minX, rectangle.minZ, rectangle.maxX, rectangle.maxZ)
+  })
+}
+
+export function generateWallFinishProfiles(spec: RoomSpec): WallFinishProfile[] {
+  return spec.boundary.map((_, wallIndex) => ({
+    wall_index: wallIndex,
+    thickness_mm: wallFinishBaseThickness(spec),
+    source: 'derived',
+    confidence: 0.9,
+    generated_from_bound_point: false,
+  }))
 }
 
 type OffsetLine = { start: Point2D; end: Point2D }
@@ -139,23 +343,44 @@ function intersectLines(first: OffsetLine, second: OffsetLine): Point2D | null {
   }
 }
 
-export function offsetBoundary(points: Point2D[], distanceMm: number): Point2D[] {
-  if (points.length < 3 || distanceMm === 0) return points.map((point) => ({ ...point }))
+export function offsetBoundaryByWall(points: Point2D[], distanceMm: number[]): Point2D[] {
+  if (points.length < 3 || distanceMm.every((distance) => distance === 0)) return points.map((point) => ({ ...point }))
   return points.map((point, index) => {
-    const previousLine = offsetLine(points, (index - 1 + points.length) % points.length, distanceMm)
-    const currentLine = offsetLine(points, index, distanceMm)
+    const previousIndex = (index - 1 + points.length) % points.length
+    const previousLine = offsetLine(points, previousIndex, distanceMm[previousIndex] ?? 0)
+    const currentLine = offsetLine(points, index, distanceMm[index] ?? 0)
     const intersection = intersectLines(previousLine, currentLine)
     if (intersection) return {
       x_mm: Math.round(intersection.x_mm * 1000) / 1000,
       z_mm: Math.round(intersection.z_mm * 1000) / 1000,
     }
     const normal = wallOutwardNormal(points, index)
-    return { x_mm: point.x_mm + normal.x * distanceMm, z_mm: point.z_mm + normal.z * distanceMm }
+    const distance = distanceMm[index] ?? 0
+    return { x_mm: point.x_mm + normal.x * distance, z_mm: point.z_mm + normal.z * distance }
+  })
+}
+
+export function offsetBoundary(points: Point2D[], distanceMm: number): Point2D[] {
+  return offsetBoundaryByWall(points, points.map(() => distanceMm))
+}
+
+export function wallLayerPolygons(spec: RoomSpec) {
+  const structuralInner = structuralInnerBoundary(spec)
+  const finishedInner = finishedRoomBoundary(spec)
+  const structuralOuter = offsetBoundaryByWall(structuralInner, spec.boundary.map((_, index) => wallThickness(spec, index)))
+  return spec.boundary.map((_, index) => {
+    const next = (index + 1) % spec.boundary.length
+    return {
+      finish: [finishedInner[index], finishedInner[next], structuralInner[next], structuralInner[index]],
+      wall: [structuralInner[index], structuralInner[next], structuralOuter[next], structuralOuter[index]],
+    }
   })
 }
 
 export function cloneSpec(spec: RoomSpec): RoomSpec {
-  return structuredClone(spec)
+  const clone = structuredClone(spec)
+  if (clone.dry_wet_zones) clone.dry_wet_zones = clone.dry_wet_zones.filter((zone) => zone.kind === 'wet')
+  return clone
 }
 
 function orientation(a: Point2D, b: Point2D, c: Point2D) {
@@ -193,6 +418,46 @@ function hasSelfIntersection(points: Point2D[]) {
   return false
 }
 
+function pointOnPolygonBoundary(points: Point2D[], point: Point2D) {
+  return points.some((start, index) => orientation(start, points[(index + 1) % points.length], point) === 0 && pointOnSegment(start, points[(index + 1) % points.length], point))
+}
+
+function pointStrictlyInsidePolygon(points: Point2D[], point: Point2D) {
+  return !pointOnPolygonBoundary(points, point) && pointInPolygon(points, point)
+}
+
+function segmentsProperlyIntersect(a: Point2D, b: Point2D, c: Point2D, d: Point2D) {
+  const first = orientation(a, b, c), second = orientation(a, b, d), third = orientation(c, d, a), fourth = orientation(c, d, b)
+  return first !== 0 && second !== 0 && third !== 0 && fourth !== 0 && first !== second && third !== fourth
+}
+
+function polygonsOverlap(left: Point2D[], right: Point2D[]) {
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+      if (segmentsProperlyIntersect(left[leftIndex], left[(leftIndex + 1) % left.length], right[rightIndex], right[(rightIndex + 1) % right.length])) return true
+    }
+  }
+  const samples = (points: Point2D[]) => points.flatMap((point, index) => {
+    const next = points[(index + 1) % points.length]
+    return [point, { x_mm: (point.x_mm + next.x_mm) / 2, z_mm: (point.z_mm + next.z_mm) / 2 }]
+  })
+  if (samples(left).some((point) => pointStrictlyInsidePolygon(right, point)) || samples(right).some((point) => pointStrictlyInsidePolygon(left, point))) return true
+  const leftCenter = { x_mm: left.reduce((sum, point) => sum + point.x_mm, 0) / left.length, z_mm: left.reduce((sum, point) => sum + point.z_mm, 0) / left.length }
+  const rightCenter = { x_mm: right.reduce((sum, point) => sum + point.x_mm, 0) / right.length, z_mm: right.reduce((sum, point) => sum + point.z_mm, 0) / right.length }
+  return pointStrictlyInsidePolygon(right, leftCenter) || pointStrictlyInsidePolygon(left, rightCenter)
+}
+
+export function wetZoneBoundaryValid(spec: RoomSpec, zoneId: string, boundary: Point2D[]) {
+  if (boundary.length < 3 || hasSelfIntersection(boundary)) return false
+  const roomBoundary = finishedRoomBoundary(spec)
+  const samples = boundary.flatMap((start, index) => {
+    const end = boundary[(index + 1) % boundary.length]
+    return [start, ...[0.25, 0.5, 0.75].map((ratio) => ({ x_mm: start.x_mm + (end.x_mm - start.x_mm) * ratio, z_mm: start.z_mm + (end.z_mm - start.z_mm) * ratio }))]
+  })
+  if (samples.some((point) => !pointOnPolygonBoundary(roomBoundary, point) && !pointInPolygon(roomBoundary, point))) return false
+  return !(spec.dry_wet_zones ?? []).some((zone) => zone.id !== zoneId && zone.kind === 'wet' && polygonsOverlap(boundary, zone.boundary))
+}
+
 export function clientValidate(spec: RoomSpec): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   if (spec.boundary.length < 3) issues.push({ id: 'boundary', severity: 'error', code: 'invalid_boundary', message: '房间轮廓未闭合' })
@@ -216,6 +481,11 @@ export function clientValidate(spec: RoomSpec): ValidationIssue[] {
   }
   for (const fixture of spec.fixtures) {
     if (fixture.confidence < 0.6 && fixture.source !== 'user') issues.push({ id: `confidence-${fixture.id}`, severity: 'warning', code: 'low_confidence', message: `${fixture.label} 为低置信度识别结果`, target_id: fixture.id })
+    if (fixture.bound_wall_index !== undefined && fixture.bound_wall_index !== null) {
+      if (!fixtureCanBindWall(fixture.kind)) issues.push({ id: `fixture-bind-kind-${fixture.id}`, severity: 'warning', code: 'fixture_bind_kind', message: `${fixture.label} 不属于可绑定墙段的点位`, target_id: fixture.id })
+      if (fixture.bound_wall_index < 0 || fixture.bound_wall_index >= spec.boundary.length) issues.push({ id: `fixture-bind-wall-${fixture.id}`, severity: 'error', code: 'fixture_wall_binding', message: `${fixture.label} 绑定墙段无效`, target_id: fixture.id })
+      else if (fixtureCanBindWall(fixture.kind) && fixtureBoundWallIndex(spec, fixture) === null) issues.push({ id: `fixture-bind-snap-${fixture.id}`, severity: 'warning', code: 'fixture_wall_not_snapped', message: `${fixture.label} 未落在 W${fixture.bound_wall_index + 1} 上，按未绑定处理`, target_id: fixture.id })
+    }
   }
   spec.fixtures.forEach((left, index) => {
     if (['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(left.kind)) return
@@ -226,5 +496,12 @@ export function clientValidate(spec: RoomSpec): ValidationIssue[] {
       if (overlapsX && overlapsZ) issues.push({ id: `collision-${left.id}-${right.id}`, severity: 'warning', code: 'fixture_collision', message: `${left.label} 与 ${right.label} 的占地范围重叠`, target_id: left.id })
     })
   })
+  for (const finish of spec.wall_finish_profiles ?? []) {
+    if (finish.wall_index < 0 || finish.wall_index >= spec.boundary.length) issues.push({ id: `finish-wall-${finish.wall_index}`, severity: 'error', code: 'finish_wall', message: `饰面 W${finish.wall_index + 1} 未关联到有效墙段`, target_id: `wall:${finish.wall_index}` })
+    if (finish.thickness_mm < 0) issues.push({ id: `finish-thickness-${finish.wall_index}`, severity: 'error', code: 'finish_thickness', message: `饰面 W${finish.wall_index + 1} 厚度无效`, target_id: `wall:${finish.wall_index}` })
+  }
+  for (const zone of spec.dry_wet_zones ?? []) {
+    if (zone.kind === 'wet' && !wetZoneBoundaryValid(spec, zone.id, zone.boundary)) issues.push({ id: `wet-zone-${zone.id}`, severity: 'error', code: 'wet_zone_geometry', message: `${zone.label} 越出房间、自交或与其他湿区重叠`, target_id: zone.id })
+  }
   return issues
 }

@@ -1,7 +1,7 @@
-import { Check, ChevronLeft, ChevronRight, ImageIcon, SkipForward, Trash2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, SkipForward, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { observationId, reviewEvidence } from '../evidence'
-import type { Asset, EvidenceRole, Observation, RoomSpec } from '../types'
+import type { Asset, EvidenceRole, RoomSpec } from '../types'
 
 const roleLabels: Record<EvidenceRole, string> = {
   room_dimension: '房间总尺寸',
@@ -22,18 +22,6 @@ const roleOptions: EvidenceRole[] = [
   'room_dimension', 'wall_segment', 'wall_thickness', 'room_height', 'ceiling_height',
   'door_size', 'drain_position', 'pipe_box', 'fixture_dimension', 'other',
 ]
-
-function cropUrl(observation: Observation, assets: Asset[]) {
-  if (!observation.asset_id || !observation.bbox) return null
-  const asset = assets.find((item) => item.id === observation.asset_id)
-  if (!asset) return null
-  const params = new URLSearchParams({
-    x_min: String(observation.bbox.x_min), y_min: String(observation.bbox.y_min),
-    x_max: String(observation.bbox.x_max), y_max: String(observation.bbox.y_max),
-    rotation_degrees: String(observation.rotation_degrees ?? 0),
-  })
-  return `${asset.url.replace(/\/content$/, '/crop')}?${params}`
-}
 
 export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onActiveChange, onDraftChange }: {
   spec: RoomSpec
@@ -86,7 +74,6 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
     )
   }
 
-  const image = cropUrl(active, assets)
   const usedDrainIds = spec.observations.map((item) => item.target_id?.match(/^drain:(\d+)$/)?.[1]).filter(Boolean).map(Number)
   const usedFixtureIds = spec.observations.map((item) => item.target_id?.match(/^fixture:(\d+)$/)?.[1]).filter(Boolean).map(Number)
   const wallBinding = role === 'wall_segment' || role === 'wall_thickness' || role === 'door_size' || role === 'door_position'
@@ -120,9 +107,6 @@ export function EvidenceReview({ spec, assets, onApply, onDelete, focusId, onAct
   return (
     <section className="inspector-section evidence-review">
       <div className="inspector-title"><span>{focused ? '图片校正' : '待校正'}</span><span>{focused ? `待处理 ${pending.length}` : `${index + 1} / ${pending.length}`}</span></div>
-      <div className="evidence-crop">
-        {image ? <img src={image} alt={`原图裁片 ${observationId(active)}`} /> : <ImageIcon size={22} />}
-      </div>
       <div className="evidence-meta">
         <span>{observationId(active)}</span>
         <span>OCR {Math.round(active.confidence * 100)}%</span>

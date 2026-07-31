@@ -99,20 +99,53 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
             "boundary": [{"x_mm": 0, "z_mm": 0}, {"x_mm": 1800, "z_mm": 0}, {"x_mm": 1800, "z_mm": 2400}, {"x_mm": 0, "z_mm": 2400}],
             "height_mm": 2600,
             "wall_thickness_mm": 100,
-            "openings": [], "fixtures": [], "observations": [], "issues": [], "confirmed": True,
+            "strip_existing_finish": True,
+            "finish_surface_offset_mm": 20,
+            "wall_finish_thickness_mm": 25,
+            "openings": [],
+            "fixtures": [{
+                "id": "drain-1", "kind": "drain", "label": "排水点", "x_mm": 900, "z_mm": 600,
+                "width_mm": 60, "depth_mm": 60, "height_mm": 10, "rotation_deg": 0,
+                "source": "user", "confidence": 1, "bound_wall_index": 0,
+            }],
+            "dry_wet_zones": [{
+                "id": "wet-1", "kind": "wet", "label": "湿区", "source": "derived", "confidence": 0.9,
+                "boundary": [{"x_mm": 0, "z_mm": 0}, {"x_mm": 900, "z_mm": 0}, {"x_mm": 900, "z_mm": 1200}, {"x_mm": 0, "z_mm": 1200}],
+            }],
+            "wall_finish_profiles": [{
+                "wall_index": 0, "thickness_mm": 50, "source": "derived", "confidence": 0.92,
+                "generated_from_bound_point": True,
+            }],
+            "observations": [], "issues": [], "confirmed": True,
         }
         saved = await client.put(f"/api/projects/{project_id}/spec", json=spec)
         assert saved.status_code == 200
         assert saved.json()["status"] == "model"
+        assert saved.json()["spec"]["fixtures"][0]["bound_wall_index"] == 0
+        assert saved.json()["spec"]["strip_existing_finish"] is True
+        assert saved.json()["spec"]["finish_surface_offset_mm"] == 20
+        assert saved.json()["spec"]["wall_finish_thickness_mm"] == 25
+        assert saved.json()["spec"]["dry_wet_zones"][0]["kind"] == "wet"
+        assert saved.json()["spec"]["wall_finish_profiles"][0]["thickness_mm"] == 50
         measurement = saved.json()["measurement"]
         assert measurement["units"] == "mm"
         assert measurement["measurement_id"] == project_id
+        assert measurement["surface_treatment"] == {
+            "strip_existing_finish": True,
+            "existing_finish_thickness_mm": 20,
+            "new_finish_thickness_mm": 25,
+            "wall_finish_profiles": saved.json()["spec"]["wall_finish_profiles"],
+        }
         assert len(measurement["walls"]) == 4
 
         validated = await client.post("/api/measurements/validate", json=measurement)
         assert validated.status_code == 200
         assert validated.json()["sufficient"] is True
         assert validated.json()["spec"]["boundary"] == spec["boundary"]
+        assert validated.json()["spec"]["strip_existing_finish"] is True
+        assert validated.json()["spec"]["finish_surface_offset_mm"] == 20
+        assert validated.json()["spec"]["wall_finish_thickness_mm"] == 25
+        assert validated.json()["spec"]["wall_finish_profiles"][0]["thickness_mm"] == 50
 
         downloaded = await client.get(f"/api/projects/{project_id}/measurement/download")
         assert downloaded.status_code == 200

@@ -14,6 +14,7 @@ from .models import (
     MeasurementModel,
     MeasurementOpening,
     MeasurementRoom,
+    MeasurementSurfaceTreatment,
     MeasurementWall,
     Observation,
     OpeningSpec,
@@ -428,6 +429,12 @@ def measurement_from_spec(
     return MeasurementModel(
         measurement_id=measurement_id,
         revision=revision,
+        surface_treatment=MeasurementSurfaceTreatment(
+            strip_existing_finish=spec.strip_existing_finish,
+            existing_finish_thickness_mm=spec.finish_surface_offset_mm,
+            new_finish_thickness_mm=spec.wall_finish_thickness_mm,
+            wall_finish_profiles=spec.wall_finish_profiles,
+        ),
         room=MeasurementRoom(name=spec.name, length_mm=max_x - min_x, width_mm=max_z - min_z),
         heights=MeasurementHeights(
             room_height_mm=spec.height_mm,
@@ -513,6 +520,10 @@ def room_spec_from_measurement(measurement: MeasurementModel) -> RoomSpec:
         boundary=boundary,
         height_mm=measurement.heights.room_height_mm,
         wall_thickness_mm=thickness,
+        strip_existing_finish=measurement.surface_treatment.strip_existing_finish,
+        finish_surface_offset_mm=measurement.surface_treatment.existing_finish_thickness_mm,
+        wall_finish_thickness_mm=measurement.surface_treatment.new_finish_thickness_mm,
+        wall_finish_profiles=measurement.surface_treatment.wall_finish_profiles,
         wall_profiles=[
             WallProfile(
                 wall_index=index,

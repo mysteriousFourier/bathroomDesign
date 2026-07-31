@@ -1,12 +1,12 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, defaultFinishSurfaceOffsetMm, fixtureDefaults, fixtureLabels, finishSurfaceOffset, roomBounds, roomCentroid, wallLength } from '../spec'
-import type { Asset, EvidenceRole, FixtureKind, RoomSpec, Selection, SourceKind } from '../types'
+import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, projectPointToWall, roomBounds, roomCentroid, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
+import type { Asset, DryWetZone, EvidenceRole, FixtureKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
 const sourceLabels: Record<SourceKind, string> = { measured: '测量', derived: '推导', estimated: '估算', user: '用户' }
 
-function NumberField({ label, value, unit = 'mm', min = 0, step = 10, onChange }: { label: string; value: number; unit?: string; min?: number; step?: number; onChange: (value: number) => void }) {
-  return <label className="number-field"><span>{label}</span><div><input type="number" value={Math.round(value)} min={min} step={step} onChange={(event) => onChange(Number(event.target.value))} /><em>{unit}</em></div></label>
+function NumberField({ label, value, unit = 'mm', min = 0, step = 10, disabled = false, onChange }: { label: string; value: number; unit?: string; min?: number; step?: number; disabled?: boolean; onChange: (value: number) => void }) {
+  return <label className="number-field"><span>{label}</span><div><input type="number" value={Math.round(value)} min={min} step={step} disabled={disabled} onChange={(event) => onChange(Number(event.target.value))} /><em>{unit}</em></div></label>
 }
 
 function SourceBadge({ source, confidence }: { source: SourceKind; confidence: number }) {
@@ -28,7 +28,13 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
 }) {
   const selectedFixture = selection.type === 'fixture' ? spec.fixtures.find((item) => item.id === selection.id) : undefined
   const selectedOpening = selection.type === 'opening' ? spec.openings.find((item) => item.id === selection.id) : undefined
-  const bounds = roomBounds(spec.boundary)
+  const selectedZone = selection.type === 'dry_wet_zone' ? spec.dry_wet_zones?.find((item) => item.id === selection.id && item.kind === 'wet') : undefined
+  const selectedFixtureWall = selectedFixture ? fixtureBoundWallIndex(spec, selectedFixture) : null
+  const directBounds = roomBounds(spec.boundary)
+  const structuralBounds = roomBounds(structuralInnerBoundary(spec))
+  const finishedBoundary = finishedRoomBoundary(spec)
+  const finishedBounds = roomBounds(finishedBoundary)
+  const bounds = finishedBounds
 
   if (annotationMode) {
     return <aside className="inspector"><EvidenceReview spec={spec} assets={assets} onApply={onEvidenceApply} onDelete={onEvidenceDelete} focusId={focusEvidenceId} onActiveChange={onEvidenceActive} onDraftChange={onEvidenceDraftChange} /></aside>
@@ -66,7 +72,7 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
   })
 
   const addFixture = (kind: FixtureKind) => {
-    const center = roomCentroid(spec.boundary)
+    const center = roomCentroid(finishedBoundary)
     const defaults = fixtureDefaults[kind]
     const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`
     edit((draft) => draft.fixtures.push({
@@ -85,19 +91,76 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
     onSelect({ type: 'opening', id })
   }
 
+  const addZone = () => {
+    const id = `wet-${crypto.randomUUID().slice(0, 8)}`
+    const center = roomCentroid(finishedBoundary)
+    let boundary: DryWetZone['boundary'] | null = null
+    for (const targetSize of [900, 650, 400]) {
+      const width = Math.min(bounds.width, targetSize)
+      const depth = Math.min(bounds.depth, targetSize)
+      const starts = [{ x: center.x - width / 2, z: center.z - depth / 2 }]
+      for (let z = bounds.minZ; z <= bounds.maxZ - depth; z += 100) for (let x = bounds.minX; x <= bounds.maxX - width; x += 100) starts.push({ x, z })
+      const match = starts.map((start) => [
+        { x_mm: Math.round(start.x), z_mm: Math.round(start.z) }, { x_mm: Math.round(start.x + width), z_mm: Math.round(start.z) },
+        { x_mm: Math.round(start.x + width), z_mm: Math.round(start.z + depth) }, { x_mm: Math.round(start.x), z_mm: Math.round(start.z + depth) },
+      ]).find((candidate) => wetZoneBoundaryValid(spec, id, candidate))
+      if (match) { boundary = match; break }
+    }
+    if (!boundary) return
+    edit((draft) => {
+      const zone: DryWetZone = {
+        id, kind: 'wet', label: '湿区', source: 'user', confidence: 1, boundary,
+      }
+      ;(draft.dry_wet_zones ??= []).push(zone)
+    })
+    onSelect({ type: 'dry_wet_zone', id })
+  }
+
+  const zoneBounds = selectedZone ? roomBounds(selectedZone.boundary) : null
+  const updateZoneRect = (nextBounds: { minX: number; minZ: number; maxX: number; maxZ: number }) => edit((draft) => {
+    const zone = draft.dry_wet_zones?.find((item) => item.id === selectedZone?.id)
+    if (!zone) return
+    const boundary = [
+      { x_mm: Math.round(nextBounds.minX), z_mm: Math.round(nextBounds.minZ) }, { x_mm: Math.round(nextBounds.maxX), z_mm: Math.round(nextBounds.minZ) },
+      { x_mm: Math.round(nextBounds.maxX), z_mm: Math.round(nextBounds.maxZ) }, { x_mm: Math.round(nextBounds.minX), z_mm: Math.round(nextBounds.maxZ) },
+    ]
+    if (!wetZoneBoundaryValid(draft, zone.id, boundary)) return
+    zone.boundary = boundary
+    zone.source = 'user'; zone.confidence = 1
+  })
+
   return (
     <aside className="inspector">
       <EvidenceReview spec={spec} assets={assets} onApply={onEvidenceApply} onDelete={onEvidenceDelete} focusId={focusEvidenceId} />
       <section className="inspector-section">
-        <div className="inspector-title"><span>属性</span><span className="selection-path">{selection.type === 'room' ? '空间' : selection.type === 'fixture' ? '设施' : '洞口'} <ChevronRight size={13} /></span></div>
+        <div className="inspector-title"><span>属性</span><span className="selection-path">{selection.type === 'room' ? '空间' : selection.type === 'fixture' ? '设施' : selection.type === 'dry_wet_zone' ? '湿区' : '洞口'} <ChevronRight size={13} /></span></div>
         {selection.type === 'room' && (
           <div className="field-stack">
             <label className="text-field"><span>空间名称</span><input value={spec.name} onChange={(event) => edit((draft) => { draft.name = event.target.value })} /></label>
-            <NumberField label="净宽" value={bounds.width} min={500} onChange={(value) => resizeBoundary(value, bounds.depth)} />
-            <NumberField label="净深" value={bounds.depth} min={500} onChange={(value) => resizeBoundary(bounds.width, value)} />
+            <div className="surface-dimension-summary">
+              <div><span>直测净尺寸</span><strong>{Math.round(directBounds.width)} x {Math.round(directBounds.depth)}</strong></div>
+              <div><span>刨除后结构内尺寸</span><strong>{Math.round(structuralBounds.width)} x {Math.round(structuralBounds.depth)}</strong></div>
+              <div><span>新完成面净尺寸</span><strong>{Math.round(finishedBounds.width)} x {Math.round(finishedBounds.depth)}</strong></div>
+            </div>
+            <NumberField label="直测净宽" value={directBounds.width} min={500} onChange={(value) => resizeBoundary(value, directBounds.depth)} />
+            <NumberField label="直测净深" value={directBounds.depth} min={500} onChange={(value) => resizeBoundary(directBounds.width, value)} />
             <NumberField label="净高" value={spec.height_mm ?? 0} min={1000} onChange={(value) => edit((draft) => { draft.height_mm = value })} />
             <NumberField label="墙厚" value={spec.wall_thickness_mm} min={50} onChange={(value) => edit((draft) => { draft.wall_thickness_mm = value })} />
-            <NumberField label="完成面刨除" value={finishSurfaceOffset(spec)} min={0} onChange={(value) => edit((draft) => { draft.finish_surface_offset_mm = value || defaultFinishSurfaceOffsetMm })} />
+            <label className="checkbox-field"><input type="checkbox" checked={stripsExistingFinish(spec)} onChange={(event) => edit((draft) => { draft.strip_existing_finish = event.target.checked })} /><span>刨除原始完成面</span></label>
+            <NumberField label="原饰面刨除" value={finishSurfaceOffset(spec)} min={0} disabled={!stripsExistingFinish(spec)} onChange={(value) => edit((draft) => { draft.finish_surface_offset_mm = value })} />
+            <NumberField label="新饰面厚度" value={wallFinishBaseThickness(spec)} min={0} onChange={(value) => edit((draft) => { draft.wall_finish_thickness_mm = value })} />
+            <div className="finish-editor">
+              <button className="button secondary wide" onClick={() => edit((draft) => { draft.dry_wet_zones = generateDryWetZones(draft) })}>按地漏生成湿区</button>
+              <button className="button secondary wide" onClick={addZone}><Plus size={15} />添加湿区</button>
+              <button className="button secondary wide" onClick={() => edit((draft) => { draft.wall_finish_profiles = generateWallFinishProfiles(draft) })}>生成逐墙饰面</button>
+              {(spec.wall_finish_profiles ?? []).map((finish) => <div className="finish-row" key={`finish-row-${finish.wall_index}`}>
+                <span>W{finish.wall_index + 1}{finish.generated_from_bound_point ? ' 绑定点' : ' 默认'}</span>
+                <NumberField label="厚度" value={finish.thickness_mm} min={0} onChange={(value) => edit((draft) => {
+                  const item = draft.wall_finish_profiles?.find((candidate) => candidate.wall_index === finish.wall_index)
+                  if (item) { item.thickness_mm = value; item.source = 'user'; item.confidence = 1 }
+                })} />
+              </div>)}
+            </div>
             <div className="boundary-editor">
               <div className="boundary-editor-heading"><strong>轮廓折点</strong><span>{spec.boundary.length} 点</span></div>
               {spec.boundary.map((point, index) => (
@@ -118,11 +181,35 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             <div className="object-heading"><strong>{selectedFixture.label}</strong><SourceBadge source={selectedFixture.source} confidence={selectedFixture.confidence} /></div>
             <label className="text-field"><span>名称</span><input value={selectedFixture.label} onChange={(event) => edit((draft) => { draft.fixtures.find((item) => item.id === selectedFixture.id)!.label = event.target.value })} /></label>
             {(['x_mm', 'z_mm', 'width_mm', 'depth_mm', 'height_mm', 'rotation_deg'] as const).map((field) => (
-              <NumberField key={field} label={{ x_mm: 'X 位置', z_mm: 'Z 位置', width_mm: '宽度', depth_mm: '深度', height_mm: '高度', rotation_deg: '旋转' }[field]} value={selectedFixture[field]} unit={field === 'rotation_deg' ? '°' : 'mm'} step={field === 'rotation_deg' ? 5 : 10} onChange={(value) => edit((draft) => { const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!; item[field] = value })} />
+              <NumberField key={field} label={{ x_mm: 'X 位置', z_mm: 'Z 位置', width_mm: '宽度', depth_mm: '深度', height_mm: '高度', rotation_deg: '旋转' }[field]} value={selectedFixture[field]} unit={field === 'rotation_deg' ? '°' : 'mm'} step={field === 'rotation_deg' ? 5 : 10} onChange={(value) => edit((draft) => {
+                const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!
+                item[field] = value
+                if ((field === 'x_mm' || field === 'z_mm') && selectedFixtureWall !== null) {
+                  const projection = projectPointToWall(finishedRoomBoundary(draft), selectedFixtureWall, item)
+                  if (projection) { item.x_mm = projection.point.x_mm; item.z_mm = projection.point.z_mm }
+                }
+              })} />
             ))}
+            {fixtureCanBindWall(selectedFixture.kind) && <label className="text-field"><span>绑定墙段</span><select value={selectedFixtureWall ?? ''} onChange={(event) => edit((draft) => {
+              const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!
+              if (event.target.value === '') { item.bound_wall_index = null; return }
+              const wallIndex = Number(event.target.value)
+              const projection = projectPointToWall(finishedRoomBoundary(draft), wallIndex, item)
+              item.bound_wall_index = projection ? wallIndex : null
+              if (projection) { item.x_mm = projection.point.x_mm; item.z_mm = projection.point.z_mm }
+            })}><option value="">未绑定</option>{spec.boundary.map((_, index) => <option key={index} value={index}>W{index + 1}</option>)}</select></label>}
             <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.fixtures = draft.fixtures.filter((item) => item.id !== selectedFixture.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除设施</button>
           </div>
         )}
+        {selectedZone && zoneBounds && <div className="field-stack">
+          <div className="object-heading"><strong>{selectedZone.label}</strong><SourceBadge source={selectedZone.source} confidence={selectedZone.confidence} /></div>
+          <label className="text-field"><span>名称</span><input value={selectedZone.label} onChange={(event) => edit((draft) => { const zone = draft.dry_wet_zones?.find((item) => item.id === selectedZone.id); if (zone) zone.label = event.target.value })} /></label>
+          <NumberField label="左边界 X" value={zoneBounds.minX} onChange={(value) => updateZoneRect({ ...zoneBounds, minX: Math.min(value, zoneBounds.maxX - 100) })} />
+          <NumberField label="右边界 X" value={zoneBounds.maxX} onChange={(value) => updateZoneRect({ ...zoneBounds, maxX: Math.max(value, zoneBounds.minX + 100) })} />
+          <NumberField label="上边界 Z" value={zoneBounds.minZ} onChange={(value) => updateZoneRect({ ...zoneBounds, minZ: Math.min(value, zoneBounds.maxZ - 100) })} />
+          <NumberField label="下边界 Z" value={zoneBounds.maxZ} onChange={(value) => updateZoneRect({ ...zoneBounds, maxZ: Math.max(value, zoneBounds.minZ + 100) })} />
+          <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.dry_wet_zones = draft.dry_wet_zones?.filter((item) => item.id !== selectedZone.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除分区</button>
+        </div>}
         {selectedOpening && (
           <div className="field-stack">
             <div className="object-heading"><strong>{selectedOpening.label}</strong><SourceBadge source={selectedOpening.source} confidence={selectedOpening.confidence} /></div>
@@ -136,10 +223,11 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
       </section>
 
       <section className="inspector-section object-list-section">
-        <div className="inspector-title"><span>模型对象</span><span>{spec.openings.length + spec.fixtures.length}</span></div>
+        <div className="inspector-title"><span>模型对象</span><span>{spec.openings.length + spec.fixtures.length + (spec.dry_wet_zones?.filter((zone) => zone.kind === 'wet').length ?? 0)}</span></div>
         <button className={selection.type === 'room' ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'room' })}><span className="object-icon room" />空间结构 <small>{spec.boundary.length} 面墙</small></button>
         {spec.openings.map((opening) => <button key={opening.id} className={selection.type === 'opening' && selection.id === opening.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'opening', id: opening.id })}><span className="object-icon opening" />{opening.label}<small>{opening.width_mm} mm</small></button>)}
         {spec.fixtures.map((fixture) => <button key={fixture.id} className={selection.type === 'fixture' && selection.id === fixture.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'fixture', id: fixture.id })}><span className={`object-icon ${fixture.source}`} />{fixture.label}<small>{Math.round(fixture.confidence * 100)}%</small></button>)}
+        {(spec.dry_wet_zones ?? []).filter((zone) => zone.kind === 'wet').map((zone) => <button key={zone.id} className={selection.type === 'dry_wet_zone' && selection.id === zone.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'dry_wet_zone', id: zone.id })}><span className="object-icon zone-wet" />{zone.label}<small>湿区</small></button>)}
         <div className="add-row">
           <select defaultValue="" onChange={(event) => { if (event.target.value) addFixture(event.target.value as FixtureKind); event.target.value = '' }} aria-label="添加设施">
             <option value="" disabled>添加设施…</option>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { metricBoundaryFromEdges, reconcileBoundaryEdges, solveBoundaryEdges } from './geometry'
-import { defaultFinishSurfaceOffsetMm, defaultWallThicknessMm, manualRoom, offsetBoundary, wallOutwardNormal } from './spec'
+import { defaultFinishSurfaceOffsetMm, defaultWallFinishThicknessMm, defaultWallThicknessMm, manualRoom, offsetBoundary, wallOutwardNormal } from './spec'
 import type { BoundaryEdge, ImageBoundaryPoint } from './types'
 
 const edge = (direction: BoundaryEdge['direction'], length_mm: number): BoundaryEdge => ({
@@ -85,6 +85,8 @@ describe('finished-surface wall expansion', () => {
     const room = manualRoom(3000, 2000, 2600)
 
     expect(room.finish_surface_offset_mm).toBe(defaultFinishSurfaceOffsetMm)
+    expect(room.strip_existing_finish).toBe(true)
+    expect(room.wall_finish_thickness_mm).toBe(defaultWallFinishThicknessMm)
     expect(room.wall_thickness_mm).toBe(defaultWallThicknessMm)
   })
 

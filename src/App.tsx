@@ -12,12 +12,19 @@ import { SolutionList } from './components/SolutionList'
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
-import { clientValidate, cloneSpec, manualRoom } from './spec'
-import type { BoundaryEdge, EvidenceRole, Health, ImageBoundaryPoint, Project, RoomSpec, Selection } from './types'
+import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, manualRoom, projectPointToWall, snapPointToNearestWall, wetZoneBoundaryValid } from './spec'
+import type { BoundaryEdge, EvidenceRole, FixtureKind, Health, ImageBoundaryPoint, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model'
 
-const visibleSpec = (value: Project | null) => value?.status === 'analysis_failed' ? null : value?.spec ?? null
+const wetZonesOnly = (spec: RoomSpec) => spec.dry_wet_zones?.some((zone) => zone.kind === 'dry')
+  ? { ...spec, dry_wet_zones: spec.dry_wet_zones.filter((zone) => zone.kind === 'wet') }
+  : spec
+
+const visibleSpec = (value: Project | null) => {
+  const spec = value?.status === 'analysis_failed' ? null : value?.spec ?? null
+  return spec ? wetZonesOnly(spec) : null
+}
 
 const imagePointToRoom = (spec: RoomSpec, x: number, y: number) => {
   const imageBoundary = spec.plan_annotation?.boundary ?? []
@@ -182,7 +189,7 @@ export default function App() {
   }
 
   const applyAnalysis = (result: Awaited<ReturnType<typeof studioApi.analyzePlan>>) => {
-    const next = result.spec
+    const next = wetZonesOnly(result.spec)
     setSpec(next); setProject((current) => current ? { ...current, spec: next, measurement: result.measurement, status: 'review' } : current)
     setHistory([]); setFuture([]); setDirty(false); setMode(next.plan_annotation?.confirmed ? 'review' : 'annotation'); setSelection({ type: 'room' })
     setFocusEvidenceId(null); setActiveEvidenceId(null)
@@ -437,7 +444,39 @@ export default function App() {
             {mode === 'annotation'
               ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
               : mode === 'review' || !canPreview
-                ? <PlanReview key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} selection={selection} onSelect={setSelection} onEvidenceSelect={setFocusEvidenceId} onFixtureMove={(id, x, z) => { const next = cloneSpec(spec); const fixture = next.fixtures.find((item) => item.id === id); if (fixture) { fixture.x_mm = x; fixture.z_mm = z; fixture.source = 'user'; fixture.confidence = 1; commitSpec(next) } }} />
+                ? <PlanReview
+                  key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`}
+                  spec={spec}
+                  plan={plan}
+                  selection={selection}
+                  onSelect={setSelection}
+                  onEvidenceSelect={setFocusEvidenceId}
+                  onFixtureAdd={(kind: FixtureKind, xMm, zMm, wallIndex) => {
+                    const next = cloneSpec(spec)
+                    const defaults = fixtureDefaults[kind]
+                    const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`
+                    const projected = wallIndex === null ? null : projectPointToWall(finishedRoomBoundary(next), wallIndex, { x_mm: xMm, z_mm: zMm })
+                    next.fixtures.push({ id, kind, label: fixtureLabels[kind], x_mm: projected?.point.x_mm ?? xMm, z_mm: projected?.point.z_mm ?? zMm, ...defaults, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: projected ? wallIndex : null })
+                    commitSpec(next)
+                    setSelection({ type: 'fixture', id })
+                  }}
+                  onFixtureMove={(id, x, z) => {
+                    const next = cloneSpec(spec)
+                    const fixture = next.fixtures.find((item) => item.id === id)
+                    if (fixture) {
+                      const snap = snapPointToNearestWall(finishedRoomBoundary(next), { x_mm: x, z_mm: z })
+                      fixture.x_mm = snap?.point.x_mm ?? x; fixture.z_mm = snap?.point.z_mm ?? z
+                      fixture.bound_wall_index = snap?.wall_index ?? null
+                      fixture.source = 'user'; fixture.confidence = 1
+                      commitSpec(next)
+                    }
+                  }}
+                  onZoneChange={(id, boundary) => {
+                    const next = cloneSpec(spec)
+                    const zone = next.dry_wet_zones?.find((item) => item.id === id)
+                    if (zone && wetZoneBoundaryValid(next, id, boundary)) { zone.boundary = boundary; zone.source = 'user'; zone.confidence = 1; commitSpec(next) }
+                  }}
+                />
                 : <ModelCanvas ref={modelRef} spec={spec} selection={selection} onSelect={setSelection} />}
           </>
         )}

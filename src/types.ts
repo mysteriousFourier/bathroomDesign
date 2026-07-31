@@ -79,6 +79,7 @@ export interface FixtureSpec {
   source: SourceKind
   confidence: number
   evidence_ids?: string[]
+  bound_wall_index?: number | null
 }
 
 export interface WallProfile {
@@ -100,6 +101,25 @@ export interface CeilingZone {
   evidence_ids?: string[]
 }
 
+export interface DryWetZone {
+  id: string
+  kind: 'dry' | 'wet'
+  label: string
+  boundary: Point2D[]
+  source: SourceKind
+  confidence: number
+  evidence_ids?: string[]
+}
+
+export interface WallFinishProfile {
+  wall_index: number
+  thickness_mm: number
+  source: SourceKind
+  confidence: number
+  generated_from_bound_point: boolean
+  evidence_ids?: string[]
+}
+
 export interface ValidationIssue {
   id: string
   severity: 'error' | 'warning' | 'info'
@@ -114,11 +134,15 @@ export interface RoomSpec {
   boundary: Point2D[]
   height_mm: number | null
   wall_thickness_mm: number
+  strip_existing_finish?: boolean
   finish_surface_offset_mm?: number
+  wall_finish_thickness_mm?: number
   wall_profiles?: WallProfile[]
   openings: OpeningSpec[]
   fixtures: FixtureSpec[]
   ceiling_zones?: CeilingZone[]
+  dry_wet_zones?: DryWetZone[]
+  wall_finish_profiles?: WallFinishProfile[]
   observations: Observation[]
   plan_annotation?: PlanAnnotation | null
   issues: ValidationIssue[]
@@ -136,6 +160,12 @@ export interface MeasurementModel {
     z_axis: 'down'
     y_axis: 'up'
     dimension_basis: 'finished_surface_clear'
+  }
+  surface_treatment: {
+    strip_existing_finish: boolean
+    existing_finish_thickness_mm: number
+    new_finish_thickness_mm: number
+    wall_finish_profiles: WallFinishProfile[]
   }
   room: { name: string; length_mm: number; width_mm: number }
   heights: {
@@ -236,4 +266,4 @@ export interface Health {
   ocr_configured?: boolean
 }
 
-export type Selection = { type: 'room' } | { type: 'fixture'; id: string } | { type: 'opening'; id: string }
+export type Selection = { type: 'room' } | { type: 'fixture'; id: string } | { type: 'opening'; id: string } | { type: 'dry_wet_zone'; id: string }

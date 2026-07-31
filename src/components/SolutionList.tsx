@@ -1,10 +1,10 @@
 import { BoxSelect, FileWarning, Ruler, Wand2 } from 'lucide-react'
-import { roomBounds } from '../spec'
+import { roomBounds, structuralInnerBoundary } from '../spec'
 import type { RoomSpec } from '../types'
 
 function formatFootprint(spec: RoomSpec) {
-  const bounds = roomBounds(spec.boundary)
-  return `${Math.round(bounds.width)} x ${Math.round(bounds.depth)} x ${Math.round(spec.height_mm ?? 0)} mm`
+  const bounds = roomBounds(structuralInnerBoundary(spec))
+  return `结构 ${Math.round(bounds.width)} x ${Math.round(bounds.depth)} x ${Math.round(spec.height_mm ?? 0)} mm`
 }
 
 export function SolutionList({ spec, active, onOpenModel }: {

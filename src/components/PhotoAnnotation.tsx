@@ -2,7 +2,7 @@ import { BoxSelect, Check, Eye, EyeOff, MousePointer2, PenLine, Plus, ScanText, 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { drawableEvidence, observationId, reviewEvidence } from '../evidence'
 import { reconcileBoundaryEdges, solveBoundaryEdges } from '../geometry'
-import { cloneSpec } from '../spec'
+import { cloneSpec, finishedRoomBoundary, fixtureCanBindWall, snapPointToNearestWall } from '../spec'
 import type { Asset, BoundaryEdge, FixtureSpec, ImageBoundaryPoint, Point2D, RoomSpec } from '../types'
 
 const canvasWidth = 1000
@@ -168,7 +168,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     ? evidence
     : evidence.filter((item) => observationId(item) === activeEvidenceId)
   const pendingDimensions = edgeChain.filter((edge) => !edge.length_mm).length
-  const pointFixtures = useMemo(() => spec.fixtures.filter((fixture) => fixture.evidence_ids?.some((id) => id.startsWith('point-marker-'))), [spec.fixtures])
+  const pointFixtures = useMemo(() => spec.fixtures.filter((fixture) => fixtureCanBindWall(fixture.kind)), [spec.fixtures])
   const activeEvidence = spec.observations.find((item) => (
     item.field === `ocr:${activeEvidenceId}` && (!plan?.id || item.asset_id === plan.id)
   ))
@@ -299,8 +299,10 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     const draft = cloneSpec(spec)
     const fixture = draft.fixtures.find((item) => item.id === fixtureId)
     if (!fixture) return
-    fixture.x_mm = position.x_mm
-    fixture.z_mm = position.z_mm
+    const snap = snapPointToNearestWall(finishedRoomBoundary(draft), position)
+    fixture.x_mm = snap?.point.x_mm ?? position.x_mm
+    fixture.z_mm = snap?.point.z_mm ?? position.z_mm
+    fixture.bound_wall_index = snap?.wall_index ?? null
     fixture.source = 'user'
     fixture.confidence = 1
     const evidenceId = fixture.evidence_ids?.[0]
@@ -516,6 +518,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
           <circle className="annotation-marker-hit" r="22" />
           <circle className="annotation-marker-dot" r="10" />
           <text y="-14">{fixture.label}</text>
+          <text className="annotation-marker-coordinate" y="26">X {fixture.x_mm} · Z {fixture.z_mm}</text>
         </g>
       })}
       {boxStart && boxEnd && <rect className="annotation-selection" x={Math.min(boxStart.x, boxEnd.x)} y={Math.min(boxStart.y, boxEnd.y)} width={Math.abs(boxEnd.x - boxStart.x)} height={Math.abs(boxEnd.y - boxStart.y)} />}

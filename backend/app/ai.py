@@ -1902,8 +1902,15 @@ def _validated_segment_edge_chain(
                     additive_locations_valid = additive_locations_valid and location_valid
                 else:
                     additive_locations_valid = False
-            if not supported and additive_values and additive_locations_valid:
-                supported = sum(additive_values) == length_mm
+            if not supported and additive_values:
+                # A cited multi-segment chain can be placed on the opposite
+                # side of the outline (for example, a bottom dimension chain
+                # describing the top wall). Keep the strict location gate for
+                # single readings, but allow a complete additive chain to
+                # validate the cited edge when its values close exactly.
+                supported = sum(additive_values) == length_mm and (
+                    additive_locations_valid or len(additive_values) >= 2
+                )
             if not supported:
                 length_mm = None
                 evidence_ids = []
@@ -5818,10 +5825,14 @@ def _program_topology_fallback(candidates: list[TopologyCandidate]) -> TopologyC
     """Prefer the simplest well-supported non-rectangular contour when vision is unavailable."""
     if len(candidates) < 2:
         return None
+    rectangular = [candidate for candidate in candidates if len(candidate.corners) <= 4]
     non_rectangular = [candidate for candidate in candidates if len(candidate.corners) > 4]
     if not non_rectangular:
         return None
+    best_rectangular_support = max((candidate.pixel_support for candidate in rectangular), default=0.0)
     best_support = max(candidate.pixel_support for candidate in non_rectangular)
+    if best_rectangular_support >= best_support + 0.06:
+        return None
     eligible = [
         candidate for candidate in non_rectangular
         if candidate.pixel_support >= 0.4 and candidate.pixel_support >= best_support - 0.06

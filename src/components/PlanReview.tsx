@@ -1,7 +1,7 @@
-import { Droplet, Focus, Move, Plug, Waves, ZoomIn, ZoomOut } from 'lucide-react'
+import { Droplet, Focus, Move, Plug, Square, Waves, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixtureLabels, roomBounds, snapPointToNearestWall, wallLayerPolygons, wallLength, wetZoneBoundaryValid } from '../spec'
-import type { Asset, FixtureKind, Point2D, RoomSpec, Selection } from '../types'
+import { finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixtureLabels, fixturePointShape, roomBounds, snapPointToNearestWall, wallLayerPolygons, wallLength, wetZoneBoundaryValid } from '../spec'
+import type { Asset, FixtureKind, FixturePointUsage, Point2D, RoomSpec, Selection } from '../types'
 
 const canvasWidth = 920
 const canvasHeight = 680
@@ -13,12 +13,12 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
   selection: Selection
   onSelect: (selection: Selection) => void
   onFixtureMove: (id: string, xMm: number, zMm: number) => void
-  onFixtureAdd?: (kind: FixtureKind, xMm: number, zMm: number, wallIndex: number | null) => void
+  onFixtureAdd?: (kind: FixtureKind, xMm: number, zMm: number, wallIndex: number | null, pointUsage?: FixturePointUsage) => void
   onZoneChange?: (id: string, boundary: Point2D[]) => void
   onEvidenceSelect?: (id: string) => void
 }) {
   const [zoom, setZoom] = useState(1)
-  const [addKind, setAddKind] = useState<FixtureKind | null>(null)
+  const [addFixture, setAddFixture] = useState<{ kind: FixtureKind; pointUsage?: FixturePointUsage } | null>(null)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const panSession = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null)
   const suppressCanvasClick = useRef(false)
@@ -63,14 +63,14 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
   }
   const fitView = () => { setZoom(1); setPan({ x: 0, y: 0 }) }
   const addFixtureAtEvent = (event: MouseEvent<SVGSVGElement>) => {
-    if (!addKind || !onFixtureAdd) return false
+    if (!addFixture || !onFixtureAdd) return false
     const point = svgPoint(event.currentTarget, event.clientX, event.clientY)
     const localX = (point.x - pan.x) / zoom
     const localZ = (point.y - pan.y) / zoom
     const xMm = mmX(localX), zMm = mmZ(localZ)
     const snap = snapPointToNearestWall(roomBoundary, { x_mm: xMm, z_mm: zMm })
-    onFixtureAdd(addKind, snap?.point.x_mm ?? xMm, snap?.point.z_mm ?? zMm, snap?.wall_index ?? null)
-    setAddKind(null)
+    onFixtureAdd(addFixture.kind, snap?.point.x_mm ?? xMm, snap?.point.z_mm ?? zMm, snap?.wall_index ?? null, addFixture.pointUsage)
+    setAddFixture(null)
     return true
   }
 
@@ -79,9 +79,10 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
       <div className="canvas-toolbar">
         <span><Move size={15} />拖动空白处平移，滚轮缩放</span>
         <div>
-          <button className={`icon-button${addKind === 'drain' ? ' active-tool' : ''}`} title="添加排水点" onClick={() => setAddKind((value) => value === 'drain' ? null : 'drain')}><Droplet size={17} /></button>
-          <button className={`icon-button${addKind === 'water' ? ' active-tool' : ''}`} title="添加给水点" onClick={() => setAddKind((value) => value === 'water' ? null : 'water')}><Waves size={17} /></button>
-          <button className={`icon-button${addKind === 'electric' ? ' active-tool' : ''}`} title="添加电点" onClick={() => setAddKind((value) => value === 'electric' ? null : 'electric')}><Plug size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'drain' ? ' active-tool' : ''}`} title="添加排水点" onClick={() => setAddFixture((value) => value?.kind === 'drain' ? null : { kind: 'drain', pointUsage: 'general' })}><Droplet size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'water' ? ' active-tool' : ''}`} title="添加给水点" onClick={() => setAddFixture((value) => value?.kind === 'water' ? null : { kind: 'water', pointUsage: 'general' })}><Waves size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'floor_drain' ? ' active-tool' : ''}`} title="添加淋浴地漏" onClick={() => setAddFixture((value) => value?.kind === 'floor_drain' ? null : { kind: 'floor_drain', pointUsage: 'shower' })}><Square size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'electric' ? ' active-tool' : ''}`} title="添加电点" onClick={() => setAddFixture((value) => value?.kind === 'electric' ? null : { kind: 'electric' })}><Plug size={17} /></button>
           <button className="icon-button" title="缩小" onClick={() => zoomAt(0.8)}><ZoomOut size={17} /></button>
           <button className="icon-button" title="放大" onClick={() => zoomAt(1.25)}><ZoomIn size={17} /></button>
           <button className="icon-button" title="适配视图" onClick={fitView}><Focus size={17} /></button>
@@ -218,6 +219,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
           const defaults = fixtureDefaults[fixture.kind]
           const width = Math.max((fixture.width_mm || defaults.width_mm) * scale, 18)
           const depth = Math.max((fixture.depth_mm || defaults.depth_mm) * scale, 18)
+          const pointShape = fixturePointShape(fixture.kind)
+          const pointSize = Math.max(width, depth)
           return (
             <g key={fixture.id} className={selected ? 'fixture-shape selected' : 'fixture-shape'} transform={`translate(${sx(fixture.x_mm)} ${sz(fixture.z_mm)}) rotate(${fixture.rotation_deg})`} onPointerDown={(event) => {
               event.stopPropagation()
@@ -243,8 +246,10 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
               target.addEventListener('pointermove', move)
               target.addEventListener('pointerup', up)
             }}>
-              <rect x={-width / 2} y={-depth / 2} width={width} height={depth} rx="3" />
-              <text y="4">{fixtureLabels[fixture.kind]}</text>
+              {pointShape === 'circle'
+                ? <circle className="fixture-symbol" r={pointSize / 2} />
+                : <rect className="fixture-symbol" x={-(pointShape === 'square' ? pointSize : width) / 2} y={-(pointShape === 'square' ? pointSize : depth) / 2} width={pointShape === 'square' ? pointSize : width} height={pointShape === 'square' ? pointSize : depth} rx={pointShape === 'square' ? 0 : 3} />}
+              <text y="4">{fixture.label}</text>
               {fixtureBoundWallIndex(spec, fixture) !== null && <text className="fixture-wall-binding" y={depth / 2 + 13}>W{fixtureBoundWallIndex(spec, fixture)! + 1}</text>}
             </g>
           )

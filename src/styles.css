@@ -250,8 +250,8 @@ p, h1, h2, figure { margin: 0; }
 .opening-line.selected { stroke: #7e5010; stroke-width: 14; }
 .fixture-shape { cursor: grab; }
 .fixture-shape:active { cursor: grabbing; }
-.fixture-shape rect { fill: #dce9e2; stroke: #3e715c; stroke-width: 2; vector-effect: non-scaling-stroke; }
-.fixture-shape.selected rect { fill: #f1e4c7; stroke: #9a6815; stroke-width: 3; }
+.fixture-shape .fixture-symbol { fill: #dce9e2; stroke: #3e715c; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.fixture-shape.selected .fixture-symbol { fill: #f1e4c7; stroke: #9a6815; stroke-width: 3; }
 .fixture-shape text { fill: #2d4d40; text-anchor: middle; font-size: 9px; pointer-events: none; }
 .fixture-shape .fixture-wall-binding { fill: #7a5100; font: 700 9px Consolas, monospace; paint-order: stroke; stroke: #fff; stroke-width: 3; }
 .model-canvas-wrap { min-width: 0; min-height: 0; padding-top: 0; }

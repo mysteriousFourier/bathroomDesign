@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 
 from backend.app.database import Database
-from backend.app.measurement import measurement_from_spec, room_spec_from_measurement, validate_measurement
+from backend.app.measurement import measurement_contract_export, measurement_from_spec, room_spec_from_measurement, validate_measurement
 from backend.app.models import (
     FixtureSpec,
     ImageBBox,
@@ -77,6 +77,31 @@ def test_non_rectangular_measurement_round_trip_preserves_topology_and_evidence(
     assert rebuilt.openings[0].thickness_mm == 40
     assert rebuilt.fixtures[0].evidence_ids == ["drain-point"]
     assert room_spec_from_measurement(measurement).confirmed
+
+
+def test_point_usage_round_trip_and_contract_export() -> None:
+    source = non_rectangular_spec()
+    source.fixtures.extend([
+        FixtureSpec(
+            id="toilet-drain", kind="drain", point_usage="toilet", label="马桶排水",
+            x_mm=200, z_mm=0, width_mm=110, depth_mm=110, height_mm=100,
+            source=SourceKind.user, confidence=1,
+        ),
+        FixtureSpec(
+            id="basin-water", kind="water", point_usage="basin", label="台盆给水",
+            x_mm=800, z_mm=0, width_mm=40, depth_mm=40, height_mm=500,
+            source=SourceKind.user, confidence=1,
+        ),
+    ])
+
+    measurement = measurement_from_spec(source, "point-usage")
+    rebuilt = room_spec_from_measurement(measurement)
+    exported = measurement_contract_export(measurement)
+
+    assert {item.id: item.point_usage for item in measurement.anchors}["toilet-drain"] == "toilet"
+    assert {item.id: item.point_usage for item in rebuilt.fixtures}["basin-water"] == "basin"
+    assert any(item["type"] == "toilet_drain" for item in exported["drainagePoints"])
+    assert len(exported["waterSupplyPoints"]) == 1
 
 
 def test_measurement_export_maps_wall_and_height_evidence() -> None:

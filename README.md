@@ -12,7 +12,7 @@ Windows 可直接双击仓库根目录的 `start-system.bat`。启动器会检�
 
 首次运行可能需要联网安装依赖。API 配置缺失时系统仍可启动，但 AI 识别功能
 不可用，请在 `.env` 中补全 `OPENAI_BASE_URL`、`OPENAI_API_KEY` 和
-`OPENAI_MODEL`。
+`READ_MODEL`、`CHAT_MODEL`。
 
 ```powershell
 Copy-Item .env.example .env
@@ -48,13 +48,11 @@ npm run build
 ```dotenv
 OPENAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
 OPENAI_API_KEY=填写你的智谱 API Key
-OPENAI_MODEL=glm-4v-flash
-OPENAI_VISION_MODEL=glm-4v-flash
-OPENAI_FAST_MODEL=glm-4v-flash
-OPENAI_FALLBACK_MODEL=glm-4v-flash
+READ_MODEL=glm-4v-flash
+CHAT_MODEL=glm-4.7-flash
 ```
 
-密钥只存在于后端环境变量，不发送到浏览器。所有图片识别阶段只使用 `OPENAI_VISION_MODEL` / `OPENAI_FAST_MODEL` 配置的 `glm-4v-flash`，不依赖质量视觉模型。429、1302、1305 和服务端错误会先指数退避重试，再尝试同一 Flash 模型配置；401/403 鉴权错误不会重复请求。没有图像 bbox 证据的尺寸、门洞和设施不会自动进入三维模型。脱敏后的模型原始响应保存在 `backend/data/ai-traces`，便于定位供应商返回格式和识别错误。
+密钥只存在于后端环境变量，不发送到浏览器。图片识别统一使用 `READ_MODEL`，流程协调与对话统一使用 `CHAT_MODEL`。429、1302、1305 和服务端错误会指数退避重试；401/403 鉴权错误不会重复请求。没有图像 bbox 证据的尺寸、门洞和设施不会自动进入三维模型。脱敏后的模型原始响应保存在 `backend/data/ai-traces`，便于定位供应商返回格式和识别错误。
 
 ## 使用流程
 

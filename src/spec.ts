@@ -1,4 +1,4 @@
-import type { DryWetZone, FixtureKind, FixtureSpec, Point2D, RoomSpec, ValidationIssue, WallFinishProfile } from './types'
+import type { DryWetZone, FixtureKind, FixturePointUsage, FixtureSpec, Point2D, RoomSpec, ValidationIssue, WallFinishProfile } from './types'
 
 export const defaultWallThicknessMm = 200
 export const defaultFinishSurfaceOffsetMm = 20
@@ -31,6 +31,28 @@ export const fixtureDefaults: Record<FixtureKind, Pick<FixtureSpec, 'width_mm' |
   column: { width_mm: 400, depth_mm: 400, height_mm: 2600 },
   radiator: { width_mm: 500, depth_mm: 120, height_mm: 800 },
   other: { width_mm: 500, depth_mm: 500, height_mm: 800 },
+}
+
+export function fixturePointShape(kind: FixtureKind): 'circle' | 'square' | null {
+  if (kind === 'floor_drain') return 'square'
+  if (kind === 'drain' || kind === 'water') return 'circle'
+  return null
+}
+
+export const fixturePointUsageLabels: Record<FixturePointUsage, string> = {
+  general: '通用',
+  toilet: '马桶',
+  shower: '花洒',
+  basin: '台盆 / 水池',
+}
+
+export function fixturePointUsage(fixture: FixtureSpec): FixturePointUsage | null {
+  if (fixture.kind !== 'floor_drain' && fixture.kind !== 'drain' && fixture.kind !== 'water') return null
+  if (fixture.point_usage) return fixture.point_usage
+  if (/马桶|坐便/.test(fixture.label)) return 'toilet'
+  if (/花洒|淋浴/.test(fixture.label)) return 'shower'
+  if (/台盆|面盆|洗手盆|水池|龙头/.test(fixture.label)) return 'basin'
+  return 'general'
 }
 
 export function manualRoom(widthMm: number, depthMm: number, heightMm: number): RoomSpec {
@@ -262,21 +284,11 @@ function mergeZoneCells(rows: ZoneRect[][]) {
 export function generateDryWetZones(spec: RoomSpec): DryWetZone[] {
   const roomBoundary = finishedRoomBoundary(spec)
   const bounds = roomBounds(roomBoundary)
-  const drains = spec.fixtures.filter((fixture) => fixture.kind === 'floor_drain' || fixture.kind === 'drain')
-  if (!drains.length) return []
-  const parents = drains.map((_, index) => index)
-  const find = (index: number): number => parents[index] === index ? index : (parents[index] = find(parents[index]))
-  const join = (left: number, right: number) => { const leftRoot = find(left), rightRoot = find(right); if (leftRoot !== rightRoot) parents[rightRoot] = leftRoot }
-  drains.forEach((left, index) => drains.slice(index + 1).forEach((right, offset) => {
-    if (Math.hypot(left.x_mm - right.x_mm, left.z_mm - right.z_mm) <= 1200) join(index, index + offset + 1)
-  }))
-  const clusters = new Map<number, FixtureSpec[]>()
-  drains.forEach((drain, index) => { const root = find(index); clusters.set(root, [...(clusters.get(root) ?? []), drain]) })
-  const wetRects = [...clusters.values()].map((cluster): ZoneRect => {
-    const x = fittedRange(Math.min(...cluster.map((fixture) => fixture.x_mm)) - 320, Math.max(...cluster.map((fixture) => fixture.x_mm)) + 320, bounds.minX, bounds.maxX, 900)
-    const z = fittedRange(Math.min(...cluster.map((fixture) => fixture.z_mm)) - 320, Math.max(...cluster.map((fixture) => fixture.z_mm)) + 320, bounds.minZ, bounds.maxZ, 900)
-    return { kind: 'wet', minX: Math.round(x.minimum), minZ: Math.round(z.minimum), maxX: Math.round(x.maximum), maxZ: Math.round(z.maximum) }
-  })
+  const showerDrain = spec.fixtures.find((fixture) => fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower')
+  if (!showerDrain) return []
+  const x = fittedRange(showerDrain.x_mm - 320, showerDrain.x_mm + 320, bounds.minX, bounds.maxX, 900)
+  const z = fittedRange(showerDrain.z_mm - 320, showerDrain.z_mm + 320, bounds.minZ, bounds.maxZ, 900)
+  const wetRects: ZoneRect[] = [{ kind: 'wet', minX: Math.round(x.minimum), minZ: Math.round(z.minimum), maxX: Math.round(x.maximum), maxZ: Math.round(z.maximum) }]
   const xStops = [...new Set([...roomBoundary.map((point) => point.x_mm), ...wetRects.flatMap((rectangle) => [rectangle.minX, rectangle.maxX])])].sort((left, right) => left - right)
   const zStops = [...new Set([...roomBoundary.map((point) => point.z_mm), ...wetRects.flatMap((rectangle) => [rectangle.minZ, rectangle.maxZ])])].sort((left, right) => left - right)
   const rows: ZoneRect[][] = []
@@ -296,10 +308,9 @@ export function generateDryWetZones(spec: RoomSpec): DryWetZone[] {
     rows.push(row)
   }
   const rectangles = mergeZoneCells(rows).filter((rectangle) => rectangle.kind === 'wet' && (rectangle.maxX - rectangle.minX) * (rectangle.maxZ - rectangle.minZ) >= 10_000)
-  return rectangles.map((rectangle) => {
-    const index = rectangles.indexOf(rectangle) + 1
-    return rectZone(`wet-auto-${index}`, 'wet', rectangles.length > 1 ? `湿区 ${index}` : '湿区', rectangle.minX, rectangle.minZ, rectangle.maxX, rectangle.maxZ)
-  })
+  const rectangle = rectangles.find((candidate) => showerDrain.x_mm >= candidate.minX && showerDrain.x_mm <= candidate.maxX && showerDrain.z_mm >= candidate.minZ && showerDrain.z_mm <= candidate.maxZ)
+    ?? rectangles.sort((left, right) => (right.maxX - right.minX) * (right.maxZ - right.minZ) - (left.maxX - left.minX) * (left.maxZ - left.minZ))[0]
+  return rectangle ? [rectZone('wet-auto-1', 'wet', '湿区', rectangle.minX, rectangle.minZ, rectangle.maxX, rectangle.maxZ)] : []
 }
 
 export function generateWallFinishProfiles(spec: RoomSpec): WallFinishProfile[] {
@@ -375,6 +386,31 @@ export function wallLayerPolygons(spec: RoomSpec) {
       wall: [structuralInner[index], structuralInner[next], structuralOuter[next], structuralOuter[index]],
     }
   })
+}
+
+export function sliceWallQuadByDistance(quad: Point2D[], referenceStart: Point2D, referenceEnd: Point2D, startMm: number, endMm: number) {
+  if (quad.length !== 4) return quad.map((point) => ({ ...point }))
+  const dx = referenceEnd.x_mm - referenceStart.x_mm
+  const dz = referenceEnd.z_mm - referenceStart.z_mm
+  const length = Math.hypot(dx, dz)
+  if (length <= 1e-9) return quad.map((point) => ({ ...point }))
+  const tangent = { x: dx / length, z: dz / length }
+  const pointAtDistance = (edgeStart: Point2D, edgeEnd: Point2D, distanceMm: number) => {
+    if (distanceMm <= 0) return { ...edgeStart }
+    if (distanceMm >= length) return { ...edgeEnd }
+    const edgeStartDistance = (edgeStart.x_mm - referenceStart.x_mm) * tangent.x + (edgeStart.z_mm - referenceStart.z_mm) * tangent.z
+    const advance = distanceMm - edgeStartDistance
+    return {
+      x_mm: edgeStart.x_mm + tangent.x * advance,
+      z_mm: edgeStart.z_mm + tangent.z * advance,
+    }
+  }
+  return [
+    pointAtDistance(quad[0], quad[1], startMm),
+    pointAtDistance(quad[0], quad[1], endMm),
+    pointAtDistance(quad[3], quad[2], endMm),
+    pointAtDistance(quad[3], quad[2], startMm),
+  ]
 }
 
 export function cloneSpec(spec: RoomSpec): RoomSpec {
@@ -460,6 +496,10 @@ export function wetZoneBoundaryValid(spec: RoomSpec, zoneId: string, boundary: P
 
 export function clientValidate(spec: RoomSpec): ValidationIssue[] {
   const issues: ValidationIssue[] = []
+  const wetZones = (spec.dry_wet_zones ?? []).filter((zone) => zone.kind === 'wet')
+  if (wetZones.length > 1) issues.push({ id: 'wet-zone-count', severity: 'error', code: 'multiple_wet_zones', message: '同一房间只能保留一个湿区' })
+  const showerFloorDrains = spec.fixtures.filter((fixture) => fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower')
+  if (showerFloorDrains.length > 1) issues.push({ id: 'shower-floor-drain-count', severity: 'error', code: 'multiple_shower_floor_drains', message: '同一房间只能指定一个淋浴地漏' })
   if (spec.boundary.length < 3) issues.push({ id: 'boundary', severity: 'error', code: 'invalid_boundary', message: '房间轮廓未闭合' })
   spec.boundary.forEach((start, index) => {
     const end = spec.boundary[(index + 1) % spec.boundary.length]

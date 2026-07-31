@@ -52,7 +52,7 @@ async def run(args: argparse.Namespace) -> dict:
         edge.closure_adjustment_mm for edge in metric_edges if edge.closure_adjustment_mm
     ]
     checks = {
-        "flash_model_only": ai.settings.openai_fast_model == "glm-4v-flash",
+        "flash_model_only": ai.settings.read_model == "glm-4v-flash",
         "latency_within_budget": elapsed <= args.max_seconds,
         "non_rectangular_topology": len(corners) >= 8 and len(directions) == len(corners),
         "short_returns_preserved": short_edges >= 2,
@@ -73,7 +73,7 @@ async def run(args: argparse.Namespace) -> dict:
     }
     return {
         "passed": all(checks.values()),
-        "model": ai.settings.openai_fast_model,
+        "model": ai.settings.read_model,
         "elapsed_seconds": round(elapsed, 2),
         "corner_count": len(corners),
         "short_edge_count": short_edges,

@@ -54,33 +54,27 @@ def test_agen17_long_term_real_sample_is_persisted_and_orientable() -> None:
 
 
 @pytest.mark.asyncio
-async def test_primary_failure_falls_back(monkeypatch) -> None:
+async def test_read_model_failure_does_not_switch_models(monkeypatch) -> None:
     monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
-    monkeypatch.setattr(settings, "openai_vision_model", "vision-primary")
-    monkeypatch.setattr(settings, "openai_fast_model", "vision-fallback")
-    monkeypatch.setattr(settings, "openai_fallback_model", "")
+    monkeypatch.setattr(settings, "read_model", "vision-primary")
     calls: list[str] = []
 
     async def fake_chat_once(_client, _endpoint, _headers, _content, model):
         calls.append(model)
-        if model == "vision-primary":
-            raise ai.AIResponseError("主模型不可用")
-        return valid_spec()
+        raise ai.AIResponseError("读图模型不可用")
 
     monkeypatch.setattr(ai, "_chat_once", fake_chat_once)
-    result = await ai._chat([])
-    assert result.height_mm == 2600
-    assert calls == ["vision-primary", "vision-fallback"]
+    with pytest.raises(ai.AIResponseError):
+        await ai._chat([])
+    assert calls == ["vision-primary"]
 
 
 @pytest.mark.asyncio
-async def test_auth_failure_does_not_retry_fallback(monkeypatch) -> None:
+async def test_auth_failure_does_not_retry_read_model(monkeypatch) -> None:
     monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
     monkeypatch.setattr(settings, "openai_api_key", "bad-key")
-    monkeypatch.setattr(settings, "openai_vision_model", "vision-primary")
-    monkeypatch.setattr(settings, "openai_fast_model", "vision-fallback")
-    monkeypatch.setattr(settings, "openai_fallback_model", "")
+    monkeypatch.setattr(settings, "read_model", "vision-primary")
     calls: list[str] = []
 
     async def fake_chat_once(_client, _endpoint, _headers, _content, model):
@@ -311,14 +305,11 @@ def test_glm_46_structured_requests_disable_thinking() -> None:
     assert ai._thinking_payload("glm-4v-flash") == {}
 
 
-def test_visual_recognition_uses_only_dedicated_flash_models(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "openai_vision_model", "vision-primary")
-    monkeypatch.setattr(settings, "openai_model", "vision-primary")
-    monkeypatch.setattr(settings, "openai_fast_model", "vision-legacy")
-    monkeypatch.setattr(settings, "openai_fallback_model", "")
+def test_visual_recognition_uses_only_read_model(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "read_model", "vision-primary")
 
-    assert ai._vision_recognition_models() == ["vision-primary", "vision-legacy"]
-    assert ai._template_evidence_models() == ["vision-primary", "vision-legacy"]
+    assert ai._vision_recognition_models() == ["vision-primary"]
+    assert ai._template_evidence_models() == ["vision-primary"]
 
 
 def test_template_evidence_merges_dimensions_height_and_points_without_geometry() -> None:
@@ -1730,7 +1721,7 @@ async def test_fast_analysis_does_not_invent_placeholder_without_a_detected_cont
     monkeypatch.setattr(ai, "_raster_topology_candidates", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(settings, "openai_base_url", "")
     monkeypatch.setattr(settings, "openai_api_key", "")
-    monkeypatch.setattr(settings, "openai_model", "")
+    monkeypatch.setattr(settings, "read_model", "")
 
     spec = await ai.analyze_floorplan_fast(source)
 
@@ -1803,8 +1794,7 @@ async def test_photo_binding_only_accepts_ids_from_the_current_chunk(tmp_path, m
         ]})
 
     monkeypatch.setattr(ai, "_request_content", fake_request)
-    monkeypatch.setattr(settings, "openai_vision_model", "vision-test")
-    monkeypatch.setattr(settings, "openai_fallback_model", "")
+    monkeypatch.setattr(settings, "read_model", "vision-test")
     await ai._refine_photo_annotation_bindings(None, "", {}, ocr_assist, shape, [])
 
     assert tokens[0].get("target_id") is None
@@ -2047,7 +2037,7 @@ async def test_vision_ocr_refinement_updates_rotated_token_and_cache(tmp_path, m
         "oriented_original": original, "overlay": overlay, "tokens_path": tokens_path,
         "tokens": [token], "vision_refined": False,
     }
-    monkeypatch.setattr(settings, "openai_fallback_model", "glm-4v-flash")
+    monkeypatch.setattr(settings, "read_model", "glm-4v-flash")
 
     async def fake_request(*_args, **_kwargs):
         return '{"tokens":[{"id":"E001","rotation_degrees":90,"text":"1840","confidence":0.95}]}'
@@ -2106,9 +2096,7 @@ def test_ocr_assist_content_includes_overlay_tokens_and_crops(tmp_path, monkeypa
 
 @pytest.mark.asyncio
 async def test_fast_topology_selection_uses_only_flash_model(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "openai_vision_model", "glm-4v-flash")
-    monkeypatch.setattr(settings, "openai_fast_model", "glm-4v-flash")
-    monkeypatch.setattr(settings, "openai_fallback_model", "glm-4v-flash")
+    monkeypatch.setattr(settings, "read_model", "glm-4v-flash")
     monkeypatch.setattr(settings, "ai_compare_topology_models", True)
     monkeypatch.setattr(ai, "image_data_url", lambda *_args, **_kwargs: "original")
     monkeypatch.setattr(ai, "_enhanced_plan_data_url", lambda *_args, **_kwargs: "enhanced")

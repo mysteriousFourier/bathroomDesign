@@ -143,11 +143,11 @@ function Invoke-Startup {
     $EnvPath = Join-Path $ProjectRoot ".env"
     if (-not (Test-Path -LiteralPath $EnvPath)) {
         Copy-Item -LiteralPath (Join-Path $ProjectRoot ".env.example") -Destination $EnvPath
-        Write-Warning "Created .env from .env.example. AI recognition needs OPENAI_BASE_URL, OPENAI_API_KEY, and OPENAI_MODEL."
+        Write-Warning "Created .env from .env.example. AI recognition needs OPENAI_BASE_URL, OPENAI_API_KEY, READ_MODEL, and CHAT_MODEL."
     }
     $EnvLines = Get-Content -LiteralPath $EnvPath
     $MissingAiSettings = @()
-    foreach ($SettingName in @("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL")) {
+    foreach ($SettingName in @("OPENAI_BASE_URL", "OPENAI_API_KEY", "READ_MODEL", "CHAT_MODEL")) {
         $Configured = $EnvLines | Where-Object {
             $_ -match "^\s*$SettingName\s*=\s*.+$"
         } | Select-Object -First 1

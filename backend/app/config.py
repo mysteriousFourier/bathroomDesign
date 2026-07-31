@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -11,11 +11,14 @@ class Settings(BaseSettings):
 
     openai_base_url: str = ""
     openai_api_key: str = ""
-    openai_model: str = ""
-    openai_vision_model: str = ""
-    openai_fast_model: str = "glm-4v-flash"
-    openai_fallback_model: str = ""
-    openai_coordinator_model: str = "glm-4.7-flash"
+    read_model: str = Field(
+        default="glm-4v-flash",
+        validation_alias=AliasChoices("READ_MODEL", "OPENAI_VISION_MODEL", "OPENAI_FAST_MODEL", "OPENAI_MODEL"),
+    )
+    chat_model: str = Field(
+        default="glm-4.7-flash",
+        validation_alias=AliasChoices("CHAT_MODEL", "OPENAI_COORDINATOR_MODEL", "OPENAI_MODEL"),
+    )
     app_data_dir: Path = PROJECT_ROOT / "backend" / "data"
     max_upload_mb: int = 20
     max_image_pixels: int = 30_000_000
@@ -53,8 +56,7 @@ class Settings(BaseSettings):
 
     @property
     def ai_configured(self) -> bool:
-        visual_model = self.openai_vision_model or self.openai_fast_model or self.openai_model
-        return bool(self.openai_base_url and self.openai_api_key and visual_model)
+        return bool(self.openai_base_url and self.openai_api_key and self.read_model and self.chat_model)
 
 
 settings = Settings()

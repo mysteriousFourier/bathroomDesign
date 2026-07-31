@@ -54,9 +54,7 @@ async def recognize(path: Path) -> dict:
     endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
     headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
     models = list(dict.fromkeys(filter(None, (
-        settings.openai_vision_model,
-        settings.openai_fast_model,
-        settings.openai_fallback_model,
+        settings.read_model,
     ))))
     drawing = ImageBBox(x_min=40, y_min=125, x_max=720, y_max=950)
     form = ImageBBox(x_min=700, y_min=120, x_max=985, y_max=480)

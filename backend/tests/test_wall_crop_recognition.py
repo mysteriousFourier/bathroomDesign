@@ -576,8 +576,7 @@ async def test_wall_crop_recognition_is_bounded_concurrent_and_cached(tmp_path, 
         ])
 
     monkeypatch.setattr(ai, "_request_content", fake_request)
-    monkeypatch.setattr(settings, "openai_vision_model", "vision-test")
-    monkeypatch.setattr(settings, "openai_fallback_model", "")
+    monkeypatch.setattr(settings, "read_model", "vision-test")
     monkeypatch.setattr(settings, "ai_wall_crop_concurrency", 2)
 
     result = await ai._recognize_wall_crops_with_vision(
@@ -623,8 +622,7 @@ async def test_wall_crop_recognition_propagates_authentication_failure(tmp_path,
         raise ai.AIAuthenticationError("invalid key")
 
     monkeypatch.setattr(ai, "_request_content", reject_request)
-    monkeypatch.setattr(settings, "openai_vision_model", "vision-test")
-    monkeypatch.setattr(settings, "openai_fallback_model", "")
+    monkeypatch.setattr(settings, "read_model", "vision-test")
 
     with pytest.raises(ai.AIAuthenticationError, match="invalid key"):
         await ai._recognize_wall_crops_with_vision(
@@ -679,8 +677,7 @@ async def test_fast_analysis_builds_shape_before_text_recognition(tmp_path, monk
     monkeypatch.setattr(ai, "_resolve_segment_edge_chain", fake_edges)
     monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
     monkeypatch.setattr(settings, "openai_api_key", "key")
-    monkeypatch.setattr(settings, "openai_vision_model", "vision-test")
-    monkeypatch.setattr(settings, "openai_fallback_model", "")
+    monkeypatch.setattr(settings, "read_model", "vision-test")
 
     spec = await ai.analyze_floorplan_fast(source)
 
@@ -729,8 +726,7 @@ async def test_fast_analysis_uses_cropped_trace_when_candidate_selector_rejects(
     monkeypatch.setattr(ai, "_resolve_segment_edge_chain", lambda *_args, **_kwargs: __import__("asyncio").sleep(0, result=[]))
     monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
     monkeypatch.setattr(settings, "openai_api_key", "key")
-    monkeypatch.setattr(settings, "openai_vision_model", "vision-test")
-    monkeypatch.setattr(settings, "openai_fast_model", "vision-test")
+    monkeypatch.setattr(settings, "read_model", "vision-test")
 
     spec = await ai.analyze_floorplan_fast(source)
 

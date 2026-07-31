@@ -204,16 +204,21 @@ def measurement_contract_export(measurement: MeasurementModel) -> dict:
         {
             "drainId": _contract_uuid(measurement.measurement_id, "drain", anchor.id),
             "position": _contract_anchor_position(anchor),
-            "type": {
+            "type": ({
+                "general": "wall_drain",
+                "toilet": "toilet_drain",
+                "shower": "shower_drain",
+                "basin": "sink_drain",
+            }.get(anchor.point_usage or "general", "wall_drain") if anchor.kind == "drain" else {
                 "toilet": "toilet_drain",
                 "shower": "shower_drain",
                 "floor_drain": "floor_drain",
                 "vanity": "sink_drain",
-            }.get(anchor.kind, "floor_drain"),
+            }.get(anchor.kind, "floor_drain")),
             "diameter": max(anchor.width_mm, 1),
         }
         for anchor in measurement.anchors
-        if anchor.kind in {"toilet", "shower", "floor_drain", "vanity"}
+        if anchor.kind in {"toilet", "shower", "floor_drain", "vanity", "drain"}
     ]
     pipe_enclosures = [
         {
@@ -233,7 +238,7 @@ def measurement_contract_export(measurement: MeasurementModel) -> dict:
             "heightAboveFloor": anchor.height_mm,
         }
         for anchor in measurement.anchors
-        if anchor.kind in {"toilet", "vanity", "shower"}
+        if anchor.kind in {"toilet", "vanity", "shower", "water"}
     ]
 
     room_height = measurement.heights.room_height_mm or measurement.heights.wall_height_mm or 0
@@ -419,6 +424,7 @@ def measurement_from_spec(
             confidence=item.confidence,
             status=_measurement_status(item.source, item.confidence, spec.confirmed),
             evidence_ids=[evidence_id for evidence_id in item.evidence_ids if evidence_id in valid_evidence_ids],
+            point_usage=item.point_usage,
         )
         for item in spec.fixtures
     ]
@@ -512,6 +518,7 @@ def room_spec_from_measurement(measurement: MeasurementModel) -> RoomSpec:
             source=item.source,
             confidence=item.confidence,
             evidence_ids=item.evidence_ids,
+            point_usage=item.point_usage,
         )
         for item in measurement.anchors
     ]

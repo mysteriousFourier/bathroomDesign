@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, generateDryWetZones, generateWallFinishProfiles, imagePointToRoom, manualRoom, nearestWallIndex, roomBounds, roomPointToImage, snapPointToNearestWall, structuralInnerBoundary, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
+import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, imagePointToRoom, manualRoom, nearestWallIndex, roomBounds, roomPointToImage, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
 
 describe('room boundary validation', () => {
   it('accepts a closed orthogonal room', () => {
@@ -47,16 +47,16 @@ describe('dry wet zones and wall finishes', () => {
     ])
   })
 
-  it('generates dry and wet zones from drain points', () => {
+  it('generates one wet zone from the shower floor drain only', () => {
     const spec = manualRoom(3600, 2400, 2600)
     spec.fixtures.push(
-      { id: 'd1', kind: 'floor_drain', label: '洗衣机地漏', x_mm: 2600, z_mm: 1200, width_mm: 80, depth_mm: 80, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
-      { id: 'd2', kind: 'drain', label: '淋浴地漏', x_mm: 3000, z_mm: 1500, width_mm: 60, depth_mm: 60, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
+      { id: 'd1', kind: 'floor_drain', point_usage: 'shower', label: '淋浴地漏', x_mm: 2600, z_mm: 1200, width_mm: 80, depth_mm: 80, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
+      { id: 'd2', kind: 'drain', point_usage: 'shower', label: '花洒排水', x_mm: 3000, z_mm: 1500, width_mm: 60, depth_mm: 60, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
     )
 
     const zones = generateDryWetZones(spec)
 
-    expect(zones.length).toBeGreaterThan(0)
+    expect(zones).toHaveLength(1)
     expect(zones.every((zone) => zone.kind === 'wet')).toBe(true)
     expect(zones.every((zone) => zone.boundary.length === 4)).toBe(true)
     const wetArea = zones.reduce((sum, zone) => sum + (zone.boundary[1].x_mm - zone.boundary[0].x_mm) * (zone.boundary[2].z_mm - zone.boundary[1].z_mm), 0)
@@ -64,17 +64,64 @@ describe('dry wet zones and wall finishes', () => {
     expect(wetArea).toBeGreaterThanOrEqual(900 * 900)
   })
 
-  it('keeps distant drain groups as separate wet zones', () => {
+  it('keeps the shower floor drain as a single standard even when other floor drains exist', () => {
     const spec = manualRoom(4000, 2600, 2600)
     spec.fixtures.push(
-      { id: 'd1', kind: 'floor_drain', label: '淋浴地漏', x_mm: 500, z_mm: 500, width_mm: 80, depth_mm: 80, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
+      { id: 'd1', kind: 'floor_drain', point_usage: 'shower', label: '淋浴地漏', x_mm: 500, z_mm: 500, width_mm: 80, depth_mm: 80, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
       { id: 'd2', kind: 'floor_drain', label: '洗衣机地漏', x_mm: 3500, z_mm: 2100, width_mm: 80, depth_mm: 80, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
     )
 
     const zones = generateDryWetZones(spec)
 
-    expect(zones.filter((zone) => zone.kind === 'wet')).toHaveLength(2)
+    expect(zones).toHaveLength(1)
     expect(zones.every((zone) => zone.kind === 'wet')).toBe(true)
+    expect(roomBounds(zones[0].boundary).maxX).toBeLessThan(3500)
+  })
+
+  it('does not let supply, drainage, toilet, or basin points expand the shower floor-drain wet zone', () => {
+    const spec = manualRoom(3600, 2400, 2600)
+    spec.fixtures.push(
+      { id: 'floor-1', kind: 'floor_drain', point_usage: 'shower', label: '淋浴地漏', x_mm: 2900, z_mm: 900, width_mm: 120, depth_mm: 120, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
+      { id: 'shower-water', kind: 'water', point_usage: 'shower', label: '花洒给水', x_mm: 3200, z_mm: 0, width_mm: 40, depth_mm: 40, height_mm: 1100, rotation_deg: 0, source: 'user', confidence: 1 },
+      { id: 'shower-drain', kind: 'drain', point_usage: 'shower', label: '花洒排水', x_mm: 3000, z_mm: 0, width_mm: 60, depth_mm: 60, height_mm: 100, rotation_deg: 0, source: 'user', confidence: 1 },
+      { id: 'toilet-drain', kind: 'drain', point_usage: 'toilet', label: '马桶排水', x_mm: 500, z_mm: 0, width_mm: 110, depth_mm: 110, height_mm: 100, rotation_deg: 0, source: 'user', confidence: 1 },
+      { id: 'basin-water', kind: 'water', point_usage: 'basin', label: '台盆给水', x_mm: 1200, z_mm: 0, width_mm: 40, depth_mm: 40, height_mm: 500, rotation_deg: 0, source: 'user', confidence: 1 },
+    )
+
+    const zones = generateDryWetZones(spec)
+    const wetBounds = roomBounds(zones[0].boundary)
+
+    expect(zones).toHaveLength(1)
+    expect(wetBounds.minX).toBeGreaterThan(500)
+    expect(wetBounds.minX).toBeLessThanOrEqual(2900)
+    expect(wetBounds.maxX).toBeLessThan(3500)
+    expect(wetBounds.minZ).toBeGreaterThan(0)
+  })
+
+  it('does not generate a wet zone without a shower floor drain', () => {
+    const spec = manualRoom(3000, 2200, 2600)
+    spec.fixtures.push(
+      { id: 'floor-general', kind: 'floor_drain', point_usage: 'general', label: '洗衣机地漏', x_mm: 2200, z_mm: 1200, width_mm: 120, depth_mm: 120, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
+      { id: 'shower-water', kind: 'water', point_usage: 'shower', label: '花洒给水', x_mm: 2400, z_mm: 0, width_mm: 40, depth_mm: 40, height_mm: 1100, rotation_deg: 0, source: 'user', confidence: 1 },
+      { id: 'shower-drain', kind: 'drain', point_usage: 'shower', label: '花洒排水', x_mm: 2500, z_mm: 0, width_mm: 60, depth_mm: 60, height_mm: 100, rotation_deg: 0, source: 'user', confidence: 1 },
+    )
+
+    expect(generateDryWetZones(spec)).toEqual([])
+  })
+
+  it('rejects multiple wet zones and multiple shower floor-drain standards', () => {
+    const spec = manualRoom(3000, 2200, 2600)
+    spec.fixtures.push(
+      { id: 'shower-floor-1', kind: 'floor_drain', point_usage: 'shower', label: '淋浴地漏', x_mm: 700, z_mm: 700, width_mm: 120, depth_mm: 120, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
+      { id: 'shower-floor-2', kind: 'floor_drain', point_usage: 'shower', label: '淋浴地漏', x_mm: 2300, z_mm: 1500, width_mm: 120, depth_mm: 120, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 },
+    )
+    spec.dry_wet_zones = [
+      { id: 'wet-1', kind: 'wet', label: '湿区 1', source: 'user', confidence: 1, boundary: [{ x_mm: 0, z_mm: 0 }, { x_mm: 900, z_mm: 0 }, { x_mm: 900, z_mm: 900 }, { x_mm: 0, z_mm: 900 }] },
+      { id: 'wet-2', kind: 'wet', label: '湿区 2', source: 'user', confidence: 1, boundary: [{ x_mm: 2000, z_mm: 1300 }, { x_mm: 2900, z_mm: 1300 }, { x_mm: 2900, z_mm: 2200 }, { x_mm: 2000, z_mm: 2200 }] },
+    ]
+
+    expect(clientValidate(spec).map((issue) => issue.code)).toEqual(expect.arrayContaining(['multiple_wet_zones', 'multiple_shower_floor_drains']))
+    expect(generateDryWetZones(spec)).toHaveLength(1)
   })
 
   it('treats dry space as the complement and rejects invalid wet-zone movement', () => {
@@ -125,6 +172,26 @@ describe('dry wet zones and wall finishes', () => {
     expect(layers[0].wall[2]).toEqual(layers[1].wall[3])
     expect(layers[0].wall[0]).toEqual({ x_mm: -20, z_mm: -20 })
     expect(layers[0].wall[3]).toEqual({ x_mm: -220, z_mm: -220 })
+  })
+
+  it('cuts openings perpendicular to mitered wall faces', () => {
+    const spec = manualRoom(2400, 3200, 2600)
+    const wall = wallLayerPolygons(spec)[0].wall
+
+    expect(sliceWallQuadByDistance(wall, spec.boundary[0], spec.boundary[1], 400, 1300)).toEqual([
+      { x_mm: 400, z_mm: -20 }, { x_mm: 1300, z_mm: -20 },
+      { x_mm: 1300, z_mm: -220 }, { x_mm: 400, z_mm: -220 },
+    ])
+    expect(sliceWallQuadByDistance(wall, spec.boundary[0], spec.boundary[1], 0, 400)[0]).toEqual(wall[0])
+    expect(sliceWallQuadByDistance(wall, spec.boundary[0], spec.boundary[1], 0, 400)[3]).toEqual(wall[3])
+  })
+
+  it('uses circles for supply and drainage points and a square for floor drains', () => {
+    expect(fixturePointShape('water')).toBe('circle')
+    expect(fixturePointShape('drain')).toBe('circle')
+    expect(fixturePointShape('floor_drain')).toBe('square')
+    expect(fixturePointShape('toilet')).toBeNull()
+    expect(fixturePointUsage({ id: 'shower-floor', kind: 'floor_drain', label: '淋浴地漏', x_mm: 0, z_mm: 0, width_mm: 120, depth_mm: 120, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 })).toBe('shower')
   })
 
   it('separates stripping the measured finish from adding the new finish', () => {

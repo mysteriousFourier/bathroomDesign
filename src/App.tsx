@@ -12,14 +12,16 @@ import { SolutionList } from './components/SolutionList'
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, manualRoom, projectPointToWall, snapPointToNearestWall, wetZoneBoundaryValid } from './spec'
-import type { BoundaryEdge, EvidenceRole, FixtureKind, Health, ImageBoundaryPoint, Project, RoomSpec, Selection } from './types'
+import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, projectPointToWall, snapPointToNearestWall, wetZoneBoundaryValid } from './spec'
+import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model'
 
-const wetZonesOnly = (spec: RoomSpec) => spec.dry_wet_zones?.some((zone) => zone.kind === 'dry')
-  ? { ...spec, dry_wet_zones: spec.dry_wet_zones.filter((zone) => zone.kind === 'wet') }
-  : spec
+const wetZonesOnly = (spec: RoomSpec) => {
+  const wetZones = spec.dry_wet_zones?.filter((zone) => zone.kind === 'wet') ?? []
+  if (wetZones.length <= 1 && wetZones.length === (spec.dry_wet_zones?.length ?? 0)) return spec
+  return { ...spec, dry_wet_zones: wetZones.length > 1 ? generateDryWetZones(spec) : wetZones }
+}
 
 const visibleSpec = (value: Project | null) => {
   const spec = value?.status === 'analysis_failed' ? null : value?.spec ?? null
@@ -451,12 +453,14 @@ export default function App() {
                   selection={selection}
                   onSelect={setSelection}
                   onEvidenceSelect={setFocusEvidenceId}
-                  onFixtureAdd={(kind: FixtureKind, xMm, zMm, wallIndex) => {
+                  onFixtureAdd={(kind: FixtureKind, xMm, zMm, wallIndex, pointUsage?: FixturePointUsage) => {
                     const next = cloneSpec(spec)
                     const defaults = fixtureDefaults[kind]
                     const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`
                     const projected = wallIndex === null ? null : projectPointToWall(finishedRoomBoundary(next), wallIndex, { x_mm: xMm, z_mm: zMm })
-                    next.fixtures.push({ id, kind, label: fixtureLabels[kind], x_mm: projected?.point.x_mm ?? xMm, z_mm: projected?.point.z_mm ?? zMm, ...defaults, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: projected ? wallIndex : null })
+                    if (kind === 'floor_drain' && pointUsage === 'shower') next.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
+                    next.fixtures.push({ id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : fixtureLabels[kind], x_mm: projected?.point.x_mm ?? xMm, z_mm: projected?.point.z_mm ?? zMm, ...defaults, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: projected ? wallIndex : null, point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined })
+                    if (kind === 'floor_drain' && pointUsage === 'shower') next.dry_wet_zones = generateDryWetZones(next)
                     commitSpec(next)
                     setSelection({ type: 'fixture', id })
                   }}
@@ -468,6 +472,7 @@ export default function App() {
                       fixture.x_mm = snap?.point.x_mm ?? x; fixture.z_mm = snap?.point.z_mm ?? z
                       fixture.bound_wall_index = snap?.wall_index ?? null
                       fixture.source = 'user'; fixture.confidence = 1
+                      if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') next.dry_wet_zones = generateDryWetZones(next)
                       commitSpec(next)
                     }
                   }}

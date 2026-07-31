@@ -40,7 +40,7 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
     configure_temp_database(tmp_path)
     monkeypatch.setattr(settings, "openai_base_url", "")
     monkeypatch.setattr(settings, "openai_api_key", "")
-    monkeypatch.setattr(settings, "openai_model", "")
+    monkeypatch.setattr(settings, "read_model", "")
 
     async def editable_analysis(*_args, **_kwargs):
         return RoomSpec(

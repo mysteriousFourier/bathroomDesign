@@ -65,6 +65,7 @@ export interface OpeningSpec {
 }
 
 export type FixtureKind = 'toilet' | 'vanity' | 'shower' | 'floor_drain' | 'drain' | 'water' | 'electric' | 'pipe' | 'column' | 'radiator' | 'other'
+export type FixturePointUsage = 'general' | 'toilet' | 'shower' | 'basin'
 
 export interface FixtureSpec {
   id: string
@@ -80,6 +81,7 @@ export interface FixtureSpec {
   confidence: number
   evidence_ids?: string[]
   bound_wall_index?: number | null
+  point_usage?: FixturePointUsage
 }
 
 export interface WallProfile {

@@ -4,7 +4,7 @@ import { Eye, EyeOff, Focus, Layers, Move3d } from 'lucide-react'
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Shape } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
-import { finishedRoomBoundary, roomBounds, roomCentroid, wallLayerPolygons, wallLength } from '../spec'
+import { finishedRoomBoundary, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerPolygons, wallLength } from '../spec'
 import type { FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
 
 export interface ModelCanvasHandle {
@@ -13,17 +13,6 @@ export interface ModelCanvasHandle {
 
 type WallPart = { start: number; end: number; y: number; height: number }
 type WallLayers = { finish: Point2D[]; wall: Point2D[] }
-
-function pointAt(start: Point2D, end: Point2D, ratio: number) {
-  return { x_mm: start.x_mm + (end.x_mm - start.x_mm) * ratio, z_mm: start.z_mm + (end.z_mm - start.z_mm) * ratio }
-}
-
-function sliceWallQuad(quad: Point2D[], startRatio: number, endRatio: number) {
-  return [
-    pointAt(quad[0], quad[1], startRatio), pointAt(quad[0], quad[1], endRatio),
-    pointAt(quad[3], quad[2], endRatio), pointAt(quad[3], quad[2], startRatio),
-  ]
-}
 
 function wallPrismGeometry(quad: Point2D[], minY: number, maxY: number) {
   const geometry = new BufferGeometry()
@@ -48,6 +37,8 @@ function WallPrism({ quad, part, color, edge, onSelect }: { quad: Point2D[]; par
 
 function Wall({ spec, index, layers, selected, onSelect }: { spec: RoomSpec; index: number; layers: WallLayers; selected: boolean; onSelect: () => void }) {
   const lengthMm = wallLength(spec.boundary, index)
+  const wallStart = spec.boundary[index]
+  const wallEnd = spec.boundary[(index + 1) % spec.boundary.length]
   const heightMm = spec.height_mm ?? 2600
   const openings = spec.openings.filter((opening) => opening.wall_index === index).sort((a, b) => a.offset_mm - b.offset_mm)
   const parts: WallPart[] = []
@@ -66,10 +57,10 @@ function Wall({ spec, index, layers, selected, onSelect }: { spec: RoomSpec; ind
   return (
     <group>
       {parts.map((part, partIndex) => (
-        <WallPrism key={partIndex} quad={sliceWallQuad(layers.wall, part.start / lengthMm, part.end / lengthMm)} part={part} color={selected ? '#d8c8a5' : '#e7e5df'} edge={selected ? '#8a6725' : '#b9bcb4'} onSelect={onSelect} />
+        <WallPrism key={partIndex} quad={sliceWallQuadByDistance(layers.wall, wallStart, wallEnd, part.start, part.end)} part={part} color={selected ? '#d8c8a5' : '#e7e5df'} edge={selected ? '#8a6725' : '#b9bcb4'} onSelect={onSelect} />
       ))}
       {parts.map((part, partIndex) => (
-        <WallPrism key={`finish-${partIndex}`} quad={sliceWallQuad(layers.finish, part.start / lengthMm, part.end / lengthMm)} part={part} color={selected ? '#d8c8a5' : '#f2efe7'} edge={selected ? '#8a6725' : '#c8c1b2'} onSelect={onSelect} />
+        <WallPrism key={`finish-${partIndex}`} quad={sliceWallQuadByDistance(layers.finish, wallStart, wallEnd, part.start, part.end)} part={part} color={selected ? '#d8c8a5' : '#f2efe7'} edge={selected ? '#8a6725' : '#c8c1b2'} onSelect={onSelect} />
       ))}
     </group>
   )
@@ -115,8 +106,8 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
         <mesh {...common} position={[-width / 2, height / 2, 0]}><boxGeometry args={[0.018, height, depth]} /><meshPhysicalMaterial color="#c7d7d3" transparent opacity={0.34} roughness={0.05} transmission={0.35} /><Edges color={outline} /></mesh>
         <mesh {...common} position={[0, 0.025, 0]}><boxGeometry args={[width, 0.05, depth]} /><meshStandardMaterial color="#d9dcd5" roughness={0.7} /><Edges color={outline} /></mesh>
       </>}
-      {fixture.kind === 'floor_drain' && <mesh {...common} position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]}><cylinderGeometry args={[width / 2, width / 2, 0.024, 24]} /><meshStandardMaterial color={selected ? '#c89638' : '#777d79'} metalness={0.75} roughness={0.25} /><Edges color={outline} /></mesh>}
-      {fixture.kind === 'drain' && <mesh {...common} position={[0, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}><cylinderGeometry args={[Math.max(width / 2, 0.025), Math.max(width / 2, 0.025), 0.036, 24]} /><meshStandardMaterial color={selected ? '#c89638' : '#4f7180'} metalness={0.65} roughness={0.28} /><Edges color={outline} /></mesh>}
+      {fixture.kind === 'floor_drain' && <mesh {...common} position={[0, 0.012, 0]}><boxGeometry args={[Math.max(width, depth), 0.024, Math.max(width, depth)]} /><meshStandardMaterial color={selected ? '#c89638' : '#777d79'} metalness={0.75} roughness={0.25} /><Edges color={outline} /></mesh>}
+      {fixture.kind === 'drain' && <mesh {...common} position={[0, 0.018, 0]}><cylinderGeometry args={[Math.max(width / 2, 0.025), Math.max(width / 2, 0.025), 0.036, 24]} /><meshStandardMaterial color={selected ? '#c89638' : '#4f7180'} metalness={0.65} roughness={0.28} /><Edges color={outline} /></mesh>}
       {fixture.kind === 'water' && <mesh {...common} position={[0, Math.max(height / 2, 0.04), 0]}><sphereGeometry args={[Math.max(width / 2, 0.025), 20, 14]} /><meshStandardMaterial color={selected ? '#d0a54e' : '#287d9c'} metalness={0.35} roughness={0.3} /><Edges color={outline} /></mesh>}
       {fixture.kind === 'electric' && <mesh {...common} position={[0, Math.max(height / 2, 0.04), 0]}><boxGeometry args={[Math.max(width, 0.05), Math.max(height, 0.05), Math.max(depth, 0.018)]} /><meshStandardMaterial color={selected ? '#d0a54e' : '#bf8a26'} roughness={0.45} /><Edges color={outline} /></mesh>}
       {fixture.kind === 'pipe' && <mesh {...common} position={[0, height / 2, 0]}><cylinderGeometry args={[width / 2, width / 2, height, 24]} /><meshStandardMaterial color={selected ? '#d4a650' : '#90958e'} metalness={0.35} roughness={0.4} /><Edges color={outline} /></mesh>}

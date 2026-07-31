@@ -252,7 +252,7 @@ async def request_vision_agent(
         except (AIResponseError, ValueError, TypeError, json.JSONDecodeError) as error:
             errors.append(f"{model}: {error}")
             await asyncio.sleep(1.5)
-    raise RuntimeError(f"{stage} 全部视觉模型失败：" + "；".join(errors))
+    raise RuntimeError(f"{stage} READ_MODEL 失败：" + "；".join(errors))
 
 
 async def recognize(path: Path) -> dict[str, Any]:
@@ -260,10 +260,10 @@ async def recognize(path: Path) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
     vision_models = list(dict.fromkeys(
         model for model in (
-            settings.openai_vision_model, settings.openai_fast_model, settings.openai_fallback_model,
+            settings.read_model,
         ) if model
     ))
-    coordinator_model = settings.openai_coordinator_model
+    coordinator_model = settings.chat_model
     candidates = _raster_topology_candidates(path, 0, fast=True)
     if not candidates:
         raise RuntimeError("程序没有生成可用拓扑候选")

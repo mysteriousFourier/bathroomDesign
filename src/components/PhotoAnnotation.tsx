@@ -2,7 +2,7 @@ import { BoxSelect, Check, Eye, EyeOff, MousePointer2, PenLine, Plus, ScanText, 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { drawableEvidence, observationId, reviewEvidence } from '../evidence'
 import { reconcileBoundaryEdges, solveBoundaryEdges } from '../geometry'
-import { cloneSpec, finishedRoomBoundary, fixtureCanBindWall, snapPointToNearestWall } from '../spec'
+import { cloneSpec, finishedRoomBoundary, fixtureCanBindWall, fixturePointShape, fixturePointUsage, generateDryWetZones, snapPointToNearestWall } from '../spec'
 import type { Asset, BoundaryEdge, FixtureSpec, ImageBoundaryPoint, Point2D, RoomSpec } from '../types'
 
 const canvasWidth = 1000
@@ -305,6 +305,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     fixture.bound_wall_index = snap?.wall_index ?? null
     fixture.source = 'user'
     fixture.confidence = 1
+    if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
     const evidenceId = fixture.evidence_ids?.[0]
     const observation = evidenceId ? draft.observations.find((item) => item.field === `visual_evidence:${evidenceId}`) : undefined
     if (observation) {
@@ -510,13 +511,14 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
       {pointFixtures.map((fixture) => {
         const point = fixtureToCanvas(fixture, spec, points)
         if (!point) return null
+        const pointShape = fixturePointShape(fixture.kind)
         return <g key={`annotation-fixture-${fixture.id}`} data-fixture-id={fixture.id} className="annotation-marker" transform={`translate(${point.x} ${point.y})`}
           onPointerDown={(event) => {
             if (tool !== 'edit') return
             event.preventDefault(); event.stopPropagation(); setDragFixtureId(fixture.id); event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
           }}>
           <circle className="annotation-marker-hit" r="22" />
-          <circle className="annotation-marker-dot" r="10" />
+          {pointShape === 'square' ? <rect className="annotation-marker-dot" x="-10" y="-10" width="20" height="20" /> : <circle className="annotation-marker-dot" r="10" />}
           <text y="-14">{fixture.label}</text>
           <text className="annotation-marker-coordinate" y="26">X {fixture.x_mm} · Z {fixture.z_mm}</text>
         </g>

@@ -2482,7 +2482,7 @@ async def _coordinate_segment_edge_chain(
         "lengths_mm": [None] * len(directions),
         "evidence_ids": [[] for _ in directions],
     }
-    model = settings.openai_coordinator_model or settings.openai_model or _vision_recognition_models()[0]
+    model = settings.chat_model or _vision_recognition_models()[0]
     try:
         content = await _request_content(
             client,
@@ -3388,17 +3388,7 @@ def _models(preferred: str | None = None) -> list[str]:
 
 
 def _vision_recognition_models() -> list[str]:
-    configured = [
-        settings.openai_vision_model,
-        settings.openai_fast_model,
-        settings.openai_fallback_model,
-    ]
-    # OPENAI_MODEL remains a compatibility fallback for older .env files. Once
-    # a dedicated visual model is configured, coordinator models stay out of
-    # all image requests.
-    if not any(configured):
-        configured.append(settings.openai_model)
-    return list(dict.fromkeys(model for model in configured if model))
+    return [settings.read_model] if settings.read_model else []
 
 
 def _template_evidence_models() -> list[str]:
@@ -3601,7 +3591,7 @@ async def _chat_once(client: httpx.AsyncClient, endpoint: str, headers: dict[str
 
 async def _chat(content: list[dict]) -> RoomSpec:
     if not settings.ai_configured:
-        raise AIConfigurationError("尚未配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 OPENAI_MODEL")
+        raise AIConfigurationError("尚未配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 READ_MODEL")
 
     endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
     models = _models()
@@ -3615,7 +3605,7 @@ async def _chat(content: list[dict]) -> RoomSpec:
                 raise
             except AIResponseError as error:
                 errors.append(f"{model}: {error}")
-    raise AIResponseError("主模型与回退模型均失败；" + "；".join(errors))
+    raise AIResponseError("READ_MODEL 请求失败；" + "；".join(errors))
 
 
 def _supports_visual_tools(model: str) -> bool:
@@ -6471,7 +6461,7 @@ async def analyze_floorplan_fast(
     )
     if provisional is None:
         if not settings.ai_configured:
-            raise AIConfigurationError("尚未配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 OPENAI_MODEL")
+            raise AIConfigurationError("尚未配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 READ_MODEL")
         raise AIResponseError("OCR 未取得至少两条房间尺度数字；请从待校正裁片补录")
     return provisional
 
@@ -6482,7 +6472,7 @@ async def analyze_floorplan(
     rotation_degrees: int | None = None,
 ) -> RoomSpec:
     if not settings.ai_configured:
-        raise AIConfigurationError("尚未配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 OPENAI_MODEL")
+        raise AIConfigurationError("尚未配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 READ_MODEL")
     endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
     headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
     errors: list[str] = []

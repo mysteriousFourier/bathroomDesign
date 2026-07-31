@@ -64,8 +64,8 @@ def ai_http_error(error: Exception) -> HTTPException:
 
 @app.get("/api/health")
 def health() -> dict:
-    visual_model = settings.openai_vision_model or settings.openai_fast_model or settings.openai_model
-    fallback_model = settings.openai_fast_model if settings.openai_fast_model != visual_model else None
+    visual_model = settings.read_model
+    fallback_model = None
     return {
         "ok": True,
         "ai_configured": settings.ai_configured,

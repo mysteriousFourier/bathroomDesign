@@ -1,6 +1,6 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, projectPointToWall, roomBounds, roomCentroid, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
-import type { Asset, DryWetZone, EvidenceRole, FixtureKind, RoomSpec, Selection, SourceKind } from '../types'
+import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, projectPointToWall, roomBounds, roomCentroid, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
+import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
 const sourceLabels: Record<SourceKind, string> = { measured: '测量', derived: '推导', estimated: '估算', user: '用户' }
@@ -71,14 +71,19 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
     })
   })
 
-  const addFixture = (kind: FixtureKind) => {
+  const addFixture = (kind: FixtureKind, pointUsage?: FixturePointUsage) => {
     const center = roomCentroid(finishedBoundary)
     const defaults = fixtureDefaults[kind]
     const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`
-    edit((draft) => draft.fixtures.push({
-      id, kind, label: fixtureLabels[kind], x_mm: Math.round(center.x), z_mm: Math.round(center.z),
-      ...defaults, rotation_deg: 0, source: 'user', confidence: 1,
-    }))
+    edit((draft) => {
+      if (kind === 'floor_drain' && pointUsage === 'shower') draft.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
+      draft.fixtures.push({
+        id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : fixtureLabels[kind], x_mm: Math.round(center.x), z_mm: Math.round(center.z),
+        ...defaults, rotation_deg: 0, source: 'user', confidence: 1,
+        point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined,
+      })
+      if (kind === 'floor_drain' && pointUsage === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
+    })
     onSelect({ type: 'fixture', id })
   }
 
@@ -150,8 +155,8 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             <NumberField label="原饰面刨除" value={finishSurfaceOffset(spec)} min={0} disabled={!stripsExistingFinish(spec)} onChange={(value) => edit((draft) => { draft.finish_surface_offset_mm = value })} />
             <NumberField label="新饰面厚度" value={wallFinishBaseThickness(spec)} min={0} onChange={(value) => edit((draft) => { draft.wall_finish_thickness_mm = value })} />
             <div className="finish-editor">
-              <button className="button secondary wide" onClick={() => edit((draft) => { draft.dry_wet_zones = generateDryWetZones(draft) })}>按地漏生成湿区</button>
-              <button className="button secondary wide" onClick={addZone}><Plus size={15} />添加湿区</button>
+              <button className="button secondary wide" onClick={() => edit((draft) => { draft.dry_wet_zones = generateDryWetZones(draft) })}>按淋浴地漏生成湿区</button>
+              <button className="button secondary wide" disabled={(spec.dry_wet_zones ?? []).some((zone) => zone.kind === 'wet')} title={(spec.dry_wet_zones ?? []).some((zone) => zone.kind === 'wet') ? '当前房间已有湿区' : undefined} onClick={addZone}><Plus size={15} />添加湿区</button>
               <button className="button secondary wide" onClick={() => edit((draft) => { draft.wall_finish_profiles = generateWallFinishProfiles(draft) })}>生成逐墙饰面</button>
               {(spec.wall_finish_profiles ?? []).map((finish) => <div className="finish-row" key={`finish-row-${finish.wall_index}`}>
                 <span>W{finish.wall_index + 1}{finish.generated_from_bound_point ? ' 绑定点' : ' 默认'}</span>
@@ -180,6 +185,17 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
           <div className="field-stack">
             <div className="object-heading"><strong>{selectedFixture.label}</strong><SourceBadge source={selectedFixture.source} confidence={selectedFixture.confidence} /></div>
             <label className="text-field"><span>名称</span><input value={selectedFixture.label} onChange={(event) => edit((draft) => { draft.fixtures.find((item) => item.id === selectedFixture.id)!.label = event.target.value })} /></label>
+            {(selectedFixture.kind === 'floor_drain' || selectedFixture.kind === 'drain' || selectedFixture.kind === 'water') && <label className="text-field"><span>{selectedFixture.kind === 'floor_drain' ? '地漏类型' : '使用对象'}</span><select value={fixturePointUsage(selectedFixture) ?? 'general'} onChange={(event) => edit((draft) => {
+              const usage = event.target.value as FixturePointUsage
+              const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!
+              if (item.kind === 'floor_drain' && usage === 'shower') draft.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain' && fixture.id !== item.id) { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
+              item.point_usage = usage
+              if (item.kind === 'floor_drain') {
+                if (usage === 'shower') item.label = '淋浴地漏'
+                else if (item.label === '淋浴地漏') item.label = '地漏'
+                draft.dry_wet_zones = generateDryWetZones(draft)
+              }
+            })}>{(selectedFixture.kind === 'floor_drain' ? (['general', 'shower'] as FixturePointUsage[]) : Object.keys(fixturePointUsageLabels) as FixturePointUsage[]).map((usage) => <option key={usage} value={usage}>{selectedFixture.kind === 'floor_drain' ? (usage === 'shower' ? '淋浴地漏' : '普通地漏') : `${fixturePointUsageLabels[usage]}${selectedFixture.kind === 'water' ? '给水' : '排水'}`}</option>)}</select></label>}
             {(['x_mm', 'z_mm', 'width_mm', 'depth_mm', 'height_mm', 'rotation_deg'] as const).map((field) => (
               <NumberField key={field} label={{ x_mm: 'X 位置', z_mm: 'Z 位置', width_mm: '宽度', depth_mm: '深度', height_mm: '高度', rotation_deg: '旋转' }[field]} value={selectedFixture[field]} unit={field === 'rotation_deg' ? '°' : 'mm'} step={field === 'rotation_deg' ? 5 : 10} onChange={(value) => edit((draft) => {
                 const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!
@@ -188,6 +204,7 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
                   const projection = projectPointToWall(finishedRoomBoundary(draft), selectedFixtureWall, item)
                   if (projection) { item.x_mm = projection.point.x_mm; item.z_mm = projection.point.z_mm }
                 }
+                if ((field === 'x_mm' || field === 'z_mm') && item.kind === 'floor_drain' && fixturePointUsage(item) === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
               })} />
             ))}
             {fixtureCanBindWall(selectedFixture.kind) && <label className="text-field"><span>绑定墙段</span><select value={selectedFixtureWall ?? ''} onChange={(event) => edit((draft) => {
@@ -229,9 +246,10 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
         {spec.fixtures.map((fixture) => <button key={fixture.id} className={selection.type === 'fixture' && selection.id === fixture.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'fixture', id: fixture.id })}><span className={`object-icon ${fixture.source}`} />{fixture.label}<small>{Math.round(fixture.confidence * 100)}%</small></button>)}
         {(spec.dry_wet_zones ?? []).filter((zone) => zone.kind === 'wet').map((zone) => <button key={zone.id} className={selection.type === 'dry_wet_zone' && selection.id === zone.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'dry_wet_zone', id: zone.id })}><span className="object-icon zone-wet" />{zone.label}<small>湿区</small></button>)}
         <div className="add-row">
-          <select defaultValue="" onChange={(event) => { if (event.target.value) addFixture(event.target.value as FixtureKind); event.target.value = '' }} aria-label="添加设施">
+          <select defaultValue="" onChange={(event) => { if (event.target.value === 'floor_drain:shower') addFixture('floor_drain', 'shower'); else if (event.target.value) addFixture(event.target.value as FixtureKind); event.target.value = '' }} aria-label="添加设施">
             <option value="" disabled>添加设施…</option>
             {Object.entries(fixtureLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
+            <option value="floor_drain:shower">淋浴地漏</option>
           </select>
           <button className="icon-button" title="添加门窗洞口" onClick={addOpening}><Plus size={16} /></button>
         </div>

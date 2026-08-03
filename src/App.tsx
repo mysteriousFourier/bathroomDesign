@@ -14,7 +14,7 @@ import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { fixtureModelAssetFromLibrary, type RoomModelAsset } from './modelAssets'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, projectPointToWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, wetZoneBoundaryValid } from './spec'
+import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, projectPointToWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, wallLength, wetZoneBoundaryValid } from './spec'
 import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
@@ -27,7 +27,10 @@ const wetZonesOnly = (spec: RoomSpec) => {
 
 const visibleSpec = (value: Project | null) => {
   const spec = value?.status === 'analysis_failed' ? null : value?.spec ?? null
-  return spec ? wetZonesOnly(spec) : null
+  if (!spec) return null
+  const normalized = cloneSpec(spec)
+  syncOpeningBindings(normalized)
+  return wetZonesOnly(normalized)
 }
 
 const imagePointToRoom = (spec: RoomSpec, x: number, y: number) => {
@@ -193,9 +196,11 @@ export default function App() {
   }
 
   const applyAnalysis = (result: Awaited<ReturnType<typeof studioApi.analyzePlan>>) => {
-    const next = wetZonesOnly(result.spec)
-    setSpec(next); setProject((current) => current ? { ...current, spec: next, measurement: result.measurement, status: 'review' } : current)
-    setHistory([]); setFuture([]); setDirty(false); setMode(next.plan_annotation?.confirmed ? 'review' : 'annotation'); setSelection({ type: 'room' })
+    const next = cloneSpec(result.spec)
+    syncOpeningBindings(next)
+    const visible = wetZonesOnly(next)
+    setSpec(visible); setProject((current) => current ? { ...current, spec: visible, measurement: result.measurement, status: 'review' } : current)
+    setHistory([]); setFuture([]); setDirty(false); setMode(visible.plan_annotation?.confirmed ? 'review' : 'annotation'); setSelection({ type: 'room' })
     setFocusEvidenceId(null); setActiveEvidenceId(null)
   }
 
@@ -487,6 +492,16 @@ export default function App() {
                   plan={plan}
                   selection={selection}
                   onSelect={setSelection}
+                  onOpeningAdd={() => {
+                    const next = cloneSpec(spec)
+                    const id = `door-${crypto.randomUUID().slice(0, 8)}`
+                    const wallIndex = next.boundary.reduce((best, _point, index) => wallLength(next.boundary, index) > wallLength(next.boundary, best) ? index : best, 0)
+                    const length = Math.max(1, wallLength(next.boundary, wallIndex))
+                    const width = Math.min(800, length)
+                    next.openings.push({ id, kind: 'door', wall_index: wallIndex, offset_mm: Math.max(0, Math.round((length - width) / 2 / 10) * 10), width_mm: width, height_mm: 2100, sill_mm: 0, label: '门洞', source: 'user', confidence: 1 })
+                    commitSpec(next)
+                    setSelection({ type: 'opening', id })
+                  }}
                   onOpeningChange={(id, offsetMm, widthMm) => {
                     const next = cloneSpec(spec)
                     const opening = next.openings.find((item) => item.id === id)
@@ -500,6 +515,12 @@ export default function App() {
                     opening.wall_index = wallIndex
                     opening.wall_binding = { wall_index: opening.wall_index, start_ratio: offsetMm / length, end_ratio: (offsetMm + widthMm) / length }
                     commitSpec(next)
+                  }}
+                  onOpeningDelete={(id) => {
+                    const next = cloneSpec(spec)
+                    next.openings = next.openings.filter((item) => item.id !== id)
+                    commitSpec(next)
+                    setSelection({ type: 'room' })
                   }}
                   onEvidenceSelect={setFocusEvidenceId}
                   onFixtureAdd={(kind: FixtureKind, xMm, zMm, wallIndex, pointUsage?: FixturePointUsage) => {

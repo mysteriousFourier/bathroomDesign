@@ -22,6 +22,18 @@ describe('room boundary validation', () => {
     expect(spec.openings[0].offset_mm).toBe(1200)
     expect(spec.openings[0].width_mm).toBe(800)
   })
+
+  it('moves an opening off an impossible short wall on legacy project load', () => {
+    const spec = manualRoom(2400, 1800, 2600)
+    spec.boundary = [
+      { x_mm: 0, z_mm: 0 }, { x_mm: 180, z_mm: 0 }, { x_mm: 180, z_mm: 1800 }, { x_mm: 2400, z_mm: 1800 }, { x_mm: 0, z_mm: 1800 },
+    ]
+    spec.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 0, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'measured', confidence: 1 })
+    syncOpeningBindings(spec)
+    expect(spec.openings[0].wall_index).toBe(3)
+    expect(spec.openings[0].width_mm).toBe(800)
+    expect(spec.openings[0].wall_binding?.wall_index).toBe(3)
+  })
   it('accepts a closed orthogonal room', () => {
     expect(clientValidate(manualRoom(2400, 1800, 2600)).filter((issue) => issue.severity === 'error')).toEqual([])
   })

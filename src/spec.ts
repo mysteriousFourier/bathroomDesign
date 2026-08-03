@@ -127,7 +127,14 @@ export function wallLength(points: Point2D[], index: number) {
 export function syncOpeningBindings(next: RoomSpec, previous?: RoomSpec | null) {
   if (next.boundary.length < 2) return next
   for (const opening of next.openings) {
-    const wallIndex = Math.max(0, Math.min(next.boundary.length - 1, Math.round(opening.wall_index)))
+    let wallIndex = Math.max(0, Math.min(next.boundary.length - 1, Math.round(opening.wall_index)))
+    const requestedWidth = Math.max(1, Math.round(opening.width_mm || 1))
+    if (wallLength(next.boundary, wallIndex) < requestedWidth) {
+      const candidates = next.boundary.map((_, index) => ({ index, length: wallLength(next.boundary, index) }))
+        .filter((candidate) => candidate.length >= requestedWidth)
+        .sort((left, right) => right.length - left.length)
+      if (candidates.length) wallIndex = candidates[0].index
+    }
     opening.wall_index = wallIndex
     const length = Math.max(1, wallLength(next.boundary, wallIndex))
     const previousOpening = previous?.openings.find((item) => item.id === opening.id)
@@ -142,7 +149,7 @@ export function syncOpeningBindings(next: RoomSpec, previous?: RoomSpec | null) 
         ? previousOpening.offset_mm / previousLength
         : opening.offset_mm / length
     const safeStartRatio = Math.max(0, Math.min(1, Number.isFinite(startRatio) ? startRatio : 0))
-    const width = Math.max(1, Math.round(opening.width_mm || 1))
+    const width = requestedWidth
     const maxOffset = Math.max(0, length - width)
     const offset = Math.max(0, Math.min(maxOffset, Math.round(safeStartRatio * length)))
     opening.offset_mm = offset

@@ -517,9 +517,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
           event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
         }
         return <g key={`annotation-opening-${opening.id}`} className="annotation-opening-segments">
-          {before > 0 && <line className="wall-part" x1={start.x} y1={start.y} x2={openingStart.x} y2={openingStart.y} />}
           <line className="opening-part opening-drag-hit" x1={openingStart.x} y1={openingStart.y} x2={openingEnd.x} y2={openingEnd.y} onPointerDown={(event) => beginOpeningDrag(event, 'move')} />
-          {after > 0 && <line className="wall-part" x1={openingEnd.x} y1={openingEnd.y} x2={end.x} y2={end.y} />}
           <line className="opening-tick" x1={openingStart.x - tick.x} y1={openingStart.y - tick.y} x2={openingStart.x + tick.x} y2={openingStart.y + tick.y} />
           <line className="opening-tick" x1={openingEnd.x - tick.x} y1={openingEnd.y - tick.y} x2={openingEnd.x + tick.x} y2={openingEnd.y + tick.y} />
           <circle className="opening-handle" cx={openingStart.x} cy={openingStart.y} r="8" onPointerDown={(event) => beginOpeningDrag(event, 'start')} />

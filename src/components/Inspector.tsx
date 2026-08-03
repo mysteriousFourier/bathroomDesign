@@ -133,8 +133,11 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
 
   const addOpening = () => {
     const id = `door-${crypto.randomUUID().slice(0, 8)}`
+    const wallIndex = spec.boundary.reduce((best, _point, index) => wallLength(spec.boundary, index) > wallLength(spec.boundary, best) ? index : best, 0)
+    const length = Math.max(1, wallLength(spec.boundary, wallIndex))
+    const width = Math.min(800, length)
     edit((draft) => draft.openings.push({
-      id, kind: 'door', wall_index: 0, offset_mm: 200, width_mm: 800, height_mm: 2100,
+      id, kind: 'door', wall_index: wallIndex, offset_mm: Math.max(0, Math.round((length - width) / 2 / 10) * 10), width_mm: width, height_mm: 2100,
       thickness_mm: null, sill_mm: 0, label: '门洞', source: 'user', confidence: 1,
     }))
     onSelect({ type: 'opening', id })

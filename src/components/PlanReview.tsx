@@ -1,4 +1,4 @@
-import { CircleDot, DoorOpen, Droplet, Focus, Move, Plug, Square, Waves, ZoomIn, ZoomOut } from 'lucide-react'
+import { CircleDot, DoorOpen, Droplet, Focus, Move, Plug, Plus, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength, wetZoneBoundaryValid } from '../spec'
 import type { Asset, FixtureKind, FixturePointUsage, OpeningSpec, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
@@ -16,13 +16,15 @@ const dimensionTextGapMinPx = 28
 const dimensionTickPx = 8
 const lineKindLabels: Record<PlanLineKind, string> = { pipe_chase: '包管线', inner_wall: '内墙线', door_line: '门线' }
 
-export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onOpeningChange, onFixtureAdd, onPlanLineAdd, onPlanLineExtend, onZoneChange, onEvidenceSelect }: {
+export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onOpeningAdd, onOpeningChange, onOpeningDelete, onFixtureAdd, onPlanLineAdd, onPlanLineExtend, onZoneChange, onEvidenceSelect }: {
   spec: RoomSpec
   plan?: Asset
   selection: Selection
   onSelect: (selection: Selection) => void
   onFixtureMove: (id: string, xMm: number, zMm: number) => void
+  onOpeningAdd?: () => void
   onOpeningChange?: (id: string, offsetMm: number, widthMm: number) => void
+  onOpeningDelete?: (id: string) => void
   onFixtureAdd?: (kind: FixtureKind, xMm: number, zMm: number, wallIndex: number | null, pointUsage?: FixturePointUsage) => void
   onPlanLineAdd?: (kind: PlanLineKind, points: Point2D[]) => string | null
   onPlanLineExtend?: (id: string, point: Point2D) => void
@@ -237,6 +239,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           <button className={`icon-button${addLine === 'pipe_chase' ? ' active-tool' : ''}`} title="绘制包管线" onClick={() => chooseLineTool('pipe_chase')}><Square size={17} /></button>
           <button className={`icon-button${addLine === 'inner_wall' ? ' active-tool' : ''}`} title="绘制内墙线" onClick={() => chooseLineTool('inner_wall')}><Move size={17} /></button>
           <button className={`icon-button${addLine === 'door_line' ? ' active-tool' : ''}`} title="绘制门线" onClick={() => chooseLineTool('door_line')}><DoorOpen size={17} /></button>
+          <button className="icon-button" title="添加门窗洞口" onClick={onOpeningAdd}><Plus size={17} /></button>
+          <button className="icon-button danger" title="删除选中的门窗洞口" disabled={selection.type !== 'opening'} onClick={() => selection.type === 'opening' && onOpeningDelete?.(selection.id)}><Trash2 size={17} /></button>
           <button className="icon-button" title="缩小" onClick={() => zoomAt(0.8)}><ZoomOut size={17} /></button>
           <button className="icon-button" title="放大" onClick={() => zoomAt(1.25)}><ZoomIn size={17} /></button>
           <button className="icon-button" title="适配视图" onClick={fitView}><Focus size={17} /></button>
@@ -417,9 +421,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           }
           return <g key={opening.id} className={selected ? 'opening-segment selected' : 'opening-segment'} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'opening', id: opening.id }) }}>
             <line className="opening-wall-cut" x1={x1} y1={y1} x2={x2} y2={y2} />
-            <line className="opening-wall-part" x1={sx(start.x_mm)} y1={sz(start.z_mm)} x2={x1} y2={y1} />
             <line className="opening-gap-part" x1={x1} y1={y1} x2={x2} y2={y2} />
-            <line className="opening-wall-part" x1={x2} y1={y2} x2={sx(end.x_mm)} y2={sz(end.z_mm)} />
             <line className="opening-drag-hit" x1={x1} y1={y1} x2={x2} y2={y2} onPointerDown={(event) => beginOpeningDrag(event, 'move')} />
             <circle className="opening-jamb" cx={x1} cy={y1} r={selected ? 5 : 2.5} onPointerDown={(event) => beginOpeningDrag(event, 'start')} />
             <circle className="opening-jamb" cx={x2} cy={y2} r={selected ? 5 : 2.5} onPointerDown={(event) => beginOpeningDrag(event, 'end')} />

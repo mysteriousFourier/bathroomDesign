@@ -2,7 +2,7 @@ import { BoxSelect, Check, Eye, EyeOff, MousePointer2, PenLine, Plus, ScanText, 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { drawableEvidence, observationId, reviewEvidence } from '../evidence'
 import { reconcileBoundaryEdges, solveBoundaryEdges } from '../geometry'
-import { cloneSpec, finishedRoomBoundary, fixtureCanBindWall, fixturePointShape, fixturePointUsage, generateDryWetZones, snapPointToNearestWall } from '../spec'
+import { cloneSpec, finishedRoomBoundary, fixtureCanBindWall, fixturePointShape, fixturePointUsage, generateDryWetZones, openingLine, snapPointToNearestWall } from '../spec'
 import type { Asset, BoundaryEdge, FixtureSpec, ImageBoundaryPoint, Point2D, RoomSpec } from '../types'
 
 const canvasWidth = 1000
@@ -157,6 +157,15 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
         ? { width: canvasWidth, height: canvasHeight, transform: `translate(${canvasWidth} ${canvasHeight}) rotate(180)` }
         : { width: canvasWidth, height: canvasHeight, transform: undefined }
   const canvasPoints = useMemo(() => points.map(toCanvas), [points])
+  const roomToCanvas = (point: Point2D): CanvasPoint => {
+    const imageXs = points.map((item) => item.x), imageYs = points.map((item) => item.y)
+    const roomXs = spec.boundary.map((item) => item.x_mm), roomZs = spec.boundary.map((item) => item.z_mm)
+    const imageMinX = Math.min(...imageXs, 0), imageMaxX = Math.max(...imageXs, 1000)
+    const imageMinY = Math.min(...imageYs, 0), imageMaxY = Math.max(...imageYs, 1000)
+    const roomMinX = Math.min(...roomXs, 0), roomMaxX = Math.max(...roomXs, 1)
+    const roomMinZ = Math.min(...roomZs, 0), roomMaxZ = Math.max(...roomZs, 1)
+    return { x: imageMinX + (point.x_mm - roomMinX) * (imageMaxX - imageMinX) / Math.max(1, roomMaxX - roomMinX), y: (imageMinY + (point.z_mm - roomMinZ) * (imageMaxY - imageMinY) / Math.max(1, roomMaxZ - roomMinZ)) * canvasHeight / 1000 }
+  }
   const edgeChain = useMemo(
     () => reconcileBoundaryEdges(points, annotation?.boundary ?? [], annotation?.edge_chain ?? []),
     [annotation?.boundary, annotation?.edge_chain, points],
@@ -491,40 +500,19 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
         </g>
       })}
       {spec.openings.map((rawOpening) => {
-        const opening = openingDrag?.id === rawOpening.id
-          ? { ...rawOpening, offset_mm: Math.round(openingDrag.startRatio * (edgeChain[rawOpening.wall_index]?.length_mm ?? 1)), width_mm: Math.round((openingDrag.endRatio - openingDrag.startRatio) * (edgeChain[rawOpening.wall_index]?.length_mm ?? 1)) }
-          : rawOpening
-        const edge = edgeChain[opening.wall_index]
-        const start = canvasPoints[opening.wall_index]
-        const end = canvasPoints[(opening.wall_index + 1) % canvasPoints.length]
-        const edgeLength = edge?.length_mm
-        if (!start || !end || !edgeLength || opening.offset_mm + opening.width_mm > edgeLength) return null
-        const openingStart = pointAtRatio(start, end, opening.offset_mm / edgeLength)
-        const openingEnd = pointAtRatio(start, end, (opening.offset_mm + opening.width_mm) / edgeLength)
-        const beforeMiddle = pointAtRatio(start, openingStart, 0.5)
-        const openingMiddle = pointAtRatio(openingStart, openingEnd, 0.5)
-        const afterMiddle = pointAtRatio(openingEnd, end, 0.5)
-        const before = opening.offset_mm
-        const after = edgeLength - opening.offset_mm - opening.width_mm
-        const vertical = edge.direction === 'up' || edge.direction === 'down'
-        const tick = vertical ? { x: 10, y: 0 } : { x: 0, y: 10 }
-        const beginOpeningDrag = (event: React.PointerEvent<SVGElement>, mode: OpeningDrag['mode']) => {
-          if (tool !== 'edit' || event.button !== 0) return
-          event.preventDefault(); event.stopPropagation()
-          const startRatio = opening.offset_mm / edgeLength
-          const endRatio = (opening.offset_mm + opening.width_mm) / edgeLength
-          setOpeningDrag({ pointerId: event.pointerId, id: opening.id, wallIndex: opening.wall_index, startRatio, endRatio, originStartRatio: startRatio, originEndRatio: endRatio, mode })
-          event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
-        }
-        return <g key={`annotation-opening-${opening.id}`} className="annotation-opening-segments">
-          <line className="opening-part opening-drag-hit" x1={openingStart.x} y1={openingStart.y} x2={openingEnd.x} y2={openingEnd.y} onPointerDown={(event) => beginOpeningDrag(event, 'move')} />
-          <line className="opening-tick" x1={openingStart.x - tick.x} y1={openingStart.y - tick.y} x2={openingStart.x + tick.x} y2={openingStart.y + tick.y} />
-          <line className="opening-tick" x1={openingEnd.x - tick.x} y1={openingEnd.y - tick.y} x2={openingEnd.x + tick.x} y2={openingEnd.y + tick.y} />
-          <circle className="opening-handle" cx={openingStart.x} cy={openingStart.y} r="8" onPointerDown={(event) => beginOpeningDrag(event, 'start')} />
-          <circle className="opening-handle" cx={openingEnd.x} cy={openingEnd.y} r="8" onPointerDown={(event) => beginOpeningDrag(event, 'end')} />
-          {before > 0 && <text x={beforeMiddle.x} y={beforeMiddle.y - 9}>{before}</text>}
-          <text className="opening-label" x={openingMiddle.x} y={openingMiddle.y - 9}>{opening.label} {opening.width_mm}</text>
-          {after > 0 && <text x={afterMiddle.x} y={afterMiddle.y - 9}>{after}</text>}
+        const line = rawOpening.line ?? openingLine(spec, rawOpening)
+        const openingStart = roomToCanvas(line.start)
+        const openingEnd = roomToCanvas(line.end)
+        const dx = openingEnd.x - openingStart.x, dy = openingEnd.y - openingStart.y
+        const distance = Math.max(1, Math.hypot(dx, dy))
+        const normal = { x: -dy / distance, y: dx / distance }
+        return <g key={`annotation-opening-${rawOpening.id}`} className="annotation-opening-segments">
+          <line className="opening-part opening-drag-hit" x1={openingStart.x} y1={openingStart.y} x2={openingEnd.x} y2={openingEnd.y} />
+          <line className="opening-tick" x1={openingStart.x - normal.x * 10} y1={openingStart.y - normal.y * 10} x2={openingStart.x + normal.x * 10} y2={openingStart.y + normal.y * 10} />
+          <line className="opening-tick" x1={openingEnd.x - normal.x * 10} y1={openingEnd.y - normal.y * 10} x2={openingEnd.x + normal.x * 10} y2={openingEnd.y + normal.y * 10} />
+          <circle className="opening-handle" cx={openingStart.x} cy={openingStart.y} r="8" />
+          <circle className="opening-handle" cx={openingEnd.x} cy={openingEnd.y} r="8" />
+          <text className="opening-label" x={(openingStart.x + openingEnd.x) / 2 + normal.x * 12} y={(openingStart.y + openingEnd.y) / 2 + normal.y * 12}>{rawOpening.label} {Math.round(rawOpening.width_mm)}</text>
         </g>
       })}
       {(() => {

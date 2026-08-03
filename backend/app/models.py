@@ -66,7 +66,8 @@ class OpeningSpec(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1)
     swing_direction: Literal["left", "right", "inward", "outward", "unknown"] = "unknown"
     evidence_ids: list[str] = Field(default_factory=list)
-    wall_binding: dict[str, int | float] | None = None
+    wall_binding: dict[str, object] | None = None
+    line: dict[str, dict[str, int | float]] | None = None
 
 
 class FixtureSpec(BaseModel):

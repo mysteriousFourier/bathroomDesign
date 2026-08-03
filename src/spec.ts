@@ -1,4 +1,4 @@
-import type { DryWetZone, FixtureKind, FixturePointUsage, FixtureSpec, Point2D, RoomSpec, ValidationIssue, WallFinishProfile } from './types'
+import type { DryWetZone, FixtureKind, FixturePointUsage, FixtureSpec, OpeningSpec, Point2D, RoomSpec, ValidationIssue, WallFinishProfile } from './types'
 
 export const defaultWallThicknessMm = 200
 export const defaultFinishSurfaceOffsetMm = 20
@@ -124,41 +124,87 @@ export function wallLength(points: Point2D[], index: number) {
   return Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm)
 }
 
+export function openingLine(spec: RoomSpec, opening: OpeningSpec) {
+  if (opening.line?.start && opening.line.end) return { start: { ...opening.line.start }, end: { ...opening.line.end } }
+  const wallIndex = Math.max(0, Math.min(spec.boundary.length - 1, Math.round(opening.wall_index)))
+  const start = spec.boundary[wallIndex]
+  const end = spec.boundary[(wallIndex + 1) % spec.boundary.length]
+  if (!start || !end) return { start: { x_mm: 0, z_mm: 0 }, end: { x_mm: opening.width_mm, z_mm: 0 } }
+  const length = Math.max(1, wallLength(spec.boundary, wallIndex))
+  const startRatio = opening.offset_mm / length
+  const endRatio = (opening.offset_mm + opening.width_mm) / length
+  return {
+    start: { x_mm: start.x_mm + (end.x_mm - start.x_mm) * startRatio, z_mm: start.z_mm + (end.z_mm - start.z_mm) * startRatio },
+    end: { x_mm: start.x_mm + (end.x_mm - start.x_mm) * endRatio, z_mm: start.z_mm + (end.z_mm - start.z_mm) * endRatio },
+  }
+}
+
+export function centeredOpeningLine(spec: RoomSpec, widthMm: number) {
+  const center = roomCentroid(spec.boundary)
+  const wallIndex = spec.boundary.reduce((best, _point, index) => wallLength(spec.boundary, index) > wallLength(spec.boundary, best) ? index : best, 0)
+  const wallStart = spec.boundary[wallIndex]
+  const wallEnd = spec.boundary[(wallIndex + 1) % spec.boundary.length]
+  const length = Math.max(1, wallLength(spec.boundary, wallIndex))
+  const ux = (wallEnd.x_mm - wallStart.x_mm) / length
+  const uz = (wallEnd.z_mm - wallStart.z_mm) / length
+  const half = Math.max(5, widthMm) / 2
+  return { start: { x_mm: Math.round(center.x - ux * half), z_mm: Math.round(center.z - uz * half) }, end: { x_mm: Math.round(center.x + ux * half), z_mm: Math.round(center.z + uz * half) } }
+}
+
 export function syncOpeningBindings(next: RoomSpec, previous?: RoomSpec | null) {
   if (next.boundary.length < 2) return next
   for (const opening of next.openings) {
-    let wallIndex = Math.max(0, Math.min(next.boundary.length - 1, Math.round(opening.wall_index)))
-    const requestedWidth = Math.max(1, Math.round(opening.width_mm || 1))
-    if (wallLength(next.boundary, wallIndex) < requestedWidth) {
-      const candidates = next.boundary.map((_, index) => ({ index, length: wallLength(next.boundary, index) }))
-        .filter((candidate) => candidate.length >= requestedWidth)
-        .sort((left, right) => right.length - left.length)
-      if (candidates.length) wallIndex = candidates[0].index
-    }
-    opening.wall_index = wallIndex
-    const length = Math.max(1, wallLength(next.boundary, wallIndex))
     const previousOpening = previous?.openings.find((item) => item.id === opening.id)
-    const previousLength = previous && previousOpening && previousOpening.wall_index < previous.boundary.length ? Math.max(1, wallLength(previous.boundary, previousOpening.wall_index)) : length
-    const binding = opening.wall_binding ?? previousOpening?.wall_binding
-    const explicitOffsetChange = !!previousOpening && (opening.offset_mm !== previousOpening.offset_mm || opening.width_mm !== previousOpening.width_mm)
-    const startRatio = explicitOffsetChange
-      ? opening.offset_mm / length
-      : binding?.wall_index === wallIndex
-      ? binding.start_ratio
-      : previousOpening?.wall_index === wallIndex
-        ? previousOpening.offset_mm / previousLength
-        : opening.offset_mm / length
-    const safeStartRatio = Math.max(0, Math.min(1, Number.isFinite(startRatio) ? startRatio : 0))
-    const width = requestedWidth
-    const maxOffset = Math.max(0, length - width)
-    const offset = Math.max(0, Math.min(maxOffset, Math.round(safeStartRatio * length)))
-    opening.offset_mm = offset
-    opening.width_mm = Math.min(width, length)
-    opening.wall_binding = {
-      wall_index: wallIndex,
-      start_ratio: length ? offset / length : 0,
-      end_ratio: length ? (offset + opening.width_mm) / length : 0,
+    const boundaryChanged = !!previous && (previous.boundary.length !== next.boundary.length || previous.boundary.some((point, index) => point.x_mm !== next.boundary[index]?.x_mm || point.z_mm !== next.boundary[index]?.z_mm))
+    const manuallyChangedWall = !!previousOpening && opening.wall_index !== previousOpening.wall_index
+    let wallIndex = Math.max(0, Math.min(next.boundary.length - 1, Math.round(opening.wall_index)))
+    let startRatio = Number.isFinite(opening.offset_mm) ? opening.offset_mm / Math.max(1, wallLength(next.boundary, wallIndex)) : 0.5
+    let endRatio = startRatio + Math.max(1, opening.width_mm) / Math.max(1, wallLength(next.boundary, wallIndex))
+    if (previousOpening && !manuallyChangedWall && boundaryChanged) {
+      const previousWallIndex = Math.max(0, Math.min(previous.boundary.length - 1, Math.round(previousOpening.wall_index)))
+      const previousWallStart = previous.boundary[previousWallIndex]
+      const previousWallEnd = previous.boundary[(previousWallIndex + 1) % previous.boundary.length]
+      const previousLine = previousOpening.line ?? openingLine(previous, previousOpening)
+      const center = { x_mm: (previousLine.start.x_mm + previousLine.end.x_mm) / 2, z_mm: (previousLine.start.z_mm + previousLine.end.z_mm) / 2 }
+      const previousLength = Math.max(1, wallLength(previous.boundary, previousWallIndex))
+      const previousStartRatio = Math.max(0, Math.min(1, ((previousLine.start.x_mm - previousWallStart.x_mm) * (previousWallEnd.x_mm - previousWallStart.x_mm) + (previousLine.start.z_mm - previousWallStart.z_mm) * (previousWallEnd.z_mm - previousWallStart.z_mm)) / (previousLength * previousLength)))
+      const previousEndRatio = Math.max(previousStartRatio, Math.min(1, ((previousLine.end.x_mm - previousWallStart.x_mm) * (previousWallEnd.x_mm - previousWallStart.x_mm) + (previousLine.end.z_mm - previousWallStart.z_mm) * (previousWallEnd.z_mm - previousWallStart.z_mm)) / (previousLength * previousLength)))
+      const candidates = next.boundary.map((start, index) => {
+        const end = next.boundary[(index + 1) % next.boundary.length]
+        const dx = end.x_mm - start.x_mm, dz = end.z_mm - start.z_mm
+        const lengthSq = Math.max(1, dx * dx + dz * dz)
+        const ratio = Math.max(0, Math.min(1, ((center.x_mm - start.x_mm) * dx + (center.z_mm - start.z_mm) * dz) / lengthSq))
+        const px = start.x_mm + dx * ratio, pz = start.z_mm + dz * ratio
+        const distance = Math.hypot(center.x_mm - px, center.z_mm - pz)
+        return { index, distance, ratio, length: Math.sqrt(lengthSq) }
+      }).sort((left, right) => left.distance - right.distance)
+      const candidate = candidates[0]
+      if (candidate) {
+        wallIndex = candidate.index
+        const candidateStart = next.boundary[candidate.index]
+        const candidateEnd = next.boundary[(candidate.index + 1) % next.boundary.length]
+        const candidateDx = candidateEnd.x_mm - candidateStart.x_mm, candidateDz = candidateEnd.z_mm - candidateStart.z_mm
+        const candidateLengthSq = Math.max(1, candidateDx * candidateDx + candidateDz * candidateDz)
+        startRatio = Math.max(0, Math.min(1, ((previousLine.start.x_mm - candidateStart.x_mm) * candidateDx + (previousLine.start.z_mm - candidateStart.z_mm) * candidateDz) / candidateLengthSq))
+        endRatio = Math.max(startRatio + 0.005, Math.min(1, ((previousLine.end.x_mm - candidateStart.x_mm) * candidateDx + (previousLine.end.z_mm - candidateStart.z_mm) * candidateDz) / candidateLengthSq))
+      }
     }
+    const start = next.boundary[wallIndex]
+    const end = next.boundary[(wallIndex + 1) % next.boundary.length]
+    if (!start || !end) continue
+    const length = Math.max(1, wallLength(next.boundary, wallIndex))
+    const width = Math.max(1, Math.round(opening.width_mm || 1))
+    const maxWidthRatio = width / length
+    endRatio = Math.max(startRatio + 0.005, Math.min(1, Math.max(endRatio, startRatio + maxWidthRatio)))
+    startRatio = Math.max(0, Math.min(1 - (endRatio - startRatio), startRatio))
+    opening.wall_index = wallIndex
+    opening.offset_mm = Math.round(startRatio * length)
+    opening.width_mm = Math.max(1, Math.round((endRatio - startRatio) * length))
+    opening.line = {
+      start: { x_mm: Math.round(start.x_mm + (end.x_mm - start.x_mm) * startRatio), z_mm: Math.round(start.z_mm + (end.z_mm - start.z_mm) * startRatio) },
+      end: { x_mm: Math.round(start.x_mm + (end.x_mm - start.x_mm) * endRatio), z_mm: Math.round(start.z_mm + (end.z_mm - start.z_mm) * endRatio) },
+    }
+    opening.wall_binding = { wall_index: wallIndex, start_ratio: startRatio, end_ratio: endRatio, wall_start: { ...start }, wall_end: { ...end } }
   }
   return next
 }

@@ -9,9 +9,9 @@ describe('room boundary validation', () => {
     next.boundary[1].x_mm = 3000
     syncOpeningBindings(next, previous)
     expect(next.openings[0].wall_index).toBe(0)
-    expect(next.openings[0].offset_mm).toBe(500)
+    expect(next.openings[0].offset_mm).toBe(400)
     expect(next.openings[0].width_mm).toBe(800)
-    expect(next.openings[0].wall_binding?.start_ratio).toBeCloseTo(1 / 6)
+    expect(next.openings[0].wall_binding?.start_ratio).toBeCloseTo(400 / 3000)
   })
 
   it('clamps an opening when a wall becomes shorter than its width', () => {
@@ -19,8 +19,8 @@ describe('room boundary validation', () => {
     spec.openings.push({ id: 'W1', kind: 'window', wall_index: 0, offset_mm: 1800, width_mm: 800, height_mm: 1200, sill_mm: 900, label: 'W1', source: 'user', confidence: 1 })
     spec.boundary[1].x_mm = 2000
     syncOpeningBindings(spec)
-    expect(spec.openings[0].offset_mm).toBe(1200)
-    expect(spec.openings[0].width_mm).toBe(800)
+    expect(spec.openings[0].offset_mm).toBe(1800)
+    expect(spec.openings[0].width_mm).toBe(200)
   })
 
   it('moves an opening off an impossible short wall on legacy project load', () => {
@@ -30,9 +30,20 @@ describe('room boundary validation', () => {
     ]
     spec.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 0, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'measured', confidence: 1 })
     syncOpeningBindings(spec)
-    expect(spec.openings[0].wall_index).toBe(3)
-    expect(spec.openings[0].width_mm).toBe(800)
-    expect(spec.openings[0].wall_binding?.wall_index).toBe(3)
+    expect(spec.openings[0].wall_index).toBe(0)
+    expect(spec.openings[0].width_mm).toBe(180)
+    expect(spec.openings[0].wall_binding?.wall_index).toBe(0)
+  })
+
+  it('keeps the original wall when a new boundary segment shifts wall indexes', () => {
+    const previous = manualRoom(2400, 1800, 2600)
+    previous.openings.push({ id: 'W1', kind: 'window', wall_index: 1, offset_mm: 400, width_mm: 800, height_mm: 1200, sill_mm: 900, label: 'W1', source: 'user', confidence: 1 })
+    syncOpeningBindings(previous)
+    const next = cloneSpec(previous)
+    next.boundary.splice(1, 0, { x_mm: 1200, z_mm: 0 })
+    syncOpeningBindings(next, previous)
+    expect(next.openings[0].wall_index).toBe(2)
+    expect(next.openings[0].line?.start.x_mm).toBe(2400)
   })
   it('accepts a closed orthogonal room', () => {
     expect(clientValidate(manualRoom(2400, 1800, 2600)).filter((issue) => issue.severity === 'error')).toEqual([])

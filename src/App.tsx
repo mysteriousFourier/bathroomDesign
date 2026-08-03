@@ -502,18 +502,24 @@ export default function App() {
                     commitSpec(next)
                     setSelection({ type: 'opening', id })
                   }}
-                  onOpeningChange={(id, offsetMm, widthMm) => {
+                  onOpeningChange={(id, start, end) => {
                     const next = cloneSpec(spec)
                     const opening = next.openings.find((item) => item.id === id)
                     if (!opening) return
-                    opening.offset_mm = offsetMm
-                    opening.width_mm = widthMm
                     const wallIndex = Math.max(0, Math.min(next.boundary.length - 1, opening.wall_index))
                     const wallStart = next.boundary[wallIndex]
                     const wallEnd = next.boundary[(wallIndex + 1) % next.boundary.length]
-                    const length = Math.max(1, wallStart && wallEnd ? Math.hypot(wallStart.x_mm - wallEnd.x_mm, wallStart.z_mm - wallEnd.z_mm) : 1)
+                    if (!wallStart || !wallEnd) return
+                    const dx = wallEnd.x_mm - wallStart.x_mm, dz = wallEnd.z_mm - wallStart.z_mm
+                    const lengthSq = Math.max(1, dx * dx + dz * dz)
+                    const project = (point: Point2D) => Math.max(0, Math.min(1, ((point.x_mm - wallStart.x_mm) * dx + (point.z_mm - wallStart.z_mm) * dz) / lengthSq))
+                    const startRatio = project(start), endRatio = project(end)
+                    const left = Math.min(startRatio, endRatio), right = Math.max(startRatio, endRatio)
+                    const length = Math.sqrt(lengthSq)
                     opening.wall_index = wallIndex
-                    opening.wall_binding = { wall_index: opening.wall_index, start_ratio: offsetMm / length, end_ratio: (offsetMm + widthMm) / length }
+                    opening.offset_mm = Math.round(left * length)
+                    opening.width_mm = Math.max(10, Math.round((right - left) * length))
+                    opening.line = undefined
                     commitSpec(next)
                   }}
                   onOpeningDelete={(id) => {

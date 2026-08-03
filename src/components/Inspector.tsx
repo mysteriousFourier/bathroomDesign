@@ -307,9 +307,11 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
           <div className="field-stack">
             <div className="object-heading"><strong>{selectedOpening.label}</strong><SourceBadge source={selectedOpening.source} confidence={selectedOpening.confidence} /></div>
             <label className="text-field"><span>类型</span><select value={selectedOpening.kind} onChange={(event) => edit((draft) => { draft.openings.find((item) => item.id === selectedOpening.id)!.kind = event.target.value as typeof selectedOpening.kind })}><option value="door">门</option><option value="window">窗</option><option value="opening">洞口</option></select></label>
-            {(['wall_index', 'offset_mm', 'sill_mm', 'width_mm', 'height_mm'] as const).map((field) => (
-              <NumberField key={field} label={{ wall_index: '墙面编号', offset_mm: '距墙起点', sill_mm: 'CG 距地', width_mm: 'CK 内宽', height_mm: 'CH 内高' }[field]} value={selectedOpening[field]} unit={field === 'wall_index' ? '' : 'mm'} step={field === 'wall_index' ? 1 : 10} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id)!; item[field] = value })} />
-            ))}
+            <label className="text-field"><span>绑定墙段</span><select value={selectedOpening.wall_index} onChange={(event) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) item.wall_index = Number(event.target.value) })}>{spec.boundary.map((_, index) => <option key={index} value={index}>W{index + 1}</option>)}</select></label>
+            <NumberField label="距墙起点" value={selectedOpening.offset_mm} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) item.offset_mm = value })} />
+            <NumberField label="CG 距地" value={selectedOpening.sill_mm} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) item.sill_mm = value })} />
+            <NumberField label="CK 内宽" value={selectedOpening.width_mm} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) item.width_mm = value })} />
+            <NumberField label="CH 内高" value={selectedOpening.height_mm} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) item.height_mm = value })} />
             <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.openings = draft.openings.filter((item) => item.id !== selectedOpening.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除洞口</button>
           </div>
         )}

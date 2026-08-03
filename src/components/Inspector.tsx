@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { showerSeatModelAsset, washerGlbModelAsset } from '../modelAssets'
+import { showerSeatModelAsset, toilet3dsGlbModelAsset, toiletFbxGlbModelAsset, washerGlbModelAsset } from '../modelAssets'
 import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, projectPointToWall, roomBounds, roomCentroid, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
 import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
@@ -112,6 +112,20 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
         id, kind: 'other', label: '洗衣机', x_mm: Math.round(center.x), z_mm: Math.round(center.z),
         width_mm: 600, depth_mm: 620, height_mm: 850, rotation_deg: 0, source: 'user', confidence: 1,
         model_asset: washerGlbModelAsset,
+      })
+    })
+    onSelect({ type: 'fixture', id })
+  }
+
+  const addToiletModel = (variant: 'fbx' | '3ds') => {
+    const center = roomCentroid(finishedBoundary)
+    const id = `toilet-${crypto.randomUUID().slice(0, 8)}`
+    const asset = variant === 'fbx' ? toiletFbxGlbModelAsset : toilet3dsGlbModelAsset
+    edit((draft) => {
+      draft.fixtures.push({
+        id, kind: 'toilet', label: asset.label.replace(/\s+GLB$/i, ''), x_mm: Math.round(center.x), z_mm: Math.round(center.z),
+        width_mm: 380, depth_mm: 700, height_mm: 760, rotation_deg: 0, source: 'user', confidence: 1,
+        model_asset: asset,
       })
     })
     onSelect({ type: 'fixture', id })
@@ -340,6 +354,8 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             else if (event.target.value === 'drain:toilet') addFixture('drain', 'toilet')
             else if (event.target.value === 'asset:accessible-shower-seat-001') addShowerSeat()
             else if (event.target.value === 'asset:washer-glb-test') addWasherModel()
+            else if (event.target.value === 'asset:toilet-fbx-test-glb') addToiletModel('fbx')
+            else if (event.target.value === 'asset:toilet-3ds-test-glb') addToiletModel('3ds')
             else if (event.target.value) addFixture(event.target.value as FixtureKind)
             event.target.value = ''
           }} aria-label="添加设施">
@@ -347,6 +363,8 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             {Object.entries(fixtureLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
             <option value="floor_drain:shower">淋浴地漏</option>
             <option value="drain:toilet">马桶排水点</option>
+            <option value="asset:toilet-fbx-test-glb">智能坐便器（FBX 转 GLB）</option>
+            <option value="asset:toilet-3ds-test-glb">坐便器（3DS 转 GLB）</option>
             <option value="asset:washer-glb-test">洗衣机（GLB）</option>
             <option value="asset:accessible-shower-seat-001">淋浴坐凳（GLTF）</option>
           </select>

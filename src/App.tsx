@@ -5,6 +5,7 @@ import { EmptyWorkspace } from './components/EmptyWorkspace'
 import { Header } from './components/Header'
 import { Inspector } from './components/Inspector'
 import { ModelCanvas, type ModelCanvasHandle } from './components/ModelCanvas'
+import { ModelAssetLibrary } from './components/ModelAssetLibrary'
 import { PlanReview } from './components/PlanReview'
 import { PhotoAnnotation } from './components/PhotoAnnotation'
 import { ProjectRail } from './components/ProjectRail'
@@ -12,10 +13,11 @@ import { SolutionList } from './components/SolutionList'
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
+import { fixtureModelAsset, modelAssetRegistry } from './modelAssets'
 import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, projectPointToWall, snapPointToNearestWall, syncToiletWithDrain, wetZoneBoundaryValid } from './spec'
 import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
-type WorkspaceMode = 'annotation' | 'review' | 'model'
+type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
 
 const wetZonesOnly = (spec: RoomSpec) => {
   const wetZones = spec.dry_wet_zones?.filter((zone) => zone.kind === 'wet') ?? []
@@ -408,6 +410,34 @@ export default function App() {
     showMessage('success', '量房 JSON 已导出')
   }
 
+  const addModelAssetToRoom = (assetId: keyof typeof modelAssetRegistry) => {
+    if (!spec) return
+    const asset = modelAssetRegistry[assetId]
+    const center = finishedRoomBoundary(spec).length ? projectPointToWall(finishedRoomBoundary(spec), 0, { x_mm: 700, z_mm: 305 })?.point : null
+    const id = `${asset.tags.includes('toilet') ? 'toilet' : 'model'}-${crypto.randomUUID().slice(0, 8)}`
+    const next = cloneSpec(spec)
+    const dimensions = asset.dimensions_mm
+    next.fixtures.push({
+      id,
+      kind: asset.tags.includes('toilet') ? 'toilet' : 'other',
+      label: asset.label.replace(/\s+GLB$/i, ''),
+      x_mm: center?.x_mm ?? 700,
+      z_mm: center?.z_mm ?? 305,
+      width_mm: dimensions.width,
+      depth_mm: dimensions.depth,
+      height_mm: dimensions.height,
+      rotation_deg: 0,
+      source: 'user',
+      confidence: 1,
+      bound_wall_index: center ? 0 : null,
+      model_asset: fixtureModelAsset(assetId),
+    })
+    commitSpec(next)
+    setSelection({ type: 'fixture', id })
+    setMode('model')
+    showMessage('success', `${asset.label} 已加入房间`)
+  }
+
   useEffect(() => {
     if (!pendingExport || mode !== 'model') return
     const timer = window.setTimeout(() => {
@@ -427,7 +457,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Header projectName={project?.name} dirty={dirty} canUndo={history.length > 0} canRedo={future.length > 0} canConfirm={canConfirm} canModel={canModel} canExportMeasurement={canExportMeasurement} saving={busy === 'save'} onUndo={undo} onRedo={redo} onSave={() => void save()} onConfirm={() => void confirm()} onExportMeasurement={exportMeasurement} onExport={exportModel} />
+      <Header projectName={project?.name} dirty={dirty} canUndo={history.length > 0} canRedo={future.length > 0} canConfirm={canConfirm} canModel={canModel} canExportMeasurement={canExportMeasurement} saving={busy === 'save'} onUndo={undo} onRedo={redo} onSave={() => void save()} onConfirm={() => void confirm()} onExportMeasurement={exportMeasurement} onExport={exportModel} onOpenLibrary={() => setMode('library')} />
       <ProjectRail projects={projects} project={project} health={health} busy={busy} planRotation={planRotation} onPlanRotationChange={setPlanRotation} onSelectProject={(id) => void selectProject(id)} onCreateProject={createProject} onDeleteProject={() => void deleteProject()} onUpload={upload} onAnalyzePlan={() => void analyzePlan()} onAnalyzePhotos={() => void analyzePhotos()} />
       <main className="workspace">
         <WorkflowStatus project={project} spec={spec} busy={busy} dirty={dirty} />
@@ -440,11 +470,14 @@ export default function App() {
             <div className="view-tabs" role="tablist">
               <button className={mode === 'annotation' ? 'active' : ''} onClick={() => setMode('annotation')}><ImageIcon size={16} />照片标注</button>
               <button className={mode === 'review' ? 'active' : ''} onClick={() => annotationConfirmed && setMode('review')} disabled={!annotationConfirmed}><FileSearch size={16} />二维审图</button>
+              <button className={mode === 'library' ? 'active' : ''} onClick={() => setMode('library')}><Box size={16} />模型库</button>
               <button className={mode === 'model' ? 'active' : ''} onClick={() => canPreview && setMode('model')} disabled={!canPreview}><BoxSelect size={16} />三维预览</button>
             </div>
-            {mode !== 'annotation' && <SolutionList spec={spec} active={mode === 'model'} onOpenModel={() => canPreview && setMode('model')} />}
+            {mode !== 'annotation' && mode !== 'library' && <SolutionList spec={spec} active={mode === 'model'} onOpenModel={() => canPreview && setMode('model')} />}
             {mode === 'annotation'
               ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
+              : mode === 'library'
+                ? <ModelAssetLibrary canAddToRoom={!!spec && canPreview} onAddToRoom={addModelAssetToRoom} onOpenRoom={() => canPreview && setMode('model')} />
               : mode === 'review' || !canPreview
                 ? <PlanReview
                   key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`}

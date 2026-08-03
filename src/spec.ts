@@ -98,6 +98,26 @@ export function roomCentroid(points: Point2D[]) {
   return { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 }
 }
 
+export function hiddenWallIndexesForCutaway(points: Point2D[], cameraPoint: Point2D, maxHidden = 2) {
+  if (points.length < 2 || maxHidden <= 0) return []
+  const center = roomCentroid(points)
+  const cameraVector = { x: cameraPoint.x_mm - center.x, z: cameraPoint.z_mm - center.z }
+  const cameraDistance = Math.hypot(cameraVector.x, cameraVector.z)
+  if (cameraDistance < 1) return []
+  const view = { x: cameraVector.x / cameraDistance, z: cameraVector.z / cameraDistance }
+  const scored = points.map((_, index) => {
+    const normal = wallOutwardNormal(points, index)
+    return { index, score: normal.x * view.x + normal.z * view.z }
+  }).filter((item) => item.score > 0.05).sort((left, right) => right.score - left.score)
+  const strongest = scored[0]?.score ?? 0
+  const threshold = Math.max(0.32, strongest * 0.68)
+  return scored
+    .filter((item) => item.score >= threshold)
+    .slice(0, maxHidden)
+    .map((item) => item.index)
+    .sort((left, right) => left - right)
+}
+
 export function wallLength(points: Point2D[], index: number) {
   const start = points[index]
   const end = points[(index + 1) % points.length]

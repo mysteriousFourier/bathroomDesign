@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, imagePointToRoom, manualRoom, nearestWallIndex, roomBounds, roomPointToImage, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncToiletWithDrain, toiletPlacementFromDrain, toiletRotationForWall, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
+import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, roomBounds, roomPointToImage, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncToiletWithDrain, toiletPlacementFromDrain, toiletRotationForWall, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
 
 describe('room boundary validation', () => {
   it('accepts a closed orthogonal room', () => {
@@ -184,6 +184,15 @@ describe('dry wet zones and wall finishes', () => {
     ])
     expect(sliceWallQuadByDistance(wall, spec.boundary[0], spec.boundary[1], 0, 400)[0]).toEqual(wall[0])
     expect(sliceWallQuadByDistance(wall, spec.boundary[0], spec.boundary[1], 0, 400)[3]).toEqual(wall[3])
+  })
+
+  it('hides the camera-side walls for cutaway preview', () => {
+    const boundary = finishedRoomBoundary(manualRoom(2400, 3200, 2600))
+
+    expect(hiddenWallIndexesForCutaway(boundary, { x_mm: 5200, z_mm: 6200 })).toEqual([1, 2])
+    expect(hiddenWallIndexesForCutaway(boundary, { x_mm: -2600, z_mm: -3200 })).toEqual([0, 3])
+    expect(hiddenWallIndexesForCutaway(boundary, { x_mm: 5200, z_mm: 1600 })).toEqual([1])
+    expect(hiddenWallIndexesForCutaway(boundary, { x_mm: 1200, z_mm: 1600 })).toEqual([])
   })
 
   it('uses circles for supply and drainage points and a square for floor drains', () => {

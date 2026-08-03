@@ -1,4 +1,4 @@
-import { Box, Check, Download, FileJson, Printer, Redo2, Save, Undo2 } from 'lucide-react'
+import { Box, Check, Download, FileJson, Library, Printer, Redo2, Save, Undo2 } from 'lucide-react'
 
 interface HeaderProps {
   projectName?: string
@@ -15,9 +15,10 @@ interface HeaderProps {
   onConfirm: () => void
   onExportMeasurement: () => void
   onExport: () => void
+  onOpenLibrary: () => void
 }
 
-export function Header({ projectName, dirty, canUndo, canRedo, canConfirm, canModel, canExportMeasurement, saving, onUndo, onRedo, onSave, onConfirm, onExportMeasurement, onExport }: HeaderProps) {
+export function Header({ projectName, dirty, canUndo, canRedo, canConfirm, canModel, canExportMeasurement, saving, onUndo, onRedo, onSave, onConfirm, onExportMeasurement, onExport, onOpenLibrary }: HeaderProps) {
   return (
     <header className="app-header">
       <div className="brand-block" aria-label="量界卫生间建模工作台">
@@ -30,6 +31,7 @@ export function Header({ projectName, dirty, canUndo, canRedo, canConfirm, canMo
       </div>
       <div className="header-actions">
         <a className="button secondary" href="/measurement-template.html" target="_blank" rel="noreferrer" title="打开可打印量房模板"><Printer size={16} />量房模板</a>
+        <button className="button secondary" onClick={onOpenLibrary}><Library size={16} />模型库</button>
         <span className="toolbar-separator" />
         <button className="icon-button" onClick={onUndo} disabled={!canUndo} title="撤销"><Undo2 size={17} /></button>
         <button className="icon-button" onClick={onRedo} disabled={!canRedo} title="重做"><Redo2 size={17} /></button>

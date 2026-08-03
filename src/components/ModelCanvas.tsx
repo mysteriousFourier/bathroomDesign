@@ -1,10 +1,10 @@
 import { ContactShadows, Edges, Grid, OrbitControls, PerspectiveCamera, useGLTF } from '@react-three/drei'
-import { Canvas, type ThreeEvent } from '@react-three/fiber'
+import { Canvas, type ThreeEvent, useFrame, useThree } from '@react-three/fiber'
 import { Eye, EyeOff, Focus, Layers, Move3d } from 'lucide-react'
-import { Suspense, forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { Suspense, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Box3, BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Shape, Vector3 } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
-import { finishedRoomBoundary, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerPolygons, wallLength } from '../spec'
+import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerPolygons, wallLength } from '../spec'
 import type { FixtureModelAsset, FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
 
 export interface ModelCanvasHandle {
@@ -173,7 +173,7 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
   )
 }
 
-function RoomModel({ spec, selection, showCeiling, cutaway, onSelect, groupRef }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; cutaway: boolean; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group> }) {
+function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, onSelect, groupRef }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; cutaway: boolean; hiddenWallIndexes: number[]; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group> }) {
   const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
   const floorShape = useMemo(() => {
     const shape = new Shape()
@@ -188,7 +188,6 @@ function RoomModel({ spec, selection, showCeiling, cutaway, onSelect, groupRef }
   }, [roomBoundary])
   const wallLayers = useMemo(() => wallLayerPolygons(spec), [spec])
   const height = (spec.height_mm ?? 2600) / 1000
-  const center = roomCentroid(roomBoundary)
   return (
     <group ref={groupRef} userData={{ schema_version: spec.schema_version, unit: 'meter', room_name: spec.name }} onClick={() => onSelect({ type: 'room' })}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
@@ -200,9 +199,7 @@ function RoomModel({ spec, selection, showCeiling, cutaway, onSelect, groupRef }
       </mesh>}
       {showCeiling && (spec.ceiling_zones ?? []).map((zone) => <CeilingZoneMesh key={zone.id} boundary={zone.boundary} heightMm={zone.height_mm} />)}
       {spec.boundary.map((start, index) => {
-        const end = spec.boundary[(index + 1) % spec.boundary.length]
-        const facesCamera = (start.x_mm + end.x_mm) / 2 > center.x + 1 || (start.z_mm + end.z_mm) / 2 > center.z + 1
-        if (cutaway && facesCamera) return null
+        if (cutaway && hiddenWallIndexes.includes(index)) return null
         return <Wall key={index} spec={spec} index={index} layers={wallLayers[index]} selected={selection.type === 'room'} onSelect={() => onSelect({ type: 'room' })} />
       })}
       {spec.fixtures.map((fixture) => <Fixture key={fixture.id} fixture={fixture} selected={selection.type === 'fixture' && selection.id === fixture.id} onSelect={() => onSelect({ type: 'fixture', id: fixture.id })} />)}
@@ -210,9 +207,36 @@ function RoomModel({ spec, selection, showCeiling, cutaway, onSelect, groupRef }
   )
 }
 
+function CameraAwareRoom({ spec, selection, showCeiling, cutaway, onHiddenWallsChange, onSelect, groupRef }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; cutaway: boolean; onHiddenWallsChange: (indexes: number[]) => void; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group> }) {
+  const { camera } = useThree()
+  const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
+  const [hiddenWallIndexes, setHiddenWallIndexes] = useState<number[]>([])
+  const hiddenKeyRef = useRef('')
+
+  useEffect(() => {
+    if (cutaway) return
+    hiddenKeyRef.current = ''
+    setHiddenWallIndexes([])
+    onHiddenWallsChange([])
+  }, [cutaway, onHiddenWallsChange])
+
+  useFrame(() => {
+    if (!cutaway) return
+    const next = hiddenWallIndexesForCutaway(roomBoundary, { x_mm: camera.position.x * 1000, z_mm: camera.position.z * 1000 })
+    const key = next.join(',')
+    if (key === hiddenKeyRef.current) return
+    hiddenKeyRef.current = key
+    setHiddenWallIndexes(next)
+    onHiddenWallsChange(next)
+  })
+
+  return <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} hiddenWallIndexes={hiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} />
+}
+
 export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selection: Selection; onSelect: (selection: Selection) => void }>(function ModelCanvas({ spec, selection, onSelect }, ref) {
   const [showCeiling, setShowCeiling] = useState(false)
   const [cutaway, setCutaway] = useState(false)
+  const [hiddenWallIndexes, setHiddenWallIndexes] = useState<number[]>([])
   const [cameraKey, setCameraKey] = useState(0)
   const groupRef = useRef<Group>(null)
   const roomBoundary = finishedRoomBoundary(spec)
@@ -238,6 +262,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
       <div className="canvas-toolbar model-toolbar">
         <span><Move3d size={15} />左键旋转 · 右键平移 · 滚轮缩放</span>
         <div>
+          <span className={cutaway ? 'cutaway-status active' : 'cutaway-status'}>{cutaway ? `剖切隐藏 ${hiddenWallIndexes.length ? hiddenWallIndexes.map((index) => `W${index + 1}`).join('、') : '自动判定中'}` : '完整墙体'}</span>
           <button className="icon-button" onClick={() => setShowCeiling((value) => !value)} title={showCeiling ? '隐藏顶板' : '显示顶板'}>{showCeiling ? <EyeOff size={17} /> : <Eye size={17} />}</button>
           <button className={cutaway ? 'icon-button active-tool' : 'icon-button'} onClick={() => setCutaway((value) => !value)} title={cutaway ? '显示完整墙体' : '开启剖切视图'}><Layers size={17} /></button>
           <button className="icon-button" onClick={() => setCameraKey((value) => value + 1)} title="重置视角"><Focus size={17} /></button>
@@ -249,7 +274,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
         <ambientLight intensity={1.3} />
         <directionalLight position={[4, 7, 3]} intensity={2.2} castShadow shadow-mapSize={[2048, 2048]} />
         <Suspense fallback={null}>
-          <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} onSelect={onSelect} groupRef={groupRef} />
+          <CameraAwareRoom spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} onHiddenWallsChange={setHiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} />
         </Suspense>
         <Grid position={[center.x / 1000, -0.006, center.z / 1000]} args={[12, 12]} cellSize={0.1} cellThickness={0.45} cellColor="#c4c7bf" sectionSize={1} sectionThickness={0.8} sectionColor="#aeb2aa" fadeDistance={12} fadeStrength={1.2} infiniteGrid />
         <ContactShadows position={[0, -0.002, 0]} opacity={0.3} scale={12} blur={2.3} far={5} />

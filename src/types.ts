@@ -90,7 +90,7 @@ export type FixtureKind = 'toilet' | 'vanity' | 'shower' | 'floor_drain' | 'drai
 export type FixturePointUsage = 'general' | 'toilet' | 'shower' | 'basin'
 
 export type ModelAssetFormat = 'gltf' | 'glb'
-export type ModelAssetLifecycle = 'approved' | 'needs_conversion' | 'deprecated'
+export type ModelAssetLifecycle = 'approved' | 'needs_conversion' | 'converted' | 'converted_duplicate' | 'deprecated'
 
 export interface FixtureModelAsset {
   id: string

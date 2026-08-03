@@ -84,7 +84,15 @@ export interface OpeningSpec {
   confidence: number
   swing_direction?: 'left' | 'right' | 'inward' | 'outward' | 'unknown'
   evidence_ids?: string[]
-  wall_binding?: { wall_index: number; start_ratio: number; end_ratio: number; wall_start?: Point2D; wall_end?: Point2D } | null
+  wall_binding?: {
+    wall_index: number
+    start_ratio: number
+    end_ratio: number
+    wall_start?: Point2D
+    wall_end?: Point2D
+    image_start?: { x: number; y: number }
+    image_end?: { x: number; y: number }
+  } | null
   line?: { start: Point2D; end: Point2D } | null
 }
 
@@ -324,6 +332,7 @@ export interface Health {
   ok: boolean
   ai_configured: boolean
   model: string | null
+  chat_model?: string | null
   fallback_model?: string | null
   ocr_configured?: boolean
 }

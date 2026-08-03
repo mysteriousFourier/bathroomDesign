@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 import uuid
 from contextlib import asynccontextmanager
@@ -32,6 +33,15 @@ from .models import (
     ValidationResponse,
 )
 from .validation import validate_spec
+
+
+project_root = Path(__file__).resolve().parents[2]
+backend_source_version = max(
+    (int(path.stat().st_mtime) for path in (project_root / "backend" / "app").glob("*.py")),
+    default=0,
+)
+environment_path = project_root / ".env"
+backend_config_version = hashlib.sha256(environment_path.read_bytes()).hexdigest()[:16] if environment_path.is_file() else None
 
 
 @asynccontextmanager
@@ -70,8 +80,12 @@ def health() -> dict:
     fallback_model = None
     return {
         "ok": True,
+        "service_id": "bathroom-spatial-studio",
+        "source_version": backend_source_version,
+        "config_version": backend_config_version,
         "ai_configured": settings.ai_configured,
         "model": visual_model or None,
+        "chat_model": settings.chat_model or None,
         "fallback_model": fallback_model,
         "ocr_configured": settings.ocr_engine.lower() == "paddle",
     }
@@ -324,7 +338,6 @@ def update_measurement(project_id: str, measurement: MeasurementModel) -> Projec
     return db.save_measurement(project_id, measurement, status)
 
 
-project_root = Path(__file__).resolve().parents[2]
 dist_dir = project_root / "dist"
 template_file = project_root / "public" / "measurement-template.html"
 

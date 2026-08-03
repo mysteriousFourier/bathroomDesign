@@ -14,7 +14,7 @@ import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { fixtureModelAssetFromLibrary, type RoomModelAsset } from './modelAssets'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, projectPointToWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, wallLength, wetZoneBoundaryValid } from './spec'
+import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, updateOpeningFromLine, wallLength, wetZoneBoundaryValid } from './spec'
 import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
@@ -29,6 +29,7 @@ const visibleSpec = (value: Project | null) => {
   const spec = value?.status === 'analysis_failed' ? null : value?.spec ?? null
   if (!spec) return null
   const normalized = cloneSpec(spec)
+  repairPendingOpeningImageBindings(normalized)
   syncOpeningBindings(normalized)
   return wetZonesOnly(normalized)
 }
@@ -246,7 +247,8 @@ export default function App() {
 
   const commitSpec = (next: RoomSpec) => {
     if (!spec) return
-    syncOpeningBindings(next, spec)
+    const pendingAnnotationTopology = !!next.plan_annotation && !next.plan_annotation.confirmed && next.plan_annotation.boundary.length !== next.boundary.length
+    if (!pendingAnnotationTopology) syncOpeningBindings(next, spec)
     next.issues = clientValidate(next)
     setHistory((items) => [...items.slice(-39), cloneSpec(spec)])
     setFuture([]); setSpec(next); setDirty(true)
@@ -343,20 +345,18 @@ export default function App() {
     }
     next.openings.forEach((opening) => {
       const evidence = next.observations.find((item) => opening.evidence_ids?.includes(item.field.replace(/^ocr:/, '')) && item.target_id?.startsWith('wall:'))
-      if (!evidence?.target_id) return
-      const target = wallTarget(evidence.target_id)
-      if (!target) return
-      const wallText = String(target.wallIndex)
-      const wallIndex = Number(wallText)
-      if (!Number.isInteger(wallIndex) || wallIndex < 0 || wallIndex >= next.boundary.length) return
-      opening.wall_index = wallIndex
-      const start = next.boundary[wallIndex]
-      const end = next.boundary[(wallIndex + 1) % next.boundary.length]
-      const length = Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm)
-      const ratio = target.startRatio ?? 0.5
-      opening.offset_mm = target.endRatio === null
-        ? Math.max(0, Math.round(ratio * length - opening.width_mm / 2))
-        : Math.max(0, Math.round(Math.min(ratio, target.endRatio) * length))
+      const target = opening.source === 'user' || !evidence?.target_id ? null : wallTarget(evidence.target_id)
+      let wallIndex = Math.max(0, Math.min(next.boundary.length - 1, opening.wall_index))
+      let offset = opening.offset_mm
+      if (target && target.wallIndex >= 0 && target.wallIndex < next.boundary.length) {
+        wallIndex = target.wallIndex
+        const length = wallLength(next.boundary, wallIndex)
+        const ratio = target.startRatio ?? 0.5
+        offset = target.endRatio === null
+          ? Math.max(0, Math.round(ratio * length - opening.width_mm / 2))
+          : Math.max(0, Math.round(Math.min(ratio, target.endRatio) * length))
+      }
+      setOpeningOnWall(next, opening, wallIndex, offset, opening.width_mm)
     })
     syncOpeningBindings(next, spec)
     commitSpec(next)
@@ -492,13 +492,12 @@ export default function App() {
                   plan={plan}
                   selection={selection}
                   onSelect={setSelection}
-                  onOpeningAdd={() => {
+                  onOpeningAdd={(start, end) => {
                     const next = cloneSpec(spec)
                     const id = `door-${crypto.randomUUID().slice(0, 8)}`
-                    const wallIndex = next.boundary.reduce((best, _point, index) => wallLength(next.boundary, index) > wallLength(next.boundary, best) ? index : best, 0)
-                    const length = Math.max(1, wallLength(next.boundary, wallIndex))
-                    const width = Math.min(800, length)
-                    next.openings.push({ id, kind: 'door', wall_index: wallIndex, offset_mm: Math.max(0, Math.round((length - width) / 2 / 10) * 10), width_mm: width, height_mm: 2100, sill_mm: 0, label: '门洞', source: 'user', confidence: 1 })
+                    const opening = { id, kind: 'door' as const, wall_index: 0, offset_mm: 0, width_mm: Math.max(1, Math.round(Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm))), height_mm: 2100, sill_mm: 0, label: nextOpeningLabel(next), source: 'user' as const, confidence: 1 }
+                    next.openings.push(opening)
+                    updateOpeningFromLine(next, opening, { start, end })
                     commitSpec(next)
                     setSelection({ type: 'opening', id })
                   }}
@@ -506,20 +505,8 @@ export default function App() {
                     const next = cloneSpec(spec)
                     const opening = next.openings.find((item) => item.id === id)
                     if (!opening) return
-                    const wallIndex = Math.max(0, Math.min(next.boundary.length - 1, opening.wall_index))
-                    const wallStart = next.boundary[wallIndex]
-                    const wallEnd = next.boundary[(wallIndex + 1) % next.boundary.length]
-                    if (!wallStart || !wallEnd) return
-                    const dx = wallEnd.x_mm - wallStart.x_mm, dz = wallEnd.z_mm - wallStart.z_mm
-                    const lengthSq = Math.max(1, dx * dx + dz * dz)
-                    const project = (point: Point2D) => Math.max(0, Math.min(1, ((point.x_mm - wallStart.x_mm) * dx + (point.z_mm - wallStart.z_mm) * dz) / lengthSq))
-                    const startRatio = project(start), endRatio = project(end)
-                    const left = Math.min(startRatio, endRatio), right = Math.max(startRatio, endRatio)
-                    const length = Math.sqrt(lengthSq)
-                    opening.wall_index = wallIndex
-                    opening.offset_mm = Math.round(left * length)
-                    opening.width_mm = Math.max(10, Math.round((right - left) * length))
-                    opening.line = undefined
+                    updateOpeningFromLine(next, opening, { start, end }, opening.wall_index)
+                    opening.source = 'user'; opening.confidence = 1
                     commitSpec(next)
                   }}
                   onOpeningDelete={(id) => {

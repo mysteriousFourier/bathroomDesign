@@ -1571,6 +1571,56 @@ def test_raster_topology_candidates_keep_non_rectangular_turns(tmp_path) -> None
     assert all(ai._shape_directions(ShapeTraceResult(corners=item.corners, closed=True)) for item in candidates)
 
 
+def test_raster_topology_candidates_isolate_blue_outline_on_printed_form(tmp_path) -> None:
+    image = Image.new("RGB", (1200, 800), (226, 218, 207))
+    draw = ImageDraw.Draw(image)
+    printed = (115, 108, 101)
+    grid = (190, 181, 169)
+    blue = (65, 70, 84)
+    draw.rectangle((35, 90, 815, 760), outline=printed, width=3)
+    draw.rectangle((835, 90, 1165, 330), outline=printed, width=3)
+    for coordinate in range(75, 815, 45):
+        draw.line((coordinate, 115, coordinate, 740), fill=grid, width=1)
+    for coordinate in range(115, 740, 45):
+        draw.line((55, coordinate, 795, coordinate), fill=grid, width=1)
+    draw.line((250, 235, 650, 235), fill=blue, width=5)
+    draw.line((250, 235, 250, 620), fill=blue, width=5)
+    draw.line((650, 235, 650, 620), fill=blue, width=5)
+    draw.line((250, 620, 390, 620), fill=blue, width=5)
+    draw.line((500, 620, 650, 620), fill=blue, width=5)
+    draw.text((425, 190), "1600", fill=blue)
+    draw.text((900, 160), "800 2055", fill=blue)
+    path = tmp_path / "photographed-form.jpg"
+    image.save(path, quality=90)
+
+    candidates = ai._raster_topology_candidates(path, 0, fast=True)
+
+    assert candidates
+    colored = next(candidate for candidate in candidates if candidate.source == "colored_ink")
+    assert colored.pixel_support >= 0.55
+    assert len(colored.corners) == 4
+    assert (
+        min(corner.x for corner in colored.corners),
+        max(corner.x for corner in colored.corners),
+    ) == pytest.approx((208, 542), abs=12)
+    assert (
+        min(corner.y for corner in colored.corners),
+        max(corner.y for corner in colored.corners),
+    ) == pytest.approx((254, 762), abs=12)
+
+
+def test_applied_opening_row_does_not_require_duplicate_review() -> None:
+    opening = OpeningSpec(
+        id="opening-d1", kind="door", wall_index=2, offset_mm=770,
+        width_mm=800, height_mm=2055, sill_mm=0, label="D1",
+        source=SourceKind.derived, confidence=0.95,
+    )
+
+    assert ai._opening_row_is_applied("D1 CG 0 CK 800 CH 2055", [opening])
+    assert not ai._opening_row_is_applied("门窗洞口 CG 距地 CK 内宽 CH 内高", [opening])
+    assert not ai._opening_row_is_applied("D1 CG 0 CK 700 CH 2055", [opening])
+
+
 def test_false_boundary_simplifier_removes_door_leaf_u_but_keeps_plain_recess() -> None:
     image = Image.new("RGB", (500, 400), "white")
     draw = ImageDraw.Draw(image)
@@ -1699,11 +1749,19 @@ def test_refined_ocr_cache_only_matches_the_same_source_image(tmp_path, monkeypa
         "rotation_degrees": 0,
         "ocr_orientations": [0, 180],
         "vision_refined": True,
+        "vision_model": settings.read_model,
         "tokens": [{"id": "E001", "raw_text": "6500"}],
     }), encoding="utf-8")
 
     assert ai._load_refined_ocr_cache(source, 0) is not None
     assert ai._load_refined_ocr_cache(other, 0) is None
+
+    cached = json.loads((cache_dir / "ocr-tokens.json").read_text(encoding="utf-8"))
+    cached["vision_model"] = "previous-model"
+    (cache_dir / "ocr-tokens.json").write_text(json.dumps(cached), encoding="utf-8")
+    assert ai._load_refined_ocr_cache(source, 0) is None
+    cached["vision_model"] = settings.read_model
+    (cache_dir / "ocr-tokens.json").write_text(json.dumps(cached), encoding="utf-8")
 
     cached = json.loads((cache_dir / "ocr-tokens.json").read_text(encoding="utf-8"))
     cached.update({"wall_crop_refined": True, "wall_crop_cache_version": ai.WALL_CROP_CACHE_VERSION - 1})

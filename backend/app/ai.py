@@ -700,6 +700,133 @@ def _simplify_false_boundary_detours(image: Image.Image, points: list[tuple[int,
     return points
 
 
+def _colored_ink_topology_candidates(
+    image: Image.Image,
+) -> list[tuple[float, list[tuple[int, int]], np.ndarray]]:
+    """Recover photographed form outlines drawn with a cool-colored pen."""
+    rgb = np.asarray(image.convert("RGB"), dtype=np.int16)
+    red, green, blue = (rgb[:, :, channel] for channel in range(3))
+    ink = np.where(
+        (blue - red >= 3) & (blue - green >= 1) & (blue < 225),
+        255,
+        0,
+    ).astype(np.uint8)
+    height, width = ink.shape
+    minimum = min(width, height)
+    minimum_line = max(30, round(minimum * 0.045))
+    maximum_gap = max(18, round(minimum * 0.055))
+    raw = cv2.HoughLinesP(
+        ink,
+        1,
+        np.pi / 180,
+        threshold=max(14, round(minimum * 0.018)),
+        minLineLength=minimum_line,
+        maxLineGap=maximum_gap,
+    )
+
+    horizontal: list[tuple[int, int, int]] = []
+    vertical: list[tuple[int, int, int]] = []
+    for x1, y1, x2, y2 in _hough_line_segments(raw):
+        dx, dy = abs(x2 - x1), abs(y2 - y1)
+        if dx >= max(12, dy * 5):
+            horizontal.append((round((y1 + y2) / 2), min(x1, x2), max(x1, x2)))
+        elif dy >= max(12, dx * 5):
+            vertical.append((round((x1 + x2) / 2), min(y1, y2), max(y1, y2)))
+
+    coordinate_tolerance = max(5, round(minimum * 0.01))
+    def merge_segments(segments: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
+        groups: list[list[tuple[int, int, int]]] = []
+        for segment in sorted(segments, key=lambda item: (item[0], item[1])):
+            coordinate, _, _ = segment
+            group = next((
+                item for item in groups
+                if abs(coordinate - round(np.median([part[0] for part in item]))) <= coordinate_tolerance
+            ), None)
+            if group is None:
+                groups.append([segment])
+            else:
+                group.append(segment)
+
+        def weighted_coordinate(group: list[tuple[int, int, int]]) -> int:
+            weighted = sorted(
+                (part[0], max(1, part[2] - part[1]))
+                for part in group
+            )
+            midpoint = sum(weight for _, weight in weighted) / 2
+            cumulative = 0
+            for coordinate, weight in weighted:
+                cumulative += weight
+                if cumulative >= midpoint:
+                    return coordinate
+            return weighted[-1][0]
+
+        return [
+            (
+                weighted_coordinate(group),
+                min(part[1] for part in group),
+                max(part[2] for part in group),
+            )
+            for group in groups
+            if max(part[2] for part in group) - min(part[1] for part in group) >= minimum_line
+        ]
+
+    horizontal = merge_segments(horizontal)
+    vertical = merge_segments(vertical)
+    band = max(3, round(minimum * 0.004))
+
+    def line_support(orientation: str, coordinate: int, start: int, end: int) -> float:
+        if orientation == "horizontal":
+            strip = ink[max(0, coordinate - band):min(height, coordinate + band + 1), start:end + 1]
+            supported = np.any(strip > 0, axis=0)
+        else:
+            strip = ink[start:end + 1, max(0, coordinate - band):min(width, coordinate + band + 1)]
+            supported = np.any(strip > 0, axis=1)
+        return float(np.mean(supported)) if supported.size else 0.0
+
+    endpoint_margin = max(12, round(minimum * 0.03))
+    candidates: list[tuple[float, list[tuple[int, int]], np.ndarray]] = []
+    for top_index, top in enumerate(horizontal):
+        for bottom in horizontal[top_index + 1:]:
+            top_y, bottom_y = sorted((top[0], bottom[0]))
+            box_height = bottom_y - top_y
+            if not height * 0.12 <= box_height <= height * 0.8:
+                continue
+            for left_index, left in enumerate(vertical):
+                for right in vertical[left_index + 1:]:
+                    left_x, right_x = sorted((left[0], right[0]))
+                    box_width = right_x - left_x
+                    area_ratio = box_width * box_height / (width * height)
+                    if not width * 0.12 <= box_width <= width * 0.8 or not 0.025 <= area_ratio <= 0.55:
+                        continue
+                    if not (
+                        top[1] <= left_x + endpoint_margin and top[2] >= right_x - endpoint_margin
+                        and bottom[1] <= left_x + endpoint_margin and bottom[2] >= right_x - endpoint_margin
+                        and left[1] <= top_y + endpoint_margin and left[2] >= bottom_y - endpoint_margin
+                        and right[1] <= top_y + endpoint_margin and right[2] >= bottom_y - endpoint_margin
+                    ):
+                        continue
+                    supports = [
+                        line_support("horizontal", top_y, left_x, right_x),
+                        line_support("horizontal", bottom_y, left_x, right_x),
+                        line_support("vertical", left_x, top_y, bottom_y),
+                        line_support("vertical", right_x, top_y, bottom_y),
+                    ]
+                    if min(supports) < 0.42 or float(np.mean(supports)) < 0.55:
+                        continue
+                    points = [(left_x, top_y), (right_x, top_y), (right_x, bottom_y), (left_x, bottom_y)]
+                    mask = _candidate_mask(points, width, height)
+                    score = float(np.mean(supports))
+                    if any(
+                        np.count_nonzero(cv2.bitwise_and(mask, existing_mask))
+                        / max(1, np.count_nonzero(cv2.bitwise_or(mask, existing_mask))) > 0.97
+                        for _, _, existing_mask in candidates
+                    ):
+                        continue
+                    candidates.append((score, points, mask))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[:4]
+
+
 def _raster_topology_candidates(
     path: Path,
     rotation_degrees: int,
@@ -718,7 +845,10 @@ def _raster_topology_candidates(
     gray = cv2.GaussianBlur(gray, (3, 3), 0)
     height, width = gray.shape
     minimum = min(width, height)
-    candidates: list[tuple[float, list[tuple[int, int]], np.ndarray]] = []
+    candidates: list[tuple[float, list[tuple[int, int]], np.ndarray, str]] = [
+        (score + 0.016, points, mask, "colored_ink")
+        for score, points, mask in _colored_ink_topology_candidates(image)
+    ]
     block_sizes = sorted({max(15, (round(minimum * scale) // 2) * 2 + 1) for scale in (0.035, 0.055, 0.08)})
     close_sizes = sorted({max(3, round(minimum * scale)) for scale in (0.004, 0.008, 0.014)})
 
@@ -767,7 +897,7 @@ def _raster_topology_candidates(
                             continue
                         mask = _candidate_mask(points, width, height)
                         duplicate = False
-                        for _, existing_points, existing_mask in candidates:
+                        for _, existing_points, existing_mask, _ in candidates:
                             intersection = np.count_nonzero(cv2.bitwise_and(mask, existing_mask))
                             union = np.count_nonzero(cv2.bitwise_or(mask, existing_mask))
                             if union and intersection / union > 0.982 and abs(len(points) - len(existing_points)) <= 2:
@@ -776,13 +906,13 @@ def _raster_topology_candidates(
                         if duplicate:
                             continue
                         complexity_bonus = min(len(points), 16) * 0.004
-                        candidates.append((support + complexity_bonus, points, mask))
+                        candidates.append((support + complexity_bonus, points, mask, "adaptive_threshold"))
 
     candidates.sort(key=lambda item: item[0], reverse=True)
-    selected: list[tuple[float, list[tuple[int, int]], np.ndarray]] = []
-    seen_complexities: set[int] = set()
+    selected: list[tuple[float, list[tuple[int, int]], np.ndarray, str]] = []
+    seen_complexities: set[tuple[int, str]] = set()
     for candidate in candidates:
-        complexity = len(candidate[1])
+        complexity = (len(candidate[1]), candidate[3])
         if complexity not in seen_complexities:
             selected.append(candidate)
             seen_complexities.add(complexity)
@@ -796,7 +926,7 @@ def _raster_topology_candidates(
     selected.sort(key=lambda item: item[0], reverse=True)
 
     results: list[TopologyCandidate] = []
-    for index, (score, points, _) in enumerate(selected, start=1):
+    for index, (score, points, _, source) in enumerate(selected, start=1):
         results.append(TopologyCandidate(
             id=f"C{index}",
             corners=[
@@ -807,6 +937,7 @@ def _raster_topology_candidates(
                 for x, y in points
             ],
             pixel_support=max(0.0, min(1.0, score - min(len(points), 16) * 0.004)),
+            source=source,
         ))
     return results
 
@@ -1669,6 +1800,7 @@ def _persist_wall_crop_tokens(ocr_assist: dict, shape_signature: str) -> None:
             "wall_crop_refined": True,
             "wall_crop_shape_hash": shape_signature,
             "wall_crop_cache_version": WALL_CROP_CACHE_VERSION,
+            "wall_crop_model": settings.read_model,
             "tokens": ocr_assist.get("tokens", []),
         }
     )
@@ -1683,6 +1815,7 @@ def _persist_wall_crop_tokens(ocr_assist: dict, shape_signature: str) -> None:
     ocr_assist["wall_crop_refined"] = True
     ocr_assist["wall_crop_shape_hash"] = shape_signature
     ocr_assist["wall_crop_cache_version"] = WALL_CROP_CACHE_VERSION
+    ocr_assist["wall_crop_model"] = settings.read_model
 
 
 async def _recognize_wall_crops_with_vision(
@@ -1703,6 +1836,7 @@ async def _recognize_wall_crops_with_vision(
         ocr_assist.get("wall_crop_refined")
         and ocr_assist.get("wall_crop_shape_hash") == signature
         and ocr_assist.get("wall_crop_cache_version") == WALL_CROP_CACHE_VERSION
+        and ocr_assist.get("wall_crop_model") == settings.read_model
     ):
         return ocr_assist
     specs = _wall_crop_specs(shape)
@@ -2943,9 +3077,13 @@ def _load_refined_ocr_cache(path: Path, rotation: int) -> dict | None:
         and cached.get("schema_version") in {7, 8, 9}
         and cached.get("ocr_orientations") == [0, 180]
         and cached.get("vision_refined")
+        and cached.get("vision_model") == settings.read_model
         and (
             not cached.get("wall_crop_refined")
-            or cached.get("wall_crop_cache_version") == WALL_CROP_CACHE_VERSION
+            or (
+                cached.get("wall_crop_cache_version") == WALL_CROP_CACHE_VERSION
+                and cached.get("wall_crop_model") == settings.read_model
+            )
         )
         and cached.get("rotation_degrees") == rotation
         and cached.get("image_hash", cache_dir.name) == image_hash
@@ -2961,9 +3099,11 @@ def _load_refined_ocr_cache(path: Path, rotation: int) -> dict | None:
         "tokens": cached.get("tokens", []),
         "crops": sorted((cache_dir / "crops").glob("*.png"))[:8],
         "vision_refined": True,
+        "vision_model": cached.get("vision_model", ""),
         "wall_crop_refined": bool(cached.get("wall_crop_refined")),
         "wall_crop_shape_hash": cached.get("wall_crop_shape_hash", ""),
         "wall_crop_cache_version": cached.get("wall_crop_cache_version", 0),
+        "wall_crop_model": cached.get("wall_crop_model", ""),
         "rotation_degrees": rotation,
     }
 
@@ -2994,6 +3134,8 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
     wall_crop_refined = False
     wall_crop_shape_hash = ""
     wall_crop_cache_version = 0
+    vision_model = ""
+    wall_crop_model = ""
     clockwise_orientations = (0, 180) if fast else (0,)
     tokens: list[dict] = []
     if tokens_path.exists():
@@ -3009,8 +3151,10 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
                 )
             )
             tokens = cached.get("tokens", []) if cache_valid else []
-            vision_refined = bool(cached.get("vision_refined")) if cache_valid else False
-            wall_crop_refined = bool(cached.get("wall_crop_refined")) if cache_valid else False
+            vision_model = str(cached.get("vision_model", "")) if cache_valid else ""
+            wall_crop_model = str(cached.get("wall_crop_model", "")) if cache_valid else ""
+            vision_refined = bool(cached.get("vision_refined")) and vision_model == settings.read_model if cache_valid else False
+            wall_crop_refined = bool(cached.get("wall_crop_refined")) and wall_crop_model == settings.read_model if cache_valid else False
             wall_crop_shape_hash = str(cached.get("wall_crop_shape_hash", "")) if cache_valid else ""
             wall_crop_cache_version = cached.get("wall_crop_cache_version", 0) if cache_valid else 0
         except (OSError, json.JSONDecodeError):
@@ -3071,9 +3215,11 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
         "tokens": tokens,
         "crops": crop_paths[:8],
         "vision_refined": vision_refined,
+        "vision_model": vision_model,
         "wall_crop_refined": wall_crop_refined,
         "wall_crop_shape_hash": wall_crop_shape_hash,
         "wall_crop_cache_version": wall_crop_cache_version,
+        "wall_crop_model": wall_crop_model,
         "rotation_degrees": rotation,
     }
 
@@ -3272,6 +3418,7 @@ async def _refine_ocr_with_vision(
     except (OSError, json.JSONDecodeError):
         pass
     ocr_assist["vision_refined"] = True
+    ocr_assist["vision_model"] = model
     return ocr_assist
 
 
@@ -4246,6 +4393,20 @@ def _coded_opening_row(text: str) -> tuple[str, int, int, int] | None:
     if values["CK"] <= 0 or values["CH"] <= 0:
         return None
     return code_match.group(1).upper(), values["CG"], values["CK"], values["CH"]
+
+
+def _opening_row_is_applied(text: str, openings: list[OpeningSpec]) -> bool:
+    row = _coded_opening_row(text)
+    if row is None:
+        return False
+    code, sill_mm, width_mm, height_mm = row
+    return any(
+        opening.label.upper() == code
+        and opening.sill_mm == sill_mm
+        and opening.width_mm == width_mm
+        and opening.height_mm == height_mm
+        for opening in openings
+    )
 
 
 def _edge_opening_range(
@@ -5411,8 +5572,8 @@ def _provisional_room_spec(
         elif role in {"room_dimension", "wall_segment", "wall_thickness"}:
             review_required = token_id in selected_edge_evidence and float(token.get("confidence", 0.5)) < 0.85
         elif role == "door_size":
-            complete_row = all(code in value.upper() for code in ("CG", "CK", "CH"))
-            review_required = complete_row and token_id not in opening_evidence
+            complete_row = _coded_opening_row(value) is not None
+            review_required = complete_row and token_id not in opening_evidence and not _opening_row_is_applied(value, openings)
         elif role == "room_height":
             review_required = bool(re.search(r"净高|层高|室内高", value)) and float(token.get("confidence", 0.5)) < 0.85
         elif role == "ceiling_height":
@@ -5812,7 +5973,10 @@ async def _resolve_topology_candidate_selection(
 
 
 def _program_topology_fallback(candidates: list[TopologyCandidate]) -> TopologyCandidate | None:
-    """Prefer the simplest well-supported non-rectangular contour when vision is unavailable."""
+    """Prefer a supported pen trace, then the simplest non-rectangular contour."""
+    colored = [candidate for candidate in candidates if candidate.source == "colored_ink" and candidate.pixel_support >= 0.55]
+    if colored:
+        return max(colored, key=lambda candidate: candidate.pixel_support)
     if len(candidates) < 2:
         return None
     rectangular = [candidate for candidate in candidates if len(candidate.corners) <= 4]

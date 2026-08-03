@@ -165,8 +165,10 @@ p, h1, h2, figure { margin: 0; }
 .photo-annotation { padding-top: 188px; }
 .canvas-toolbar { position: absolute; top: 13px; left: 14px; right: 14px; height: 36px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 10px; pointer-events: none; }
 .canvas-toolbar span { display: flex; align-items: center; gap: 6px; }
-.canvas-toolbar .icon-button, .canvas-toolbar > div { pointer-events: auto; }
-.canvas-toolbar .icon-button.active-tool { color: var(--green); border-color: #9fbaab; background: var(--green-soft); }
+.canvas-toolbar .icon-button, .canvas-toolbar .canvas-mode-toggle, .canvas-toolbar > div { pointer-events: auto; }
+.canvas-toolbar .icon-button.active-tool, .canvas-toolbar .canvas-mode-toggle.active-tool { color: var(--green); border-color: #9fbaab; background: var(--green-soft); }
+.canvas-mode-toggle { min-width: 62px; height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); color: var(--muted); font-size: 10px; cursor: pointer; }
+.canvas-mode-toggle span { display: inline; }
 .canvas-toolbar .cutaway-status { min-height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: rgb(250 249 246 / 82%); color: var(--muted); font-size: 10px; white-space: nowrap; }
 .canvas-toolbar .cutaway-status.active { border-color: #9fbaab; background: var(--green-soft); color: var(--green); font-weight: 700; }
 .plan-canvas { display: block; width: calc(100% - 28px); height: calc(100% - 14px); margin: 0 14px 14px; border: 1px solid var(--line-strong); background: #faf9f6; box-shadow: var(--shadow-1); touch-action: none; }
@@ -174,8 +176,8 @@ p, h1, h2, figure { margin: 0; }
 .plan-canvas:active [data-pan-surface="true"] { cursor: grabbing; }
 .wall-finish-body { fill: #e6e5df; stroke: #4d534c; stroke-width: 0.8; vector-effect: non-scaling-stroke; }
 .wall-body { fill: #c8c4ba; stroke: #4d534c; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.room-polygon { fill: rgb(244 243 239 / 72%); stroke: #4d534c; stroke-width: 2.5; stroke-linejoin: miter; vector-effect: non-scaling-stroke; cursor: pointer; }
-.room-polygon.selected { stroke: #4d534c; }
+.room-polygon { fill: rgb(244 243 239 / 72%); stroke: none; cursor: pointer; }
+.room-boundary-runs line { stroke: #4d534c; stroke-width: 2.5; vector-effect: non-scaling-stroke; }
 .dry-wet-zone polygon { stroke-width: 2; stroke-dasharray: 8 5; vector-effect: non-scaling-stroke; cursor: pointer; }
 .dry-wet-zone.dry polygon { fill: rgb(192 199 193 / 24%); stroke: #7b837a; }
 .dry-wet-zone.wet polygon { fill: rgb(73 134 169 / 22%); stroke: #2d6d8c; }
@@ -198,6 +200,7 @@ p, h1, h2, figure { margin: 0; }
 .annotation-tools > button { flex: none; height: 32px; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border: 1px solid var(--line); background: #f8f8f5; color: var(--muted); font: inherit; white-space: nowrap; cursor: pointer; }
 .annotation-tools > button.active { border-color: var(--green); background: var(--green-soft); color: var(--green); }
 .annotation-tools > button:disabled { cursor: not-allowed; opacity: 0.42; }
+.annotation-opening-kind { flex: none; width: 66px; height: 32px; padding: 0 7px; border: 1px solid var(--line); border-radius: 0; background: #fff; color: var(--ink); font-size: 10px; }
 .annotation-status { justify-content: flex-end; }
 .annotation-status > span { min-width: 0; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .annotation-status .button { flex: none; }
@@ -207,22 +210,29 @@ p, h1, h2, figure { margin: 0; }
 .annotation-dimensions input { width: 78px; height: 30px; border: 0; border-left: 1px solid var(--line); padding: 0 7px; font: 12px Consolas, monospace; color: var(--text); }
 .annotation-dimensions input:focus { outline: 2px solid var(--green); outline-offset: -2px; }
 .annotation-dimensions small { max-width: 104px; padding: 0 7px; color: #166534; font: 700 10px/1.25 Consolas, monospace; white-space: normal; }
-.annotation-dimensions .edge-breakdown { max-width: 210px; color: #8a5a00; }
+.annotation-dimensions .opening-dimension { border-color: #c99a42; background: #fff9e9; }
+.annotation-dimensions .opening-dimension > span { color: #7a5100; }
+.annotation-dimensions .opening-dimension input { border-left-color: #d8b66f; color: #704e0b; font-weight: 700; }
+.annotation-dimensions label.selected { outline: 2px solid #9a6815; outline-offset: -2px; }
 .photo-annotation, .annotation-canvas { user-select: none; -webkit-user-select: none; }
 .photo-annotation img, .annotation-canvas image { -webkit-user-drag: none; user-select: none; }
 .annotation-canvas { display: block; width: 100%; height: 100%; background: #d8d8d3; touch-action: none; }
 .annotation-canvas image { pointer-events: none; }
-.annotation-canvas.tool-add, .annotation-canvas.tool-draw { cursor: crosshair; }
+.annotation-canvas.tool-add, .annotation-canvas.tool-draw, .annotation-canvas.tool-opening { cursor: crosshair; }
 .annotation-canvas.tool-label, .annotation-canvas.tool-region { cursor: cell; }
 .annotation-background { fill: #d8d8d3; }
 .annotation-boundary { fill: rgb(194 54 45 / 8%); stroke: #c2362d; stroke-width: 4; stroke-linejoin: miter; vector-effect: non-scaling-stroke; pointer-events: none; }
 .annotation-boundary.open { fill: none; stroke-dasharray: 10 7; }
-.annotation-wall line { stroke: transparent; stroke-width: 22; vector-effect: non-scaling-stroke; cursor: crosshair; }
+.annotation-boundary.segmented { stroke: none; }
+.annotation-wall .annotation-wall-hit { stroke: transparent; stroke-width: 22; vector-effect: non-scaling-stroke; cursor: crosshair; }
+.annotation-wall .annotation-wall-line { stroke: #c2362d; stroke-width: 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .annotation-wall text { fill: #7b201b; text-anchor: middle; font: 700 11px Consolas, monospace; paint-order: stroke; stroke: #fff; stroke-width: 4; pointer-events: none; }
 .annotation-wall:hover text, .annotation-wall.selected text { fill: #8a5a00; font-size: 13px; }
-.annotation-wall.selected line { stroke: rgb(243 196 78 / 42%); stroke-width: 12; }
+.annotation-wall.selected .annotation-wall-hit { stroke: rgb(243 196 78 / 42%); stroke-width: 12; }
 .annotation-door-range line { stroke: #d79200; stroke-width: 10; stroke-linecap: butt; vector-effect: non-scaling-stroke; }
 .annotation-door-range circle { fill: #fff; stroke: #9a6815; stroke-width: 3; vector-effect: non-scaling-stroke; }
+.annotation-opening-create line { stroke: #d79200; stroke-width: 10; stroke-dasharray: 10 6; vector-effect: non-scaling-stroke; }
+.annotation-opening-create circle { fill: #fff8df; stroke: #704e0b; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .annotation-opening-segments line { vector-effect: non-scaling-stroke; }
 .annotation-opening-segments .wall-part { stroke: #c2362d; stroke-width: 6; }
 .annotation-opening-segments .opening-part { stroke: #d79200; stroke-width: 10; }
@@ -252,6 +262,8 @@ p, h1, h2, figure { margin: 0; }
 .dimension-label .dimension-extension { stroke: #747b72; }
 .dimension-label .dimension-line, .dimension-label .dimension-tick { stroke: #3f463f; }
 .dimension-label text { fill: #20231f; text-anchor: middle; dominant-baseline: middle; font: 9px Consolas, monospace; paint-order: stroke; stroke: #faf9f6; stroke-width: 4; pointer-events: none; }
+.dimension-label.opening .dimension-line, .dimension-label.opening .dimension-tick { stroke: #9a6815; stroke-width: 1.2; }
+.dimension-label.opening text { fill: #7a5100; font-weight: 700; }
 .opening-segment { cursor: pointer; }
 .opening-segment line { vector-effect: non-scaling-stroke; stroke-linecap: butt; }
 .opening-drag-hit { stroke: transparent; stroke-width: 22; pointer-events: stroke; cursor: grab; }
@@ -259,12 +271,14 @@ p, h1, h2, figure { margin: 0; }
 .annotation-opening-segments { pointer-events: auto; }
 .annotation-opening-segments .opening-drag-hit { stroke: transparent; stroke-width: 22; pointer-events: stroke; cursor: grab; }
 .annotation-opening-segments .opening-handle { fill: #fff8df; stroke: #704e0b; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: ew-resize; }
-.opening-segment .opening-wall-cut { stroke: #f4f3ef; stroke-width: 18; }
+.annotation-opening-segments.selected .opening-part { stroke: #7e5010; stroke-width: 12; }
+.annotation-opening-segments.selected .opening-handle { fill: #f3c44e; stroke-width: 3; }
 .opening-segment .opening-wall-part { stroke: #4d534c; stroke-width: 2.5; }
 .opening-segment .opening-gap-part { stroke: #b78022; stroke-width: 7; }
 .opening-segment .opening-jamb { fill: #faf9f6; stroke: #7e5010; stroke-width: 1.25; vector-effect: non-scaling-stroke; }
 .opening-segment.selected .opening-gap-part { stroke: #7e5010; stroke-width: 9; }
 .opening-segment.selected .opening-wall-part { stroke: #4d534c; stroke-width: 4; }
+.opening-segment.draft .opening-gap-part { stroke-dasharray: 8 5; stroke: #7e5010; }
 .plan-line { cursor: pointer; }
 .plan-line polyline { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .plan-line.pipe_chase polyline { stroke: #8662a2; stroke-dasharray: 13 6; }

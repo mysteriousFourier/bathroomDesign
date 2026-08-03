@@ -517,6 +517,7 @@ class TopologyCandidate(BaseModel):
     id: str
     corners: list[ShapeCorner]
     pixel_support: float = Field(default=0.5, ge=0, le=1)
+    source: Literal["adaptive_threshold", "colored_ink"] = "adaptive_threshold"
 
 
 class TopologyCandidateSelection(BaseModel):

@@ -1,9 +1,10 @@
-import { CircleDot, DoorOpen, Droplet, Focus, Move, Plug, Plus, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
+import { CircleDot, DoorOpen, Droplet, Focus, Grid2X2, Move, Plug, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, openingLine, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength, wetZoneBoundaryValid } from '../spec'
+import { dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, openingLine, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength, wetZoneBoundaryValid } from '../spec'
 import type { Asset, FixtureKind, FixturePointUsage, OpeningSpec, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
 
-type OpeningDrag = { pointerId: number; id: string; mode: 'move' | 'start' | 'end'; startPointer: Point2D; originStart: Point2D; originEnd: Point2D }
+type OpeningDrag = { pointerId: number; id: string; mode: 'move' | 'start' | 'end'; startPointer: Point2D; originStart: Point2D; originEnd: Point2D; currentStart: Point2D; currentEnd: Point2D }
+type OpeningCreate = { pointerId: number; start: Point2D; current: Point2D }
 
 const canvasWidth = 920
 const canvasHeight = 680
@@ -22,7 +23,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
   selection: Selection
   onSelect: (selection: Selection) => void
   onFixtureMove: (id: string, xMm: number, zMm: number) => void
-  onOpeningAdd?: () => void
+  onOpeningAdd?: (start: Point2D, end: Point2D) => void
   onOpeningChange?: (id: string, start: Point2D, end: Point2D) => void
   onOpeningDelete?: (id: string) => void
   onFixtureAdd?: (kind: FixtureKind, xMm: number, zMm: number, wallIndex: number | null, pointUsage?: FixturePointUsage) => void
@@ -33,6 +34,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
 }) {
   const [zoom, setZoom] = useState(1)
   const [addFixture, setAddFixture] = useState<{ kind: FixtureKind; pointUsage?: FixturePointUsage } | null>(null)
+  const [addOpening, setAddOpening] = useState(false)
+  const [orthogonal, setOrthogonal] = useState(true)
   const [addLine, setAddLine] = useState<PlanLineKind | null>(null)
   const [lineDraft, setLineDraft] = useState<{ id: string | null; points: Point2D[] }>({ id: null, points: [] })
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -42,6 +45,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
   const zoneSession = useRef<{ pointerId: number; id: string; start: Point2D; original: Point2D[]; vertex: number | null; draft: Point2D[] } | null>(null)
   const openingDrag = useRef<OpeningDrag | null>(null)
   const [openingDragState, setOpeningDragState] = useState<OpeningDrag | null>(null)
+  const openingCreate = useRef<OpeningCreate | null>(null)
+  const [openingCreateState, setOpeningCreateState] = useState<OpeningCreate | null>(null)
   const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
   const wallBodies = useMemo(() => wallLayerPolygons(spec), [spec])
   const bounds = useMemo(() => roomBounds([...spec.boundary, ...roomBoundary, ...wallBodies.flatMap((body) => [...body.finish, ...body.wall])]), [spec.boundary, roomBoundary, wallBodies])
@@ -63,8 +68,15 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
   }
   const roomPoint = (svg: SVGSVGElement, clientX: number, clientY: number) => {
     const point = svgPoint(svg, clientX, clientY)
-    return { x_mm: mmX((point.x - pan.x) / zoom), z_mm: mmZ((point.y - pan.y) / zoom) }
+    const canvasX = Number.isFinite(point.x) ? Math.max(0, Math.min(canvasWidth, point.x)) : canvasWidth / 2
+    const canvasY = Number.isFinite(point.y) ? Math.max(0, Math.min(canvasHeight, point.y)) : canvasHeight / 2
+    return { x_mm: mmX((canvasX - pan.x) / zoom), z_mm: mmZ((canvasY - pan.y) / zoom) }
   }
+  const orthogonalPoint = (anchor: Point2D, candidate: Point2D) => (
+    Math.abs(candidate.x_mm - anchor.x_mm) >= Math.abs(candidate.z_mm - anchor.z_mm)
+      ? { x_mm: candidate.x_mm, z_mm: anchor.z_mm }
+      : { x_mm: anchor.x_mm, z_mm: candidate.z_mm }
+  )
   const startZoneDrag = (event: ReactPointerEvent<SVGGElement | SVGCircleElement>, id: string, boundary: Point2D[], vertex: number | null) => {
     if (!onZoneChange || event.button !== 0) return
     event.preventDefault(); event.stopPropagation()
@@ -110,7 +122,10 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
   const addLinePointAtEvent = (event: MouseEvent<SVGSVGElement>) => {
     if (!addLine) return false
     const point = svgPoint(event.currentTarget, event.clientX, event.clientY)
-    const nextPoint = snapPlanPoint({ x_mm: mmX((point.x - pan.x) / zoom), z_mm: mmZ((point.y - pan.y) / zoom) })
+    const rawPoint = { x_mm: mmX((point.x - pan.x) / zoom), z_mm: mmZ((point.y - pan.y) / zoom) }
+    const alignedPoint = orthogonal && lineDraft.points.length ? orthogonalPoint(lineDraft.points.at(-1)!, rawPoint) : rawPoint
+    const snappedPoint = snapPlanPoint(alignedPoint)
+    const nextPoint = orthogonal && lineDraft.points.length ? orthogonalPoint(lineDraft.points.at(-1)!, snappedPoint) : snappedPoint
     if (!lineDraft.points.length) {
       setLineDraft({ id: null, points: [nextPoint] })
       return true
@@ -127,6 +142,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
   }
   const chooseLineTool = (kind: PlanLineKind) => {
     setAddFixture(null)
+    setAddOpening(false)
     setAddLine((value) => value === kind ? null : kind)
     setLineDraft({ id: null, points: [] })
   }
@@ -134,7 +150,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
     const t = Math.max(0, Math.min(1, offsetMm / Math.max(lengthMm, 1)))
     return { x_mm: start.x_mm + (end.x_mm - start.x_mm) * t, z_mm: start.z_mm + (end.z_mm - start.z_mm) * t }
   }
-  const wallDimension = (start: Point2D, end: Point2D, key: string, label: string) => {
+  const wallDimension = (start: Point2D, end: Point2D, key: string, label: string, kind: 'wall' | 'opening', wallIndex: number, startMm: number, endMm: number) => {
     const x1 = sx(start.x_mm)
     const y1 = sz(start.z_mm)
     const x2 = sx(end.x_mm)
@@ -170,7 +186,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
     const tickY = (uy + ux) * dimensionTickPx / Math.SQRT2
     const textX = (dimX1 + dimX2) / 2 + normalX * dimensionTextOffsetPx
     const textY = (dimY1 + dimY2) / 2 + normalY * dimensionTextOffsetPx
-    return <g key={key} className="dimension-label">
+    return <g key={key} className={`dimension-label ${kind}`} data-wall-index={wallIndex} data-part-kind={kind} data-start-mm={startMm} data-end-mm={endMm}>
       <line className="dimension-extension" x1={extStartX1} y1={extStartY1} x2={extEndX1} y2={extEndY1} />
       <line className="dimension-extension" x1={extStartX2} y1={extStartY2} x2={extEndX2} y2={extEndY2} />
       <line className="dimension-line" x1={dimX1} y1={dimY1} x2={midX + normalX * dimensionOffsetPx - ux * gap} y2={midY + normalY * dimensionOffsetPx - uy * gap} />
@@ -180,10 +196,31 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
       <text x={textX} y={textY}>{label}</text>
     </g>
   }
-  const wallDimensions = spec.boundary.flatMap((start, index) => {
-    const end = spec.boundary[(index + 1) % spec.boundary.length]
-    const lengthMm = wallLength(spec.boundary, index)
-    return [wallDimension(start, end, `wall-${index}`, `${Math.round(lengthMm)}`)]
+  const dimensionParts = useMemo(() => dimensionChainParts(spec), [spec])
+  const wallDimensions = dimensionParts.map((part) => {
+    const wallStart = spec.boundary[part.wall_index]
+    const wallEnd = spec.boundary[(part.wall_index + 1) % spec.boundary.length]
+    const lengthMm = wallLength(spec.boundary, part.wall_index)
+    return wallDimension(
+      pointAtWallOffset(wallStart, wallEnd, part.start_mm, lengthMm),
+      pointAtWallOffset(wallStart, wallEnd, part.end_mm, lengthMm),
+      `dimension-${part.wall_index}-${part.key}`,
+      `${part.label} ${Math.round(part.length_mm)}`,
+      part.kind,
+      part.wall_index,
+      part.start_mm,
+      part.end_mm,
+    )
+  })
+  const roomBoundaryRuns = dimensionParts.filter((part) => part.kind === 'wall').map((part) => {
+    const wallStart = roomBoundary[part.wall_index]
+    const wallEnd = roomBoundary[(part.wall_index + 1) % roomBoundary.length]
+    const lengthMm = wallLength(spec.boundary, part.wall_index)
+    return {
+      ...part,
+      start: pointAtWallOffset(wallStart, wallEnd, part.start_mm, lengthMm),
+      end: pointAtWallOffset(wallStart, wallEnd, part.end_mm, lengthMm),
+    }
   })
 
   return (
@@ -191,15 +228,15 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
       <div className="canvas-toolbar">
         <span><Move size={15} />拖动空白处平移，滚轮缩放</span>
         <div>
-          <button className={`icon-button${addFixture?.kind === 'drain' && addFixture.pointUsage !== 'toilet' ? ' active-tool' : ''}`} title="添加排水点" onClick={() => { setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'drain' && value.pointUsage !== 'toilet' ? null : { kind: 'drain', pointUsage: 'general' }) }}><Droplet size={17} /></button>
-          <button className={`icon-button${addFixture?.kind === 'drain' && addFixture.pointUsage === 'toilet' ? ' active-tool' : ''}`} title="添加马桶排水点并吸附马桶" onClick={() => { setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'drain' && value.pointUsage === 'toilet' ? null : { kind: 'drain', pointUsage: 'toilet' }) }}><CircleDot size={17} /></button>
-          <button className={`icon-button${addFixture?.kind === 'water' ? ' active-tool' : ''}`} title="添加给水点" onClick={() => { setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'water' ? null : { kind: 'water', pointUsage: 'general' }) }}><Waves size={17} /></button>
-          <button className={`icon-button${addFixture?.kind === 'floor_drain' ? ' active-tool' : ''}`} title="添加淋浴地漏" onClick={() => { setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'floor_drain' ? null : { kind: 'floor_drain', pointUsage: 'shower' }) }}><Square size={17} /></button>
-          <button className={`icon-button${addFixture?.kind === 'electric' ? ' active-tool' : ''}`} title="添加电点" onClick={() => { setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'electric' ? null : { kind: 'electric' }) }}><Plug size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'drain' && addFixture.pointUsage !== 'toilet' ? ' active-tool' : ''}`} title="添加排水点" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'drain' && value.pointUsage !== 'toilet' ? null : { kind: 'drain', pointUsage: 'general' }) }}><Droplet size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'drain' && addFixture.pointUsage === 'toilet' ? ' active-tool' : ''}`} title="添加马桶排水点并吸附马桶" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'drain' && value.pointUsage === 'toilet' ? null : { kind: 'drain', pointUsage: 'toilet' }) }}><CircleDot size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'water' ? ' active-tool' : ''}`} title="添加给水点" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'water' ? null : { kind: 'water', pointUsage: 'general' }) }}><Waves size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'floor_drain' ? ' active-tool' : ''}`} title="添加淋浴地漏" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'floor_drain' ? null : { kind: 'floor_drain', pointUsage: 'shower' }) }}><Square size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'electric' ? ' active-tool' : ''}`} title="添加电点" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'electric' ? null : { kind: 'electric' }) }}><Plug size={17} /></button>
           <button className={`icon-button${addLine === 'pipe_chase' ? ' active-tool' : ''}`} title="绘制包管线" onClick={() => chooseLineTool('pipe_chase')}><Square size={17} /></button>
           <button className={`icon-button${addLine === 'inner_wall' ? ' active-tool' : ''}`} title="绘制内墙线" onClick={() => chooseLineTool('inner_wall')}><Move size={17} /></button>
-          <button className={`icon-button${addLine === 'door_line' ? ' active-tool' : ''}`} title="绘制门线" onClick={() => chooseLineTool('door_line')}><DoorOpen size={17} /></button>
-          <button className="icon-button" title="添加门窗洞口" onClick={onOpeningAdd}><Plus size={17} /></button>
+          <button className={`icon-button${addOpening ? ' active-tool' : ''}`} title="拖拽绘制门窗线" onClick={() => { setAddFixture(null); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddOpening((value) => !value) }}><DoorOpen size={17} /></button>
+          <button className={`canvas-mode-toggle${orthogonal ? ' active-tool' : ''}`} title="限制新增和编辑的线为水平或垂直" aria-pressed={orthogonal} onClick={() => setOrthogonal((value) => !value)}><Grid2X2 size={15} /><span>正交</span></button>
           <button className="icon-button danger" title="删除选中的门窗洞口" disabled={selection.type !== 'opening'} onClick={() => selection.type === 'opening' && onOpeningDelete?.(selection.id)}><Trash2 size={17} /></button>
           <button className="icon-button" title="缩小" onClick={() => zoomAt(0.8)}><ZoomOut size={17} /></button>
           <button className="icon-button" title="放大" onClick={() => zoomAt(1.25)}><ZoomIn size={17} /></button>
@@ -212,8 +249,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
         role="img"
         aria-label="二维测量图审图画布"
         onClickCapture={(event) => {
-          if (addFixtureAtEvent(event)) { event.stopPropagation(); event.preventDefault() }
-          if (addLinePointAtEvent(event)) { event.stopPropagation(); event.preventDefault() }
+          if (suppressCanvasClick.current) { suppressCanvasClick.current = false; event.stopPropagation(); event.preventDefault(); return }
+          if (addFixtureAtEvent(event) || addLinePointAtEvent(event)) { event.stopPropagation(); event.preventDefault() }
         }}
         onClick={(event) => {
           if (suppressCanvasClick.current) { suppressCanvasClick.current = false; return }
@@ -225,6 +262,15 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           zoomAt(event.deltaY < 0 ? 1.12 : 1 / 1.12, svgPoint(event.currentTarget, event.clientX, event.clientY))
         }}
         onPointerDown={(event) => {
+          if (event.button === 0 && addOpening && onOpeningAdd) {
+            event.preventDefault(); event.stopPropagation()
+            const start = roomPoint(event.currentTarget, event.clientX, event.clientY)
+            const draft = { pointerId: event.pointerId, start, current: start }
+            openingCreate.current = draft
+            setOpeningCreateState(draft)
+            event.currentTarget.setPointerCapture(event.pointerId)
+            return
+          }
           const targetIsPanSurface = event.target === event.currentTarget || (event.target instanceof SVGElement && event.target.dataset.panSurface === 'true')
           if (event.button !== 0 || !targetIsPanSurface) return
           const point = svgPoint(event.currentTarget, event.clientX, event.clientY)
@@ -232,6 +278,15 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           event.currentTarget.setPointerCapture(event.pointerId)
         }}
         onPointerMove={(event) => {
+          const creating = openingCreate.current
+          if (creating?.pointerId === event.pointerId) {
+            const candidate = roomPoint(event.currentTarget, event.clientX, event.clientY)
+            const current = orthogonal ? orthogonalPoint(creating.start, candidate) : candidate
+            const preview = { ...creating, current }
+            openingCreate.current = preview
+            setOpeningCreateState(preview)
+            return
+          }
           const zone = zoneSession.current
           if (zone?.pointerId === event.pointerId) {
             const current = roomPoint(event.currentTarget, event.clientX, event.clientY)
@@ -258,12 +313,19 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           }
           const opening = openingDrag.current
           if (opening?.pointerId === event.pointerId) {
-            const current = roomPoint(event.currentTarget, event.clientX, event.clientY)
+            const candidate = roomPoint(event.currentTarget, event.clientX, event.clientY)
+            const current = opening.mode === 'start' && orthogonal
+              ? orthogonalPoint(opening.originEnd, candidate)
+              : opening.mode === 'end' && orthogonal
+                ? orthogonalPoint(opening.originStart, candidate)
+                : candidate
             const dx = current.x_mm - opening.startPointer.x_mm
             const dz = current.z_mm - opening.startPointer.z_mm
             const nextStart = opening.mode === 'start' ? current : { x_mm: opening.originStart.x_mm + (opening.mode === 'move' ? dx : 0), z_mm: opening.originStart.z_mm + (opening.mode === 'move' ? dz : 0) }
             const nextEnd = opening.mode === 'end' ? current : { x_mm: opening.originEnd.x_mm + (opening.mode === 'move' ? dx : 0), z_mm: opening.originEnd.z_mm + (opening.mode === 'move' ? dz : 0) }
-            setOpeningDragState({ ...opening, originStart: nextStart, originEnd: nextEnd })
+            const preview = { ...opening, currentStart: nextStart, currentEnd: nextEnd }
+            openingDrag.current = preview
+            setOpeningDragState(preview)
             return
           }
           const session = panSession.current
@@ -272,6 +334,19 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           setPan({ x: session.panX + point.x - session.x, y: session.panY + point.y - session.y })
         }}
         onPointerUp={(event) => {
+          if (openingCreate.current?.pointerId === event.pointerId) {
+            const draft = openingCreate.current
+            if (Math.hypot(draft.current.x_mm - draft.start.x_mm, draft.current.z_mm - draft.start.z_mm) >= 100) {
+              onOpeningAdd?.(draft.start, draft.current)
+              setAddOpening(false)
+            }
+            openingCreate.current = null
+            setOpeningCreateState(null)
+            suppressCanvasClick.current = true
+            window.setTimeout(() => { suppressCanvasClick.current = false }, 0)
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+            return
+          }
           const zone = zoneSession.current
           if (zone?.pointerId === event.pointerId) {
             suppressCanvasClick.current = true
@@ -284,7 +359,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           }
           if (openingDrag.current?.pointerId === event.pointerId) {
             const opening = openingDrag.current
-            onOpeningChange?.(opening.id, opening.originStart, opening.originEnd)
+            onOpeningChange?.(opening.id, opening.currentStart, opening.currentEnd)
             openingDrag.current = null
             setOpeningDragState(null)
             suppressCanvasClick.current = true
@@ -297,6 +372,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           event.currentTarget.releasePointerCapture(event.pointerId)
         }}
         onPointerCancel={(event) => {
+          if (openingCreate.current?.pointerId === event.pointerId) { openingCreate.current = null; setOpeningCreateState(null) }
           if (openingDrag.current?.pointerId === event.pointerId) { openingDrag.current = null; setOpeningDragState(null) }
           if (zoneSession.current?.pointerId === event.pointerId) {
             zoneSession.current = null
@@ -305,6 +381,12 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           if (panSession.current?.pointerId === event.pointerId) panSession.current = null
           if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
         }}
+        onLostPointerCapture={() => {
+          openingCreate.current = null; setOpeningCreateState(null)
+          openingDrag.current = null; setOpeningDragState(null)
+          zoneSession.current = null; setZoneDraft(null)
+          panSession.current = null
+        }}
       >
         <defs>
           <pattern id="minor-grid" width="18" height="18" patternUnits="userSpaceOnUse"><path d="M 18 0 L 0 0 0 18" fill="none" stroke="#d9dcd5" strokeWidth="0.7" /></pattern>
@@ -312,11 +394,14 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
         </defs>
         <rect width={canvasWidth} height={canvasHeight} fill="url(#major-grid)" data-pan-surface="true" />
         <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
-        {wallBodies.map((body, index) => <g key={`wall-body-${index}`} pointerEvents="none">
+        {wallBodies.map((body) => <g key={`wall-body-${body.wall_index}-${body.run_key}`} className="wall-body-run" data-wall-index={body.wall_index} data-run-start-mm={body.start_mm} data-run-end-mm={body.end_mm} pointerEvents="none">
           <polygon points={body.finish.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')} className="wall-finish-body" />
           <polygon points={body.wall.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')} className="wall-body" />
         </g>)}
         <polygon points={points} className={selection.type === 'room' ? 'room-polygon selected' : 'room-polygon'} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'room' }) }} />
+        <g className={selection.type === 'room' ? 'room-boundary-runs selected' : 'room-boundary-runs'} pointerEvents="none">
+          {roomBoundaryRuns.map((run) => <line key={`room-boundary-${run.wall_index}-${run.key}`} data-wall-index={run.wall_index} data-run-start-mm={run.start_mm} data-run-end-mm={run.end_mm} x1={sx(run.start.x_mm)} y1={sz(run.start.z_mm)} x2={sx(run.end.x_mm)} y2={sz(run.end.z_mm)} />)}
+        </g>
         {(spec.dry_wet_zones ?? []).filter((zone) => zone.kind === 'wet').map((zone) => {
           const boundary = zoneDraft?.id === zone.id ? zoneDraft.boundary : zone.boundary
           const zonePoints = boundary.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')
@@ -347,9 +432,14 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
         </g>}
         {roomBoundary.map((point, index) => <circle key={`wall-node-${index}`} className="wall-node" cx={sx(point.x_mm)} cy={sz(point.z_mm)} r="2.5" />)}
         {labels.filter((label) => label.text.trim()).map((label) => <text key={label.id} className="plan-center-label" x={sx(label.x_mm)} y={sz(label.z_mm)} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'plan_label', id: label.id }) }}>{label.text}</text>)}
+        {openingCreateState && <g className="opening-segment draft" pointerEvents="none">
+          <line className="opening-gap-part" x1={sx(openingCreateState.start.x_mm)} y1={sz(openingCreateState.start.z_mm)} x2={sx(openingCreateState.current.x_mm)} y2={sz(openingCreateState.current.z_mm)} />
+          <circle className="opening-jamb" cx={sx(openingCreateState.start.x_mm)} cy={sz(openingCreateState.start.z_mm)} r="4" />
+          <circle className="opening-jamb" cx={sx(openingCreateState.current.x_mm)} cy={sz(openingCreateState.current.z_mm)} r="4" />
+        </g>}
         {spec.openings.map((opening) => {
           const sourceLine = opening.line ?? openingLine(spec, opening)
-          const line = openingDragState?.id === opening.id ? { start: openingDragState.originStart, end: openingDragState.originEnd } : sourceLine
+          const line = openingDragState?.id === opening.id ? { start: openingDragState.currentStart, end: openingDragState.currentEnd } : sourceLine
           const x1 = sx(line.start.x_mm), y1 = sz(line.start.z_mm)
           const x2 = sx(line.end.x_mm), y2 = sz(line.end.z_mm)
           const selected = selection.type === 'opening' && selection.id === opening.id
@@ -357,14 +447,15 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
             if (!onOpeningChange || event.button !== 0) return
             event.preventDefault(); event.stopPropagation()
             const pointer = roomPoint(event.currentTarget.ownerSVGElement!, event.clientX, event.clientY)
-            const drag = { pointerId: event.pointerId, id: opening.id, mode, startPointer: pointer, originStart: line.start, originEnd: line.end }
+            const alignedEnd = orthogonal ? orthogonalPoint(line.start, line.end) : line.end
+            const drag = { pointerId: event.pointerId, id: opening.id, mode, startPointer: pointer, originStart: line.start, originEnd: alignedEnd, currentStart: line.start, currentEnd: alignedEnd }
             openingDrag.current = drag; setOpeningDragState(drag); onSelect({ type: 'opening', id: opening.id })
             event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
           }
           const mid = { x: (x1 + x2) / 2, y: (y1 + y2) / 2 }
           const dx = x2 - x1, dy = y2 - y1, length = Math.max(1, Math.hypot(dx, dy))
           const normal = { x: -dy / length, y: dx / length }
-          return <g key={opening.id} className={selected ? 'opening-segment selected' : 'opening-segment'} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'opening', id: opening.id }) }}>
+          return <g key={opening.id} className={selected ? 'opening-segment selected' : 'opening-segment'} data-opening-id={opening.id} data-wall-index={opening.wall_index} data-offset-mm={opening.offset_mm} data-width-mm={opening.width_mm} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'opening', id: opening.id }) }}>
             <line className="opening-gap-part" x1={x1} y1={y1} x2={x2} y2={y2} />
             <line className="opening-drag-hit" x1={x1} y1={y1} x2={x2} y2={y2} onPointerDown={(event) => beginOpeningDrag(event, 'move')} />
             <circle className="opening-jamb" cx={x1} cy={y1} r={selected ? 5 : 2.5} onPointerDown={(event) => beginOpeningDrag(event, 'start')} />

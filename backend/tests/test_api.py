@@ -67,6 +67,10 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
         health = await client.get("/api/health")
         assert health.status_code == 200
         assert health.json()["ok"] is True
+        assert health.json()["service_id"] == "bathroom-spatial-studio"
+        assert health.json()["source_version"] > 0
+        assert health.json()["config_version"]
+        assert "chat_model" in health.json()
 
         created = await client.post("/api/projects", json={"name": "测试卫生间"})
         assert created.status_code == 201

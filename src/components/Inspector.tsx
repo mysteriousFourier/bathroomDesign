@@ -1,6 +1,6 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { showerSeatModelAsset, toilet3dsGlbModelAsset, toiletFbxGlbModelAsset, washerGlbModelAsset } from '../modelAssets'
-import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, projectPointToWall, roomBounds, roomCentroid, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
+import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, projectPointToWall, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
 import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -136,10 +136,12 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
     const wallIndex = spec.boundary.reduce((best, _point, index) => wallLength(spec.boundary, index) > wallLength(spec.boundary, best) ? index : best, 0)
     const length = Math.max(1, wallLength(spec.boundary, wallIndex))
     const width = Math.min(800, length)
-    edit((draft) => draft.openings.push({
-      id, kind: 'door', wall_index: wallIndex, offset_mm: Math.max(0, Math.round((length - width) / 2 / 10) * 10), width_mm: width, height_mm: 2100,
-      thickness_mm: null, sill_mm: 0, label: '门洞', source: 'user', confidence: 1,
-    }))
+    edit((draft) => {
+      const offset = Math.max(0, Math.round((length - width) / 2 / 10) * 10)
+      const opening = { id, kind: 'door' as const, wall_index: wallIndex, offset_mm: offset, width_mm: width, height_mm: 2100, thickness_mm: null, sill_mm: 0, label: nextOpeningLabel(draft), source: 'user' as const, confidence: 1 }
+      draft.openings.push(opening)
+      setOpeningOnWall(draft, opening, wallIndex, offset, width)
+    })
     onSelect({ type: 'opening', id })
   }
 
@@ -306,11 +308,21 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
         {selectedOpening && (
           <div className="field-stack">
             <div className="object-heading"><strong>{selectedOpening.label}</strong><SourceBadge source={selectedOpening.source} confidence={selectedOpening.confidence} /></div>
-            <label className="text-field"><span>类型</span><select value={selectedOpening.kind} onChange={(event) => edit((draft) => { draft.openings.find((item) => item.id === selectedOpening.id)!.kind = event.target.value as typeof selectedOpening.kind })}><option value="door">门</option><option value="window">窗</option><option value="opening">洞口</option></select></label>
-            <label className="text-field"><span>绑定墙段</span><select value={selectedOpening.wall_index} onChange={(event) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) item.wall_index = Number(event.target.value) })}>{spec.boundary.map((_, index) => <option key={index} value={index}>W{index + 1}</option>)}</select></label>
-            <NumberField label="距墙起点" value={selectedOpening.offset_mm} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) item.offset_mm = value })} />
+            <label className="text-field"><span>名称</span><input value={selectedOpening.label} onChange={(event) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) { item.label = event.target.value; item.source = 'user'; item.confidence = 1 } })} /></label>
+            <label className="text-field"><span>类型</span><select value={selectedOpening.kind} onChange={(event) => edit((draft) => {
+              const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id)
+              if (!item) return
+              const nextKind = event.target.value as typeof selectedOpening.kind
+              if (/^[DCO]\d+$/i.test(item.label) || ['门洞', '窗洞', '洞口'].includes(item.label)) item.label = nextOpeningLabel(draft, nextKind)
+              item.kind = nextKind; item.source = 'user'; item.confidence = 1
+            })}><option value="door">门</option><option value="window">窗</option><option value="opening">洞口</option></select></label>
+            <label className="text-field"><span>绑定墙段</span><select value={selectedOpening.wall_index} onChange={(event) => edit((draft) => {
+              const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id)
+              if (item) setOpeningOnWall(draft, item, Number(event.target.value), item.offset_mm, item.width_mm)
+            })}>{spec.boundary.map((_, index) => <option key={index} value={index}>基准墙 {index + 1}</option>)}</select></label>
+            <NumberField label="左墙长度" value={selectedOpening.offset_mm} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) setOpeningOnWall(draft, item, item.wall_index, value, item.width_mm) })} />
             <NumberField label="CG 距地" value={selectedOpening.sill_mm} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) item.sill_mm = value })} />
-            <NumberField label="CK 内宽" value={selectedOpening.width_mm} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) item.width_mm = value })} />
+            <NumberField label="CK 内宽" value={selectedOpening.width_mm} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) setOpeningOnWall(draft, item, item.wall_index, item.offset_mm, value) })} />
             <NumberField label="CH 内高" value={selectedOpening.height_mm} onChange={(value) => edit((draft) => { const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id); if (item) item.height_mm = value })} />
             <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.openings = draft.openings.filter((item) => item.id !== selectedOpening.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除洞口</button>
           </div>

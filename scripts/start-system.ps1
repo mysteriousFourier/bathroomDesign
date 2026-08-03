@@ -70,6 +70,68 @@ function Get-AppHealth {
     }
 }
 
+function Get-BackendSourceVersion {
+    $SourceDir = Join-Path $ProjectRoot "backend\app"
+    $Versions = @(
+        Get-ChildItem -LiteralPath $SourceDir -Filter "*.py" -File |
+            ForEach-Object { ([DateTimeOffset]$_.LastWriteTimeUtc).ToUnixTimeSeconds() }
+    )
+    if ($Versions.Count -eq 0) {
+        return [long]0
+    }
+    return [long](($Versions | Measure-Object -Maximum).Maximum)
+}
+
+function Get-EnvironmentConfigVersion {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.Substring(0, 16).ToLowerInvariant()
+}
+
+function Get-ListeningProcessId {
+    param([int]$Port)
+    $Netstat = Join-Path $env:SystemRoot "System32\netstat.exe"
+    foreach ($Line in & $Netstat -ano -p TCP) {
+        if ($Line -match "^\s*TCP\s+\S+:$Port\s+\S+\s+LISTENING\s+(?<process>\d+)\s*$") {
+            return [int]$Matches.process
+        }
+    }
+    return $null
+}
+
+function Test-KnownAppHealth {
+    param([object]$Health)
+    if ($Health.service_id -eq "bathroom-spatial-studio") {
+        return $true
+    }
+    $LegacyFields = @("ok", "ai_configured", "model", "fallback_model", "ocr_configured")
+    $PropertyNames = @($Health.PSObject.Properties.Name)
+    return @($LegacyFields | Where-Object { $_ -notin $PropertyNames }).Count -eq 0
+}
+
+function Stop-OutdatedAppService {
+    param([object]$Health)
+    if (-not (Test-KnownAppHealth -Health $Health)) {
+        throw "Port 8000 is occupied by a service that does not identify as this project. Stop it manually and run this launcher again."
+    }
+    $ExistingProcessId = Get-ListeningProcessId -Port 8000
+    if (-not $ExistingProcessId) {
+        throw "The old application answered health checks, but its process could not be identified. Stop the service on port 8000 and run this launcher again."
+    }
+    Write-Host "Stopping outdated backend process tree $ExistingProcessId..."
+    $TaskKill = Join-Path $env:SystemRoot "System32\taskkill.exe"
+    & $TaskKill /PID $ExistingProcessId /T /F *> $null
+    for ($Attempt = 1; $Attempt -le 20; $Attempt++) {
+        if (-not (Test-PortOpen -Port 8000)) {
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    throw "The outdated backend did not release port 8000. Stop process $ExistingProcessId manually and run this launcher again."
+}
+
 function Normalize-ProcessPathVariable {
     # Some Windows hosts inject both PATH and Path. Start-Process treats them
     # as duplicate dictionary keys even though Windows treats them identically.
@@ -211,16 +273,28 @@ function Invoke-Startup {
     Write-Step "Building the frontend"
     Invoke-Checked -FilePath $Npm -Arguments @("run", "build") -Description "Frontend build"
 
+    $ExpectedSourceVersion = Get-BackendSourceVersion
+    $ExpectedConfigVersion = Get-EnvironmentConfigVersion -Path $EnvPath
     $ExistingHealth = Get-AppHealth
     if ($ExistingHealth -and $ExistingHealth.ok) {
-        Write-Step "The system is already running"
-        Write-Host "Open $AppUrl"
-        Open-AppBrowser
-        if (-not $ExitAfterReady) {
-            Write-Host "This launcher does not own the existing service on port 8000."
-            [void](Read-Host "Press Enter to close this terminal")
+        $SourceMatches = [long]$ExistingHealth.source_version -eq $ExpectedSourceVersion
+        $ConfigMatches = [string]$ExistingHealth.config_version -eq $ExpectedConfigVersion
+        if ($SourceMatches -and $ConfigMatches) {
+            Write-Step "The current system version is already running"
+            Write-Host "Open $AppUrl"
+            Open-AppBrowser
+            if (-not $ExitAfterReady) {
+                Write-Host "This launcher does not own the existing service on port 8000."
+                [void](Read-Host "Press Enter to close this terminal")
+            }
+            return
         }
-        return
+        Write-Step "Restarting an outdated backend"
+        Write-Host "Running source version: $($ExistingHealth.source_version); current source version: $ExpectedSourceVersion"
+        if (-not $ConfigMatches) {
+            Write-Host "The .env configuration changed; restarting to apply the configured models."
+        }
+        Stop-OutdatedAppService -Health $ExistingHealth
     }
     if (Test-PortOpen -Port 8000) {
         throw "Port 8000 is already in use by another program. Stop it and run this launcher again."
@@ -257,6 +331,9 @@ function Invoke-Startup {
     if (-not ($Health -and $Health.ok)) {
         Show-BackendFailure -StdoutLog $StdoutLog -StderrLog $StderrLog
         throw "The backend did not become ready within 30 seconds."
+    }
+    if ([string]$Health.config_version -ne $ExpectedConfigVersion) {
+        throw "The backend started without the current .env configuration. Check the startup logs and try again."
     }
 
     Write-Step "System is ready"

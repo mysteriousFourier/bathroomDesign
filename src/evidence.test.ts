@@ -64,4 +64,13 @@ describe('photo evidence visibility', () => {
 
     expect(reviewEvidence(spec([first, duplicate]), 'plan-a').map(observationId)).toEqual(['door-a'])
   })
+
+  it('does not force a wall selection after the OCR row already created the same opening', () => {
+    const header = observation('header', { semantic_role: 'door_size', value: '门窗洞口 · CG 距地 / CK 内宽 / CH 内高', target_id: null })
+    const door = observation('door-row', { semantic_role: 'door_size', value: 'D1 CG 0 CK 800 CH 2055', target_id: null })
+    const current = spec([header, door])
+    current.openings.push({ id: 'opening-d1', kind: 'door', wall_index: 2, offset_mm: 770, width_mm: 800, height_mm: 2055, sill_mm: 0, label: 'D1', source: 'derived', confidence: 0.95, evidence_ids: ['other-door-row'] })
+
+    expect(reviewEvidence(current, 'plan-a')).toEqual([])
+  })
 })

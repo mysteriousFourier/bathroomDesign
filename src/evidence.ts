@@ -17,7 +17,29 @@ function bboxIoU(left: NonNullable<Observation['bbox']>, right: NonNullable<Obse
   return union > 0 ? intersection / union : 0
 }
 
-function isActionable(observation: Observation, edgeEvidenceIds: Set<string>) {
+function codedOpeningRow(value: string) {
+  const code = value.match(/\b([DW]\d+)\b/i)?.[1].toUpperCase() ?? null
+  const field = (name: 'CG' | 'CK' | 'CH') => {
+    const match = value.match(new RegExp(`\\b${name}\\s*[:：=]?\\s*(\\d+)`, 'i'))
+    return match ? Number(match[1]) : null
+  }
+  const sill = field('CG'), width = field('CK'), height = field('CH')
+  return sill === null || width === null || height === null ? null : { code, sill, width, height }
+}
+
+function openingAlreadyApplied(spec: RoomSpec, observation: Observation) {
+  const row = codedOpeningRow(observation.value)
+  if (!row) return false
+  const id = observationId(observation)
+  return spec.openings.some((opening) => (
+    (opening.evidence_ids?.includes(id) || !row.code || opening.label.toUpperCase() === row.code)
+    && opening.sill_mm === row.sill
+    && opening.width_mm === row.width
+    && opening.height_mm === row.height
+  ))
+}
+
+function isActionable(spec: RoomSpec, observation: Observation, edgeEvidenceIds: Set<string>) {
   if (!observation.field.startsWith('ocr:') || !observation.bbox || observation.confirmed || !observation.review_required) return false
   const role = observation.semantic_role ?? 'other'
   const value = compact(observation.value)
@@ -25,7 +47,7 @@ function isActionable(observation: Observation, edgeEvidenceIds: Set<string>) {
   if (role === 'wall_segment' || role === 'room_dimension' || role === 'wall_thickness') {
     return edgeEvidenceIds.has(observationId(observation))
   }
-  if (role === 'door_size') return value.includes('CG') && value.includes('CK') && value.includes('CH')
+  if (role === 'door_size') return codedOpeningRow(observation.value) !== null && !openingAlreadyApplied(spec, observation)
   if (role === 'room_height') return /净高|层高|室内高/.test(observation.value)
   if (role === 'ceiling_height') return observation.value.includes('吊顶') && !observation.value.includes('整屋')
   if (role === 'drain_position') return /地漏|排水|下水|排污/.test(observation.value)
@@ -46,7 +68,7 @@ export function reviewEvidence(spec: RoomSpec, assetId?: string) {
     (spec.plan_annotation?.edge_chain ?? []).flatMap((edge) => edge.evidence_ids),
   )
   const candidates = spec.observations
-    .filter((observation) => (!assetId || observation.asset_id === assetId) && isActionable(observation, edgeEvidenceIds))
+    .filter((observation) => (!assetId || observation.asset_id === assetId) && isActionable(spec, observation, edgeEvidenceIds))
     .sort((left, right) => preference(right) - preference(left))
   const selected: Observation[] = []
   for (const candidate of candidates) {

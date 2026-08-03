@@ -7,7 +7,7 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
-import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerPolygons, wallLength } from '../spec'
+import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerQuads, wallLength } from '../spec'
 import type { FixtureModelAsset, FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
 
 export interface ModelCanvasHandle {
@@ -207,7 +207,7 @@ function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, o
     shape.closePath()
     return shape
   }, [roomBoundary])
-  const wallLayers = useMemo(() => wallLayerPolygons(spec), [spec])
+  const wallLayers = useMemo(() => wallLayerQuads(spec), [spec])
   const height = (spec.height_mm ?? 2600) / 1000
   return (
     <group ref={groupRef} userData={{ schema_version: spec.schema_version, unit: 'meter', room_name: spec.name }} onClick={() => onSelect({ type: 'room' })}>

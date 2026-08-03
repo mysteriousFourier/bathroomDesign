@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, roomBounds, roomPointToImage, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, syncToiletWithDrain, toiletPlacementFromDrain, toiletRotationForWall, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
+import { clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, syncToiletWithDrain, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
 
 describe('room boundary validation', () => {
   it('keeps openings bound to a wall while the wall geometry changes', () => {
@@ -44,6 +44,223 @@ describe('room boundary validation', () => {
     syncOpeningBindings(next, previous)
     expect(next.openings[0].wall_index).toBe(2)
     expect(next.openings[0].line?.start.x_mm).toBe(2400)
+  })
+
+  it('keeps photo-annotation openings on the same image segment when a new edge shifts indexes', () => {
+    const current = manualRoom(1595, 1790, 2770)
+    const previousPoints = [{ x: 260, y: 304 }, { x: 501, y: 304 }, { x: 501, y: 625 }, { x: 260, y: 625 }]
+    const previousEdges = [
+      { direction: 'right' as const, length_mm: 1595, role: 'wall' as const, evidence_ids: [], confidence: 0.9 },
+      { direction: 'down' as const, length_mm: 1790, role: 'wall' as const, evidence_ids: [], confidence: 0.9 },
+      { direction: 'left' as const, length_mm: 1570, role: 'wall' as const, evidence_ids: [], confidence: 0.9 },
+      { direction: 'up' as const, length_mm: 1790, role: 'wall' as const, evidence_ids: [], confidence: 0.9 },
+    ]
+    current.plan_annotation = { rotation_degrees: 0, boundary: previousPoints, edge_chain: previousEdges, confirmed: false }
+    current.openings = [
+      { id: 'D1', kind: 'door', wall_index: 2, offset_mm: 770, width_mm: 800, height_mm: 2055, sill_mm: 0, label: 'D1', source: 'derived', confidence: 0.95 },
+      { id: 'W1', kind: 'window', wall_index: 0, offset_mm: 330, width_mm: 475, height_mm: 1305, sill_mm: 735, label: 'W1', source: 'derived', confidence: 0.95 },
+    ]
+    const nextPoints = [previousPoints[0], previousPoints[1], { x: 501, y: 470 }, previousPoints[2], previousPoints[3]]
+    current.plan_annotation = { ...current.plan_annotation, boundary: nextPoints, edge_chain: [], confirmed: false }
+
+    rebindOpeningsToImageBoundary(current, previousPoints, nextPoints, previousEdges)
+
+    expect(current.openings.find((item) => item.id === 'D1')).toMatchObject({ wall_index: 3, offset_mm: 770, width_mm: 800, line: null, wall_binding: { image_end: { x: 260, y: 625 } } })
+    expect(current.openings.find((item) => item.id === 'D1')?.wall_binding?.image_start?.x).toBeCloseTo(382.8, 1)
+    expect(current.openings.find((item) => item.id === 'W1')).toMatchObject({ wall_index: 0, offset_mm: 330, width_mm: 475, line: null, wall_binding: { image_end: { y: 304 } } })
+    expect(current.openings.find((item) => item.id === 'W1')?.wall_binding?.image_start?.x).toBeCloseTo(309.9, 1)
+    expect(current.openings.find((item) => item.id === 'W1')?.wall_binding?.image_end?.x).toBeCloseTo(381.6, 1)
+  })
+
+  it('preserves opening endpoints when its original image wall is split into new edges', () => {
+    const previousPoints = [{ x: 260, y: 304 }, { x: 501, y: 304 }, { x: 501, y: 625 }, { x: 260, y: 625 }]
+    const previousEdges = [
+      { direction: 'right' as const, length_mm: 1595, measured_length_mm: 1595, role: 'wall' as const, evidence_ids: [], confidence: 1 },
+      { direction: 'down' as const, length_mm: 1790, measured_length_mm: 1790, role: 'wall' as const, evidence_ids: [], confidence: 1 },
+      { direction: 'left' as const, length_mm: 1570, measured_length_mm: 1570, role: 'wall' as const, evidence_ids: [], confidence: 1 },
+      { direction: 'up' as const, length_mm: 1790, measured_length_mm: 1790, role: 'wall' as const, evidence_ids: [], confidence: 1 },
+    ]
+    const current = manualRoom(1595, 1790, 2770)
+    current.plan_annotation = { rotation_degrees: 0, boundary: previousPoints, edge_chain: previousEdges, confirmed: false }
+    current.openings = [{ id: 'D1', kind: 'door', wall_index: 2, offset_mm: 770, width_mm: 800, height_mm: 2055, sill_mm: 0, label: 'D1', source: 'derived', confidence: 0.95 }]
+    const nextPoints = [previousPoints[0], previousPoints[1], previousPoints[2], { x: 410, y: 625 }, previousPoints[3]]
+    current.plan_annotation = { ...current.plan_annotation, boundary: nextPoints, edge_chain: previousEdges.slice(0, 2).concat([
+      { direction: 'left', length_mm: 620, measured_length_mm: 620, role: 'wall', evidence_ids: [], confidence: 1 },
+      { direction: 'left', length_mm: 950, measured_length_mm: 950, role: 'wall', evidence_ids: [], confidence: 1 },
+      previousEdges[3],
+    ]), confirmed: false }
+
+    rebindOpeningsToImageBoundary(current, previousPoints, nextPoints, previousEdges)
+
+    const opening = current.openings[0]
+    expect(opening.width_mm).toBe(800)
+    expect(opening.wall_binding?.image_start?.x).toBeCloseTo(382.8, 1)
+    expect(opening.wall_binding?.image_end).toEqual({ x: 260, y: 625 })
+    expect(opening.line).toBeNull()
+  })
+
+  it('repairs a legacy opening whose original wall was split into measured runs', () => {
+    const current = manualRoom(1595, 1790, 2770)
+    current.boundary = []
+    current.plan_annotation = {
+      rotation_degrees: 0,
+      confirmed: false,
+      boundary: [
+        { x: 260, y: 304 }, { x: 501, y: 304 }, { x: 502, y: 598 }, { x: 468, y: 600 },
+        { x: 470, y: 627 }, { x: 364, y: 628 }, { x: 260, y: 625 },
+      ],
+      edge_chain: [
+        { direction: 'right', length_mm: 1595, measured_length_mm: 1595, role: 'wall', evidence_ids: [], confidence: 1 },
+        { direction: 'down', length_mm: 1600, measured_length_mm: 1600, role: 'wall', evidence_ids: [], confidence: 1 },
+        { direction: 'left', length_mm: 480, measured_length_mm: 480, role: 'wall', evidence_ids: [], confidence: 1 },
+        { direction: 'down', length_mm: 190, measured_length_mm: 190, role: 'wall', evidence_ids: [], confidence: 1 },
+        { direction: 'left', length_mm: 290, measured_length_mm: 290, role: 'wall', evidence_ids: [], confidence: 1 },
+        { direction: 'left', length_mm: 30, measured_length_mm: 30, role: 'wall', evidence_ids: [], confidence: 1 },
+        { direction: 'up', length_mm: 1790, measured_length_mm: 1790, role: 'wall', evidence_ids: [], confidence: 1 },
+      ],
+    }
+    current.openings = [{ id: 'D1', kind: 'door', wall_index: 2, offset_mm: 770, width_mm: 800, height_mm: 2055, sill_mm: 0, label: 'D1', source: 'user', confidence: 1, evidence_ids: ['TV027'] }]
+    current.observations = [{ field: 'ocr:TV027', value: '800', source: 'derived', asset_id: null, bbox: null, confidence: 0.9, confirmed: false, alternatives: [], note: '', semantic_role: 'wall_segment', review_required: false }]
+
+    repairPendingOpeningImageBindings(current)
+
+    expect(current.openings[0]).toMatchObject({ wall_index: 5, offset_mm: 0, width_mm: 800, wall_binding: { start_ratio: 0, end_ratio: 800 / 830 } })
+    const repairedEdges = current.plan_annotation!.edge_chain!
+    expect(repairedEdges[5]).toMatchObject({ length_mm: 830, measured_length_mm: 830 })
+    expect(dimensionChainParts(current, repairedEdges.map((edge) => edge.length_mm)).filter((part) => part.wall_index === 5).map((part) => ({ kind: part.kind, length: part.length_mm }))).toEqual([
+      { kind: 'opening', length: 800 }, { kind: 'wall', length: 30 },
+    ])
+  })
+
+  it('splits a host wall into independently named wall and opening runs', () => {
+    const spec = manualRoom(3000, 1800, 2600)
+    const opening = { id: 'door-1', kind: 'door' as const, wall_index: 0, offset_mm: 500, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'user' as const, confidence: 1 }
+    spec.openings.push(opening)
+    setOpeningOnWall(spec, opening, 0, 500, 800)
+
+    expect(dimensionChainParts(spec).slice(0, 3).map((part) => ({ label: part.label, kind: part.kind, length: part.length_mm }))).toEqual([
+      { label: 'W1', kind: 'wall', length: 500 },
+      { label: 'D1', kind: 'opening', length: 800 },
+      { label: 'W2', kind: 'wall', length: 1700 },
+    ])
+  })
+
+  it('uses the independent opening line to rebind a door onto another wall', () => {
+    const previous = manualRoom(2400, 1800, 2600)
+    const opening = { id: 'D1', kind: 'door' as const, wall_index: 0, offset_mm: 400, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'user' as const, confidence: 1 }
+    previous.openings.push(opening)
+    syncOpeningBindings(previous)
+    const next = cloneSpec(previous)
+    next.openings[0].line = { start: { x_mm: 2400, z_mm: 300 }, end: { x_mm: 2400, z_mm: 1100 } }
+
+    syncOpeningBindings(next, previous)
+
+    expect(next.openings[0]).toMatchObject({ wall_index: 1, offset_mm: 300, width_mm: 800 })
+    expect(next.openings[0].line).toEqual({ start: { x_mm: 2400, z_mm: 300 }, end: { x_mm: 2400, z_mm: 1100 } })
+  })
+
+  it('binds an independent opening line to a parallel wall instead of the closest perpendicular wall', () => {
+    const spec = manualRoom(3000, 2000, 2600)
+    const opening = { id: 'D1', kind: 'door' as const, wall_index: 1, offset_mm: 0, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'user' as const, confidence: 1 }
+    spec.openings.push(opening)
+    const line = { start: { x_mm: 2800, z_mm: 260 }, end: { x_mm: 2980, z_mm: 260 } }
+
+    updateOpeningFromLine(spec, opening, line)
+
+    expect(opening.wall_index).toBe(0)
+    expect(spec.openings[0].line).toEqual(line)
+    expect(opening).toMatchObject({ offset_mm: 2800, width_mm: 180 })
+  })
+
+  it('keeps a freely edited opening line when derived wall values change with it', () => {
+    const previous = manualRoom(3000, 2000, 2600)
+    previous.openings.push({ id: 'D1', kind: 'door', wall_index: 1, offset_mm: 300, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'user', confidence: 1 })
+    syncOpeningBindings(previous)
+    const next = cloneSpec(previous)
+    const freeLine = { start: { x_mm: 2820, z_mm: 300 }, end: { x_mm: 2920, z_mm: 1180 } }
+    updateOpeningFromLine(next, next.openings[0], freeLine, 1)
+
+    syncOpeningBindings(next, previous)
+
+    expect(next.openings[0].line).toEqual(freeLine)
+    expect(next.openings[0].wall_index).toBe(1)
+  })
+
+  it('preserves left wall and opening lengths when only the right wall run changes', () => {
+    const previous = manualRoom(3000, 1800, 2600)
+    const opening = { id: 'D1', kind: 'door' as const, wall_index: 0, offset_mm: 500, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'user' as const, confidence: 1 }
+    previous.openings.push(opening)
+    syncOpeningBindings(previous)
+    const next = cloneSpec(previous)
+    next.plan_annotation = { rotation_degrees: 0, boundary: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }], confirmed: false, edge_chain: [
+      { direction: 'right', length_mm: 3100, measured_length_mm: 3100, role: 'wall', evidence_ids: [], confidence: 1 },
+      { direction: 'down', length_mm: 1800, measured_length_mm: 1800, role: 'wall', evidence_ids: [], confidence: 1 },
+      { direction: 'left', length_mm: 3000, measured_length_mm: 3000, role: 'wall', evidence_ids: [], confidence: 1 },
+      { direction: 'up', length_mm: 1800, measured_length_mm: 1800, role: 'wall', evidence_ids: [], confidence: 1 },
+    ] }
+    setOpeningOnWall(next, next.openings[0], 0, 500, 800, 3100)
+
+    syncOpeningBindings(next, previous)
+
+    expect(next.openings[0]).toMatchObject({ offset_mm: 500, width_mm: 800 })
+    expect(dimensionChainParts(next, [3100, 1800, 3000, 1800]).slice(0, 3).map((part) => part.length_mm)).toEqual([500, 800, 1800])
+  })
+
+  it('preserves independent image endpoints for numeric edits on the same wall', () => {
+    const spec = manualRoom(3000, 2000, 2700)
+    const opening = { id: 'D1', kind: 'door' as const, wall_index: 0, offset_mm: 600, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'user' as const, confidence: 1, wall_binding: {
+      wall_index: 0,
+      start_ratio: 0.2,
+      end_ratio: 0.5,
+      image_start: { x: 120, y: 240 },
+      image_end: { x: 360, y: 240 },
+    } }
+    spec.openings.push(opening)
+
+    setOpeningOnWall(spec, opening, 0, 700, 900, 3200)
+
+    expect(opening).toMatchObject({ wall_index: 0, offset_mm: 700, width_mm: 900 })
+    expect(opening.wall_binding).toMatchObject({
+      wall_index: 0,
+      image_start: { x: 120, y: 240 },
+      image_end: { x: 360, y: 240 },
+    })
+
+    setOpeningOnWall(spec, opening, 1, 100, 700, 2000)
+    expect(opening.wall_binding?.image_start).toBeUndefined()
+    expect(opening.wall_binding?.image_end).toBeUndefined()
+  })
+
+  it('updates an opening on a pending image edge before the metric boundary exists', () => {
+    const spec = manualRoom(3000, 2000, 2700)
+    const opening = { id: 'D1', kind: 'door' as const, wall_index: 5, offset_mm: 0, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'user' as const, confidence: 1, wall_binding: {
+      wall_index: 5,
+      start_ratio: 0,
+      end_ratio: 800 / 830,
+      image_start: { x: 120, y: 240 },
+      image_end: { x: 360, y: 240 },
+    } }
+    spec.openings.push(opening)
+
+    setOpeningOnWall(spec, opening, 5, 0, 810, 840)
+
+    expect(opening).toMatchObject({ wall_index: 5, offset_mm: 0, width_mm: 810, line: null })
+    expect(opening.wall_binding).toMatchObject({
+      wall_index: 5,
+      start_ratio: 0,
+      end_ratio: 810 / 840,
+      image_start: { x: 120, y: 240 },
+      image_end: { x: 360, y: 240 },
+    })
+  })
+
+  it('treats a persisted opening line as primary geometry on reload', () => {
+    const spec = manualRoom(2400, 1800, 2600)
+    spec.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 50, width_mm: 100, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'user', confidence: 1, line: { start: { x_mm: 500, z_mm: 0 }, end: { x_mm: 1300, z_mm: 0 } } })
+
+    syncOpeningBindings(spec)
+
+    expect(spec.openings[0]).toMatchObject({ wall_index: 0, offset_mm: 500, width_mm: 800 })
   })
   it('accepts a closed orthogonal room', () => {
     expect(clientValidate(manualRoom(2400, 1800, 2600)).filter((issue) => issue.severity === 'error')).toEqual([])
@@ -227,6 +444,20 @@ describe('dry wet zones and wall finishes', () => {
     ])
     expect(sliceWallQuadByDistance(wall, spec.boundary[0], spec.boundary[1], 0, 400)[0]).toEqual(wall[0])
     expect(sliceWallQuadByDistance(wall, spec.boundary[0], spec.boundary[1], 0, 400)[3]).toEqual(wall[3])
+  })
+
+  it('splits a wall body into left and right jamb runs around a door', () => {
+    const spec = manualRoom(3000, 2000, 2600)
+    spec.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 500, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'user', confidence: 1 })
+
+    const runs = wallLayerPolygons(spec).filter((layer) => layer.wall_index === 0)
+
+    expect(runs.map((run) => ({ start: run.start_mm, end: run.end_mm }))).toEqual([
+      { start: 0, end: 500 },
+      { start: 1300, end: 3000 },
+    ])
+    expect(runs[0].wall[1]).toEqual({ x_mm: 500, z_mm: -20 })
+    expect(runs[1].wall[0]).toEqual({ x_mm: 1300, z_mm: -20 })
   })
 
   it('hides the camera-side walls for cutaway preview', () => {

@@ -86,7 +86,7 @@ export function ModelAssetPreview({ assetKey, src, format, onDimensions }: {
   return (
     <div className="model-preview-stage">
       <PreviewErrorBoundary key={assetKey}>
-        <Canvas camera={{ position: [2.8, 1.9, 2.8], fov: 38 }} dpr={[1, 1.5]} gl={{ antialias: true, preserveDrawingBuffer: true }} shadows frameloop="demand">
+        <Canvas camera={{ position: [2.8, 1.9, 2.8], fov: 38 }} dpr={[1, 1.5]} gl={{ antialias: true, preserveDrawingBuffer: true }} shadows frameloop="always">
           <color attach="background" args={['#e7e6e1']} />
           <ambientLight intensity={1.4} />
           <directionalLight position={[3, 5, 4]} intensity={2.1} castShadow />

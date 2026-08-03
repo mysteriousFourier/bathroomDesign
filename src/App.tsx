@@ -14,7 +14,7 @@ import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { fixtureModelAssetFromLibrary, type RoomModelAsset } from './modelAssets'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, projectPointToWall, snapPointToNearestWall, syncToiletWithDrain, wetZoneBoundaryValid } from './spec'
+import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, projectPointToWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, wetZoneBoundaryValid } from './spec'
 import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
@@ -241,6 +241,7 @@ export default function App() {
 
   const commitSpec = (next: RoomSpec) => {
     if (!spec) return
+    syncOpeningBindings(next, spec)
     next.issues = clientValidate(next)
     setHistory((items) => [...items.slice(-39), cloneSpec(spec)])
     setFuture([]); setSpec(next); setDirty(true)
@@ -352,6 +353,7 @@ export default function App() {
         ? Math.max(0, Math.round(ratio * length - opening.width_mm / 2))
         : Math.max(0, Math.round(Math.min(ratio, target.endRatio) * length))
     })
+    syncOpeningBindings(next, spec)
     commitSpec(next)
     setMode('review')
     showMessage('success', '照片标注已确认，已按确认轮廓生成二维图')
@@ -485,6 +487,20 @@ export default function App() {
                   plan={plan}
                   selection={selection}
                   onSelect={setSelection}
+                  onOpeningChange={(id, offsetMm, widthMm) => {
+                    const next = cloneSpec(spec)
+                    const opening = next.openings.find((item) => item.id === id)
+                    if (!opening) return
+                    opening.offset_mm = offsetMm
+                    opening.width_mm = widthMm
+                    const wallIndex = Math.max(0, Math.min(next.boundary.length - 1, opening.wall_index))
+                    const wallStart = next.boundary[wallIndex]
+                    const wallEnd = next.boundary[(wallIndex + 1) % next.boundary.length]
+                    const length = Math.max(1, wallStart && wallEnd ? Math.hypot(wallStart.x_mm - wallEnd.x_mm, wallStart.z_mm - wallEnd.z_mm) : 1)
+                    opening.wall_index = wallIndex
+                    opening.wall_binding = { wall_index: opening.wall_index, start_ratio: offsetMm / length, end_ratio: (offsetMm + widthMm) / length }
+                    commitSpec(next)
+                  }}
                   onEvidenceSelect={setFocusEvidenceId}
                   onFixtureAdd={(kind: FixtureKind, xMm, zMm, wallIndex, pointUsage?: FixturePointUsage) => {
                     const next = cloneSpec(spec)

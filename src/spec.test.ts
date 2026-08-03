@@ -1,7 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, roomBounds, roomPointToImage, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncToiletWithDrain, toiletPlacementFromDrain, toiletRotationForWall, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
+import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, roomBounds, roomPointToImage, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, syncToiletWithDrain, toiletPlacementFromDrain, toiletRotationForWall, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
 
 describe('room boundary validation', () => {
+  it('keeps openings bound to a wall while the wall geometry changes', () => {
+    const previous = manualRoom(2400, 1800, 2600)
+    previous.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 400, width_mm: 800, height_mm: 2050, sill_mm: 0, label: 'D1', source: 'user', confidence: 1, wall_binding: { wall_index: 0, start_ratio: 400 / 2400, end_ratio: 1200 / 2400 } })
+    const next = cloneSpec(previous)
+    next.boundary[1].x_mm = 3000
+    syncOpeningBindings(next, previous)
+    expect(next.openings[0].wall_index).toBe(0)
+    expect(next.openings[0].offset_mm).toBe(500)
+    expect(next.openings[0].width_mm).toBe(800)
+    expect(next.openings[0].wall_binding?.start_ratio).toBeCloseTo(1 / 6)
+  })
+
+  it('clamps an opening when a wall becomes shorter than its width', () => {
+    const spec = manualRoom(2400, 1800, 2600)
+    spec.openings.push({ id: 'W1', kind: 'window', wall_index: 0, offset_mm: 1800, width_mm: 800, height_mm: 1200, sill_mm: 900, label: 'W1', source: 'user', confidence: 1 })
+    spec.boundary[1].x_mm = 2000
+    syncOpeningBindings(spec)
+    expect(spec.openings[0].offset_mm).toBe(1200)
+    expect(spec.openings[0].width_mm).toBe(800)
+  })
   it('accepts a closed orthogonal room', () => {
     expect(clientValidate(manualRoom(2400, 1800, 2600)).filter((issue) => issue.severity === 'error')).toEqual([])
   })

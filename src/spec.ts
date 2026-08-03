@@ -124,6 +124,38 @@ export function wallLength(points: Point2D[], index: number) {
   return Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm)
 }
 
+export function syncOpeningBindings(next: RoomSpec, previous?: RoomSpec | null) {
+  if (next.boundary.length < 2) return next
+  for (const opening of next.openings) {
+    const wallIndex = Math.max(0, Math.min(next.boundary.length - 1, Math.round(opening.wall_index)))
+    opening.wall_index = wallIndex
+    const length = Math.max(1, wallLength(next.boundary, wallIndex))
+    const previousOpening = previous?.openings.find((item) => item.id === opening.id)
+    const previousLength = previous && previousOpening && previousOpening.wall_index < previous.boundary.length ? Math.max(1, wallLength(previous.boundary, previousOpening.wall_index)) : length
+    const binding = opening.wall_binding ?? previousOpening?.wall_binding
+    const explicitOffsetChange = !!previousOpening && (opening.offset_mm !== previousOpening.offset_mm || opening.width_mm !== previousOpening.width_mm)
+    const startRatio = explicitOffsetChange
+      ? opening.offset_mm / length
+      : binding?.wall_index === wallIndex
+      ? binding.start_ratio
+      : previousOpening?.wall_index === wallIndex
+        ? previousOpening.offset_mm / previousLength
+        : opening.offset_mm / length
+    const safeStartRatio = Math.max(0, Math.min(1, Number.isFinite(startRatio) ? startRatio : 0))
+    const width = Math.max(1, Math.round(opening.width_mm || 1))
+    const maxOffset = Math.max(0, length - width)
+    const offset = Math.max(0, Math.min(maxOffset, Math.round(safeStartRatio * length)))
+    opening.offset_mm = offset
+    opening.width_mm = Math.min(width, length)
+    opening.wall_binding = {
+      wall_index: wallIndex,
+      start_ratio: length ? offset / length : 0,
+      end_ratio: length ? (offset + opening.width_mm) / length : 0,
+    }
+  }
+  return next
+}
+
 export function wallThickness(spec: RoomSpec, index: number) {
   return spec.wall_profiles?.find((profile) => profile.wall_index === index)?.thickness_mm ?? spec.wall_thickness_mm
 }

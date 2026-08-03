@@ -10,6 +10,7 @@ const canvasHeight = 750
 type AnnotationTool = 'edit' | 'add' | 'draw' | 'label' | 'region'
 type CanvasPoint = { x: number; y: number }
 type WallRangeDrag = { wallIndex: number; startRatio: number; endRatio: number }
+type OpeningDrag = { pointerId: number; id: string; wallIndex: number; startRatio: number; endRatio: number; originStartRatio: number; originEndRatio: number; mode: 'move' | 'start' | 'end' }
 
 const toCanvas = (point: ImageBoundaryPoint): CanvasPoint => ({ x: point.x, y: point.y * canvasHeight / 1000 })
 const toImage = (point: CanvasPoint): ImageBoundaryPoint => ({
@@ -139,6 +140,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
   const [boxStart, setBoxStart] = useState<CanvasPoint | null>(null)
   const [boxEnd, setBoxEnd] = useState<CanvasPoint | null>(null)
   const [wallRangeDrag, setWallRangeDrag] = useState<WallRangeDrag | null>(null)
+  const [openingDrag, setOpeningDrag] = useState<OpeningDrag | null>(null)
   const [showEvidence, setShowEvidence] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -401,6 +403,21 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
           const target = event.currentTarget.querySelector(`[data-fixture-id="${dragFixtureId}"]`)
           target?.setAttribute('transform', `translate(${location.x} ${location.y})`)
         }
+        else if (openingDrag) {
+          const start = canvasPoints[openingDrag.wallIndex]
+          const end = canvasPoints[(openingDrag.wallIndex + 1) % canvasPoints.length]
+          const ratio = segmentRatio(location, start, end)
+          let startRatio = openingDrag.startRatio
+          let endRatio = openingDrag.endRatio
+          if (openingDrag.mode === 'move') {
+            const delta = ratio - ((openingDrag.originStartRatio + openingDrag.originEndRatio) / 2)
+            const width = openingDrag.originEndRatio - openingDrag.originStartRatio
+            startRatio = Math.max(0, Math.min(1 - width, openingDrag.originStartRatio + delta))
+            endRatio = startRatio + width
+          } else if (openingDrag.mode === 'start') startRatio = Math.max(0, Math.min(openingDrag.originEndRatio - 0.005, ratio))
+          else endRatio = Math.max(openingDrag.originStartRatio + 0.005, Math.min(1, ratio))
+          setOpeningDrag({ ...openingDrag, startRatio, endRatio })
+        }
         else if (wallRangeDrag) {
           const start = canvasPoints[wallRangeDrag.wallIndex]
           const end = canvasPoints[(wallRangeDrag.wallIndex + 1) % canvasPoints.length]
@@ -418,17 +435,31 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
           movePointFixture(dragFixtureId, localPoint(event.clientX, event.clientY))
           setDragFixtureId(null)
         }
+        if (openingDrag) {
+          const draft = cloneSpec(spec)
+          const opening = draft.openings.find((item) => item.id === openingDrag.id)
+          if (opening) {
+            const start = draft.boundary[openingDrag.wallIndex]
+            const end = draft.boundary[(openingDrag.wallIndex + 1) % draft.boundary.length]
+            const length = Math.max(1, Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm))
+            opening.wall_index = openingDrag.wallIndex
+            opening.offset_mm = Math.round(openingDrag.startRatio * length / 10) * 10
+            opening.width_mm = Math.max(10, Math.round((openingDrag.endRatio - openingDrag.startRatio) * length / 10) * 10)
+            opening.wall_binding = { wall_index: opening.wall_index, start_ratio: openingDrag.startRatio, end_ratio: openingDrag.endRatio }
+            onChange(draft)
+          }
+        }
         if (wallRangeDrag) bindDoorRange(wallRangeDrag)
         if (boxStart && boxEnd) {
           if (tool === 'region') bindEvidenceRegion(boxStart, boxEnd)
           else createMissingLabel(boxStart, boxEnd)
         }
         setBoxStart(null); setBoxEnd(null)
-        setWallRangeDrag(null)
+        setWallRangeDrag(null); setOpeningDrag(null)
         if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
       }}
       onPointerCancel={(event) => {
-        setDragIndex(null); setDragFixtureId(null); setBoxStart(null); setBoxEnd(null); setWallRangeDrag(null)
+        setDragIndex(null); setDragFixtureId(null); setBoxStart(null); setBoxEnd(null); setWallRangeDrag(null); setOpeningDrag(null)
         if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
       }}>
       <rect width={canvasWidth} height={canvasHeight} className="annotation-background" />
@@ -459,7 +490,10 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
           <text x={(start.x + end.x) / 2} y={(start.y + end.y) / 2 + 4}>W{index + 1}</text>
         </g>
       })}
-      {spec.openings.map((opening) => {
+      {spec.openings.map((rawOpening) => {
+        const opening = openingDrag?.id === rawOpening.id
+          ? { ...rawOpening, offset_mm: Math.round(openingDrag.startRatio * (edgeChain[rawOpening.wall_index]?.length_mm ?? 1)), width_mm: Math.round((openingDrag.endRatio - openingDrag.startRatio) * (edgeChain[rawOpening.wall_index]?.length_mm ?? 1)) }
+          : rawOpening
         const edge = edgeChain[opening.wall_index]
         const start = canvasPoints[opening.wall_index]
         const end = canvasPoints[(opening.wall_index + 1) % canvasPoints.length]
@@ -474,12 +508,22 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
         const after = edgeLength - opening.offset_mm - opening.width_mm
         const vertical = edge.direction === 'up' || edge.direction === 'down'
         const tick = vertical ? { x: 10, y: 0 } : { x: 0, y: 10 }
-        return <g key={`annotation-opening-${opening.id}`} className="annotation-opening-segments" pointerEvents="none">
+        const beginOpeningDrag = (event: React.PointerEvent<SVGElement>, mode: OpeningDrag['mode']) => {
+          if (tool !== 'edit' || event.button !== 0) return
+          event.preventDefault(); event.stopPropagation()
+          const startRatio = opening.offset_mm / edgeLength
+          const endRatio = (opening.offset_mm + opening.width_mm) / edgeLength
+          setOpeningDrag({ pointerId: event.pointerId, id: opening.id, wallIndex: opening.wall_index, startRatio, endRatio, originStartRatio: startRatio, originEndRatio: endRatio, mode })
+          event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
+        }
+        return <g key={`annotation-opening-${opening.id}`} className="annotation-opening-segments">
           {before > 0 && <line className="wall-part" x1={start.x} y1={start.y} x2={openingStart.x} y2={openingStart.y} />}
-          <line className="opening-part" x1={openingStart.x} y1={openingStart.y} x2={openingEnd.x} y2={openingEnd.y} />
+          <line className="opening-part opening-drag-hit" x1={openingStart.x} y1={openingStart.y} x2={openingEnd.x} y2={openingEnd.y} onPointerDown={(event) => beginOpeningDrag(event, 'move')} />
           {after > 0 && <line className="wall-part" x1={openingEnd.x} y1={openingEnd.y} x2={end.x} y2={end.y} />}
           <line className="opening-tick" x1={openingStart.x - tick.x} y1={openingStart.y - tick.y} x2={openingStart.x + tick.x} y2={openingStart.y + tick.y} />
           <line className="opening-tick" x1={openingEnd.x - tick.x} y1={openingEnd.y - tick.y} x2={openingEnd.x + tick.x} y2={openingEnd.y + tick.y} />
+          <circle className="opening-handle" cx={openingStart.x} cy={openingStart.y} r="8" onPointerDown={(event) => beginOpeningDrag(event, 'start')} />
+          <circle className="opening-handle" cx={openingEnd.x} cy={openingEnd.y} r="8" onPointerDown={(event) => beginOpeningDrag(event, 'end')} />
           {before > 0 && <text x={beforeMiddle.x} y={beforeMiddle.y - 9}>{before}</text>}
           <text className="opening-label" x={openingMiddle.x} y={openingMiddle.y - 9}>{opening.label} {opening.width_mm}</text>
           {after > 0 && <text x={afterMiddle.x} y={afterMiddle.y - 9}>{after}</text>}

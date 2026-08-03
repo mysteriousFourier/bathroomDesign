@@ -254,6 +254,11 @@ p, h1, h2, figure { margin: 0; }
 .dimension-label text { fill: #20231f; text-anchor: middle; dominant-baseline: middle; font: 9px Consolas, monospace; paint-order: stroke; stroke: #faf9f6; stroke-width: 4; pointer-events: none; }
 .opening-segment { cursor: pointer; }
 .opening-segment line { vector-effect: non-scaling-stroke; stroke-linecap: butt; }
+.opening-drag-hit { stroke: transparent; stroke-width: 22; pointer-events: stroke; cursor: grab; }
+.opening-handle { fill: #fff8df; stroke: #7e5010; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: ew-resize; pointer-events: all; }
+.annotation-opening-segments { pointer-events: auto; }
+.annotation-opening-segments .opening-drag-hit { stroke: transparent; stroke-width: 22; pointer-events: stroke; cursor: grab; }
+.annotation-opening-segments .opening-handle { fill: #fff8df; stroke: #704e0b; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: ew-resize; }
 .opening-segment .opening-wall-cut { stroke: #f4f3ef; stroke-width: 18; }
 .opening-segment .opening-wall-part { stroke: #4d534c; stroke-width: 2.5; }
 .opening-segment .opening-gap-part { stroke: #b78022; stroke-width: 7; }

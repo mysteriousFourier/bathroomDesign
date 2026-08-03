@@ -1,7 +1,9 @@
 import { CircleDot, DoorOpen, Droplet, Focus, Move, Plug, Square, Waves, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength, wetZoneBoundaryValid } from '../spec'
-import type { Asset, FixtureKind, FixturePointUsage, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
+import type { Asset, FixtureKind, FixturePointUsage, OpeningSpec, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
+
+type OpeningDrag = { pointerId: number; id: string; mode: 'move' | 'start' | 'end'; wallIndex: number; pointerOffset: number; offset: number; width: number; originOffset: number; originWidth: number }
 
 const canvasWidth = 920
 const canvasHeight = 680
@@ -14,12 +16,13 @@ const dimensionTextGapMinPx = 28
 const dimensionTickPx = 8
 const lineKindLabels: Record<PlanLineKind, string> = { pipe_chase: '包管线', inner_wall: '内墙线', door_line: '门线' }
 
-export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onFixtureAdd, onPlanLineAdd, onPlanLineExtend, onZoneChange, onEvidenceSelect }: {
+export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onOpeningChange, onFixtureAdd, onPlanLineAdd, onPlanLineExtend, onZoneChange, onEvidenceSelect }: {
   spec: RoomSpec
   plan?: Asset
   selection: Selection
   onSelect: (selection: Selection) => void
   onFixtureMove: (id: string, xMm: number, zMm: number) => void
+  onOpeningChange?: (id: string, offsetMm: number, widthMm: number) => void
   onFixtureAdd?: (kind: FixtureKind, xMm: number, zMm: number, wallIndex: number | null, pointUsage?: FixturePointUsage) => void
   onPlanLineAdd?: (kind: PlanLineKind, points: Point2D[]) => string | null
   onPlanLineExtend?: (id: string, point: Point2D) => void
@@ -35,6 +38,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
   const suppressCanvasClick = useRef(false)
   const [zoneDraft, setZoneDraft] = useState<{ id: string; boundary: Point2D[] } | null>(null)
   const zoneSession = useRef<{ pointerId: number; id: string; start: Point2D; original: Point2D[]; vertex: number | null; draft: Point2D[] } | null>(null)
+  const openingDrag = useRef<OpeningDrag | null>(null)
+  const [openingDragState, setOpeningDragState] = useState<OpeningDrag | null>(null)
   const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
   const wallBodies = useMemo(() => wallLayerPolygons(spec), [spec])
   const bounds = useMemo(() => roomBounds([...spec.boundary, ...roomBoundary, ...wallBodies.flatMap((body) => [...body.finish, ...body.wall])]), [spec.boundary, roomBoundary, wallBodies])
@@ -57,6 +62,15 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
   const roomPoint = (svg: SVGSVGElement, clientX: number, clientY: number) => {
     const point = svgPoint(svg, clientX, clientY)
     return { x_mm: mmX((point.x - pan.x) / zoom), z_mm: mmZ((point.y - pan.y) / zoom) }
+  }
+  const wallProjection = (svg: SVGSVGElement, clientX: number, clientY: number, wallIndex: number) => {
+    const point = roomPoint(svg, clientX, clientY)
+    const start = spec.boundary[wallIndex]
+    const end = spec.boundary[(wallIndex + 1) % spec.boundary.length]
+    const dx = end.x_mm - start.x_mm
+    const dz = end.z_mm - start.z_mm
+    const length = Math.max(1, Math.hypot(dx, dz))
+    return Math.max(0, Math.min(length, ((point.x_mm - start.x_mm) * dx + (point.z_mm - start.z_mm) * dz) / length))
   }
   const startZoneDrag = (event: ReactPointerEvent<SVGGElement | SVGCircleElement>, id: string, boundary: Point2D[], vertex: number | null) => {
     if (!onZoneChange || event.button !== 0) return
@@ -278,6 +292,27 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
             }
             return
           }
+          const opening = openingDrag.current
+          if (opening?.pointerId === event.pointerId) {
+            const current = wallProjection(event.currentTarget, event.clientX, event.clientY, opening.wallIndex)
+            const length = wallLength(spec.boundary, opening.wallIndex)
+            const delta = current - opening.pointerOffset
+            let offset = opening.originOffset
+            let width = opening.originWidth
+            if (opening.mode === 'move') offset = Math.max(0, Math.min(length - width, opening.originOffset + delta))
+            else if (opening.mode === 'start') {
+              const end = opening.originOffset + opening.originWidth
+              offset = Math.max(0, Math.min(end - 1, current))
+              width = end - offset
+            } else {
+              offset = opening.originOffset
+              width = Math.max(1, Math.min(length - offset, current - opening.originOffset))
+            }
+            opening.offset = Math.round(offset / 10) * 10
+            opening.width = Math.round(width / 10) * 10
+            setOpeningDragState({ ...opening })
+            return
+          }
           const session = panSession.current
           if (!session || session.pointerId !== event.pointerId) return
           const point = svgPoint(event.currentTarget, event.clientX, event.clientY)
@@ -294,11 +329,22 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
             event.currentTarget.releasePointerCapture(event.pointerId)
             return
           }
+          if (openingDrag.current?.pointerId === event.pointerId) {
+            const opening = openingDrag.current
+            onOpeningChange?.(opening.id, opening.offset, opening.width)
+            openingDrag.current = null
+            setOpeningDragState(null)
+            suppressCanvasClick.current = true
+            window.setTimeout(() => { suppressCanvasClick.current = false }, 0)
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+            return
+          }
           if (panSession.current?.pointerId !== event.pointerId) return
           panSession.current = null
           event.currentTarget.releasePointerCapture(event.pointerId)
         }}
         onPointerCancel={(event) => {
+          if (openingDrag.current?.pointerId === event.pointerId) { openingDrag.current = null; setOpeningDragState(null) }
           if (zoneSession.current?.pointerId === event.pointerId) {
             zoneSession.current = null
             setZoneDraft(null)
@@ -348,7 +394,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
         </g>}
         {roomBoundary.map((point, index) => <circle key={`wall-node-${index}`} className="wall-node" cx={sx(point.x_mm)} cy={sz(point.z_mm)} r="2.5" />)}
         {labels.filter((label) => label.text.trim()).map((label) => <text key={label.id} className="plan-center-label" x={sx(label.x_mm)} y={sz(label.z_mm)} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'plan_label', id: label.id }) }}>{label.text}</text>)}
-        {spec.openings.map((opening) => {
+        {spec.openings.map((rawOpening) => {
+          const opening = openingDragState?.id === rawOpening.id ? { ...rawOpening, offset_mm: openingDragState.offset, width_mm: openingDragState.width } : rawOpening
           const start = spec.boundary[opening.wall_index]
           const end = spec.boundary[(opening.wall_index + 1) % spec.boundary.length]
           if (!start || !end) return null
@@ -359,13 +406,24 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onF
           const y1 = sz(start.z_mm + (end.z_mm - start.z_mm) * startT)
           const x2 = sx(start.x_mm + (end.x_mm - start.x_mm) * endT)
           const y2 = sz(start.z_mm + (end.z_mm - start.z_mm) * endT)
-          return <g key={opening.id} className={selection.type === 'opening' && selection.id === opening.id ? 'opening-segment selected' : 'opening-segment'} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'opening', id: opening.id }) }}>
+          const selected = selection.type === 'opening' && selection.id === opening.id
+          const beginOpeningDrag = (event: ReactPointerEvent<SVGElement>, mode: OpeningDrag['mode']) => {
+            if (!onOpeningChange || event.button !== 0) return
+            event.preventDefault(); event.stopPropagation()
+            const pointerOffset = wallProjection(event.currentTarget.ownerSVGElement!, event.clientX, event.clientY, opening.wall_index)
+            const drag = { pointerId: event.pointerId, id: opening.id, mode, wallIndex: opening.wall_index, pointerOffset, offset: opening.offset_mm, width: opening.width_mm, originOffset: opening.offset_mm, originWidth: opening.width_mm }
+            openingDrag.current = drag; setOpeningDragState(drag); onSelect({ type: 'opening', id: opening.id })
+            event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
+          }
+          return <g key={opening.id} className={selected ? 'opening-segment selected' : 'opening-segment'} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'opening', id: opening.id }) }}>
             <line className="opening-wall-cut" x1={x1} y1={y1} x2={x2} y2={y2} />
             <line className="opening-wall-part" x1={sx(start.x_mm)} y1={sz(start.z_mm)} x2={x1} y2={y1} />
             <line className="opening-gap-part" x1={x1} y1={y1} x2={x2} y2={y2} />
             <line className="opening-wall-part" x1={x2} y1={y2} x2={sx(end.x_mm)} y2={sz(end.z_mm)} />
-            <circle className="opening-jamb" cx={x1} cy={y1} r="2.5" />
-            <circle className="opening-jamb" cx={x2} cy={y2} r="2.5" />
+            <line className="opening-drag-hit" x1={x1} y1={y1} x2={x2} y2={y2} onPointerDown={(event) => beginOpeningDrag(event, 'move')} />
+            <circle className="opening-jamb" cx={x1} cy={y1} r={selected ? 5 : 2.5} onPointerDown={(event) => beginOpeningDrag(event, 'start')} />
+            <circle className="opening-jamb" cx={x2} cy={y2} r={selected ? 5 : 2.5} onPointerDown={(event) => beginOpeningDrag(event, 'end')} />
+            {selected && <><circle className="opening-handle" cx={x1} cy={y1} r="7" onPointerDown={(event) => beginOpeningDrag(event, 'start')} /><circle className="opening-handle" cx={x2} cy={y2} r="7" onPointerDown={(event) => beginOpeningDrag(event, 'end')} /></>}
           </g>
         })}
         {spec.fixtures.map((fixture) => {

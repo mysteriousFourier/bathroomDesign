@@ -84,6 +84,7 @@ export interface OpeningSpec {
   confidence: number
   swing_direction?: 'left' | 'right' | 'inward' | 'outward' | 'unknown'
   evidence_ids?: string[]
+  wall_binding?: { wall_index: number; start_ratio: number; end_ratio: number } | null
 }
 
 export type FixtureKind = 'toilet' | 'vanity' | 'shower' | 'floor_drain' | 'drain' | 'water' | 'electric' | 'pipe' | 'column' | 'radiator' | 'other'

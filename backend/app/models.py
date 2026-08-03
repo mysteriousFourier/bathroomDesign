@@ -72,7 +72,7 @@ class FixtureSpec(BaseModel):
     class ModelAsset(BaseModel):
         id: str = Field(min_length=1, max_length=120)
         src: str = Field(min_length=1, max_length=500)
-        format: Literal["gltf", "glb"] | None = None
+        format: Literal["gltf", "glb", "fbx", "3ds", "obj"] | None = None
         label: str = Field(min_length=1, max_length=120)
         unit: Literal["m"] = "m"
         fit: Literal["contain"] = "contain"
@@ -805,6 +805,19 @@ class CaptureAssessment(BaseModel):
     brightness: float = Field(ge=0, le=255)
     contrast: float = Field(ge=0)
     checks: list[CaptureCheck]
+
+
+class ModelAssetResponse(BaseModel):
+    id: str
+    project_id: str
+    label: str
+    filename: str
+    format: Literal["glb", "gltf", "fbx", "3ds", "obj"]
+    bytes: int = Field(gt=0)
+    sha256: str = Field(min_length=64, max_length=64)
+    file_count: int = Field(gt=0)
+    created_at: str
+    src: str
 
 
 class ProjectResponse(BaseModel):

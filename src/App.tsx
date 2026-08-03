@@ -13,7 +13,7 @@ import { SolutionList } from './components/SolutionList'
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
-import { fixtureModelAsset, modelAssetRegistry } from './modelAssets'
+import { fixtureModelAssetFromLibrary, type RoomModelAsset } from './modelAssets'
 import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, projectPointToWall, snapPointToNearestWall, syncToiletWithDrain, wetZoneBoundaryValid } from './spec'
 import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
@@ -410,17 +410,17 @@ export default function App() {
     showMessage('success', '量房 JSON 已导出')
   }
 
-  const addModelAssetToRoom = (assetId: keyof typeof modelAssetRegistry) => {
+  const addModelAssetToRoom = (asset: RoomModelAsset) => {
     if (!spec) return
-    const asset = modelAssetRegistry[assetId]
     const center = finishedRoomBoundary(spec).length ? projectPointToWall(finishedRoomBoundary(spec), 0, { x_mm: 700, z_mm: 305 })?.point : null
-    const id = `${asset.tags.includes('toilet') ? 'toilet' : 'model'}-${crypto.randomUUID().slice(0, 8)}`
+    const isToilet = !!asset.tags?.includes('toilet') || /toilet|马桶|坐便/i.test(asset.label)
+    const id = `${isToilet ? 'toilet' : 'model'}-${crypto.randomUUID().slice(0, 8)}`
     const next = cloneSpec(spec)
     const dimensions = asset.dimensions_mm
     next.fixtures.push({
       id,
-      kind: asset.tags.includes('toilet') ? 'toilet' : 'other',
-      label: asset.label.replace(/\s+GLB$/i, ''),
+      kind: isToilet ? 'toilet' : 'other',
+      label: asset.label.replace(/\s+(GLB|GLTF|FBX|3DS|OBJ)$/i, ''),
       x_mm: center?.x_mm ?? 700,
       z_mm: center?.z_mm ?? 305,
       width_mm: dimensions.width,
@@ -430,7 +430,7 @@ export default function App() {
       source: 'user',
       confidence: 1,
       bound_wall_index: center ? 0 : null,
-      model_asset: fixtureModelAsset(assetId),
+      model_asset: fixtureModelAssetFromLibrary(asset),
     })
     commitSpec(next)
     setSelection({ type: 'fixture', id })
@@ -477,7 +477,7 @@ export default function App() {
             {mode === 'annotation'
               ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
               : mode === 'library'
-                ? <ModelAssetLibrary canAddToRoom={!!spec && canPreview} onAddToRoom={addModelAssetToRoom} onOpenRoom={() => canPreview && setMode('model')} />
+                ? <ModelAssetLibrary projectId={project.id} canAddToRoom={!!spec && canPreview} usedAssetIds={spec.fixtures.flatMap((fixture) => fixture.model_asset?.id ? [fixture.model_asset.id] : [])} onAddToRoom={addModelAssetToRoom} onOpenRoom={() => canPreview && setMode('model')} />
               : mode === 'review' || !canPreview
                 ? <PlanReview
                   key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`}

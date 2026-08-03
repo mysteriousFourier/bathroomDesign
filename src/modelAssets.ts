@@ -15,6 +15,32 @@ export interface ModelAssetRegistryEntry extends FixtureModelAsset {
   legacy_source_ids?: string[]
 }
 
+export interface RoomModelAsset extends FixtureModelAsset {
+  format: ModelAssetFormat
+  dimensions_mm: { width: number; depth: number; height: number }
+  tags?: string[]
+  origin?: 'built-in' | 'uploaded'
+}
+
+export function fixtureModelAssetFromLibrary(asset: RoomModelAsset): FixtureModelAsset {
+  return {
+    id: asset.id,
+    label: asset.label,
+    src: asset.src,
+    format: asset.format,
+    unit: asset.unit,
+    fit: asset.fit,
+    version: asset.version,
+    sha256: asset.sha256,
+    bytes: asset.bytes,
+    thumbnail: asset.thumbnail,
+    source: asset.source,
+    source_asset_id: asset.source_asset_id,
+    lifecycle: asset.lifecycle,
+    legacy_source_ids: asset.legacy_source_ids,
+  }
+}
+
 export const modelAssetRegistry: Record<string, ModelAssetRegistryEntry> = {
   'accessible-shower-seat-001': {
     id: 'accessible-shower-seat-001',

@@ -1,4 +1,5 @@
-import type { AnalysisResponse, Asset, CaptureAssessment, Health, Project, RoomSpec } from './types'
+import type { AnalysisResponse, Asset, CaptureAssessment, Health, ImportedModelAsset, Project, RoomSpec } from './types'
+import type { ModelImportFile } from './modelImport'
 
 const defaultTimeoutMs = 90_000
 
@@ -51,6 +52,16 @@ export const studioApi = {
     form.append('file', file)
     return request<Asset>(`/api/projects/${id}/assets`, { method: 'POST', body: form })
   },
+  modelAssets: (id: string) => request<ImportedModelAsset[]>(`/api/projects/${id}/model-assets`),
+  uploadModelAsset: async (id: string, entries: ModelImportFile[]) => {
+    const form = new FormData()
+    for (const entry of entries) {
+      form.append('files', entry.file, entry.file.name)
+      form.append('relative_paths', entry.path)
+    }
+    return request<ImportedModelAsset>(`/api/projects/${id}/model-assets`, { method: 'POST', body: form, timeoutMs: 300_000 })
+  },
+  deleteModelAsset: (projectId: string, assetId: string) => request<void>(`/api/projects/${projectId}/model-assets/${assetId}`, { method: 'DELETE' }),
   captureAssessment: (assetId: string) => request<CaptureAssessment>(`/api/assets/${assetId}/capture-assessment`),
   analyzePlan: (id: string, rotationDegrees: number | null = null) => request<AnalysisResponse>(
     `/api/projects/${id}/analyze-plan${rotationDegrees === null ? '' : `?rotation_degrees=${rotationDegrees}`}`,

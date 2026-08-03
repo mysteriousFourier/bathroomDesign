@@ -17,12 +17,14 @@ from .capture import assess_capture
 from .config import settings
 from .database import db
 from .measurement import measurement_contract_export, validate_measurement
+from .model_assets import delete_model_asset, list_model_assets, resolve_model_asset_file, store_model_asset
 from .models import (
     AnalysisResponse,
     AssetResponse,
     CaptureAssessment,
     MeasurementModel,
     MeasurementValidationResponse,
+    ModelAssetResponse,
     ProjectCreate,
     ProjectResponse,
     RoomSpec,
@@ -100,6 +102,43 @@ def delete_project(project_id: str) -> None:
     db.delete_project(project_id)
     if project_dir.parent == asset_root and project_dir.exists():
         shutil.rmtree(project_dir)
+
+
+@app.get("/api/projects/{project_id}/model-assets", response_model=list[ModelAssetResponse])
+def project_model_assets(project_id: str) -> list[ModelAssetResponse]:
+    try:
+        return list_model_assets(project_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="项目不存在") from error
+
+
+@app.post("/api/projects/{project_id}/model-assets", response_model=ModelAssetResponse, status_code=201)
+async def upload_model_asset(
+    project_id: str,
+    files: list[UploadFile] = File(...),
+    relative_paths: list[str] = Form(...),
+) -> ModelAssetResponse:
+    try:
+        return await store_model_asset(project_id, files, relative_paths)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="项目不存在") from error
+
+
+@app.delete("/api/projects/{project_id}/model-assets/{asset_id}", status_code=204)
+def remove_model_asset(project_id: str, asset_id: str) -> None:
+    try:
+        delete_model_asset(project_id, asset_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="项目不存在") from error
+
+
+@app.get("/api/projects/{project_id}/model-assets/{asset_id}/files/{relative_path:path}")
+def model_asset_file(project_id: str, asset_id: str, relative_path: str) -> FileResponse:
+    try:
+        path, media_type = resolve_model_asset_file(project_id, asset_id, relative_path)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="项目不存在") from error
+    return FileResponse(path, media_type=media_type)
 
 
 @app.post("/api/projects/{project_id}/assets", response_model=AssetResponse, status_code=201)

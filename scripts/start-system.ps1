@@ -118,6 +118,19 @@ function Show-BackendFailure {
     }
 }
 
+function Stop-BackendTree {
+    if (-not $script:BackendProcess -or $script:BackendProcess.HasExited) {
+        return
+    }
+    Write-Host "Stopping backend process tree $($script:BackendProcess.Id)..."
+    $TaskKill = Join-Path $env:SystemRoot "System32\taskkill.exe"
+    & $TaskKill /PID $script:BackendProcess.Id /T /F *> $null
+    if ($LASTEXITCODE -ne 0 -and -not $script:BackendProcess.HasExited) {
+        Stop-Process -Id $script:BackendProcess.Id -Force -ErrorAction SilentlyContinue
+    }
+    $script:BackendProcess.WaitForExit(5000) | Out-Null
+}
+
 function Invoke-Startup {
     Set-Location $ProjectRoot
     Write-Host "Bathroom Spatial Studio launcher" -ForegroundColor Green
@@ -203,6 +216,10 @@ function Invoke-Startup {
         Write-Step "The system is already running"
         Write-Host "Open $AppUrl"
         Open-AppBrowser
+        if (-not $ExitAfterReady) {
+            Write-Host "This launcher does not own the existing service on port 8000."
+            [void](Read-Host "Press Enter to close this terminal")
+        }
         return
     }
     if (Test-PortOpen -Port 8000) {
@@ -222,7 +239,7 @@ function Invoke-Startup {
         -WorkingDirectory $ProjectRoot `
         -RedirectStandardOutput $StdoutLog `
         -RedirectStandardError $StderrLog `
-        -WindowStyle Hidden `
+        -NoNewWindow `
         -PassThru
 
     $Health = $null
@@ -251,12 +268,10 @@ function Invoke-Startup {
     }
     Open-AppBrowser
 
-    Write-Host "The backend will continue running after this launcher closes."
-    # Ownership is handed off after readiness. The old behavior stopped the
-    # backend from finally{} whenever the launcher window closed.
-    $script:BackendProcess = $null
     if (-not $ExitAfterReady) {
-        Write-Host "Close this window when finished; the service stays available on port 8000."
+        Write-Host "Keep this terminal open while using the application."
+        Write-Host "Press Enter when finished; the launcher will stop the backend and release port 8000."
+        [void](Read-Host "System running")
     }
 }
 
@@ -269,11 +284,7 @@ catch {
     exit 1
 }
 finally {
-    if ($BackendProcess -and -not $BackendProcess.HasExited) {
-        Write-Host "Stopping backend process $($BackendProcess.Id)..."
-        Stop-Process -Id $BackendProcess.Id -Force -ErrorAction SilentlyContinue
-        $BackendProcess.WaitForExit()
-    }
+    Stop-BackendTree
 }
 
 exit 0

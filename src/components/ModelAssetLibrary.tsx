@@ -1,94 +1,227 @@
-import { Box, CheckCircle2, CopyCheck, FileUp, Plus, RefreshCw } from 'lucide-react'
-import { useMemo, useState } from 'react'
-import { legacyImportSources, modelAssetRegistry } from '../modelAssets'
+import { Box, BoxSelect, FileBox, FolderOpen, HardDriveUpload, Plus, Trash2, UploadCloud } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from 'react'
+import { studioApi } from '../api'
+import { modelAssetRegistry, type RoomModelAsset } from '../modelAssets'
+import { droppedModelFiles, inputFiles, validateModelImport, type ModelImportFile } from '../modelImport'
+import type { ImportedModelAsset } from '../types'
+import { ModelAssetPreview } from './ModelAssetPreview'
 
-type FlowStep = 'imported' | 'converted' | 'deduped' | 'room'
+type Dimensions = { width: number; depth: number; height: number }
+type DisplayModelAsset = RoomModelAsset & {
+  origin: 'built-in' | 'uploaded'
+  filename: string
+  fileCount: number
+}
 
-const convertedAssets = Object.values(modelAssetRegistry).filter((asset) => asset.tags.includes('converted'))
+const defaultDimensions: Dimensions = { width: 600, depth: 600, height: 600 }
+const builtInAssets: DisplayModelAsset[] = Object.values(modelAssetRegistry).map((asset) => ({
+  ...asset,
+  origin: 'built-in',
+  filename: asset.src.split('/').at(-1) ?? asset.id,
+  fileCount: asset.format === 'gltf' ? 2 : 1,
+}))
 
-export function ModelAssetLibrary({ canAddToRoom, onAddToRoom, onOpenRoom }: {
+function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
+  return {
+    id: asset.id,
+    label: asset.label,
+    src: asset.src,
+    format: asset.format,
+    unit: 'm',
+    fit: 'contain',
+    version: '1.0.0',
+    sha256: asset.sha256,
+    bytes: asset.bytes,
+    source: '项目上传',
+    source_asset_id: asset.id,
+    lifecycle: 'approved',
+    dimensions_mm: defaultDimensions,
+    origin: 'uploaded',
+    filename: asset.filename,
+    fileCount: asset.file_count,
+  }
+}
+
+function fileSize(bytes?: number) {
+  if (!bytes) return '未知大小'
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAddToRoom, onOpenRoom }: {
+  projectId: string
   canAddToRoom: boolean
-  onAddToRoom: (assetId: keyof typeof modelAssetRegistry) => void
+  usedAssetIds: string[]
+  onAddToRoom: (asset: RoomModelAsset) => void
   onOpenRoom: () => void
 }) {
-  const [step, setStep] = useState<FlowStep>('imported')
-  const convertedIds = new Set(convertedAssets.map((asset) => asset.id))
-  const conversionCount = legacyImportSources.filter((source) => convertedIds.has(source.converted_asset_id as keyof typeof modelAssetRegistry)).length
-  const dedupeResult = useMemo(() => {
-    const bySource = new Map<string, string>()
-    const duplicates: string[] = []
-    for (const source of legacyImportSources) {
-      const key = `${source.source_asset_id}:${source.sha256}`
-      const existing = bySource.get(key)
-      if (existing) duplicates.push(`${source.id} -> ${existing}`)
-      else bySource.set(key, source.converted_asset_id)
-    }
-    return { unique: bySource.size, duplicates }
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
+  const dragDepth = useRef(0)
+  const [uploadedAssets, setUploadedAssets] = useState<ImportedModelAsset[]>([])
+  const [selectedId, setSelectedId] = useState(builtInAssets[0]?.id ?? '')
+  const [dimensions, setDimensions] = useState<Record<string, Dimensions>>({})
+  const [dragging, setDragging] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    folderInputRef.current?.setAttribute('webkitdirectory', '')
+    folderInputRef.current?.setAttribute('directory', '')
   }, [])
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    void studioApi.modelAssets(projectId)
+      .then((assets) => {
+        if (!active) return
+        setUploadedAssets(assets)
+        if (assets.length) setSelectedId(assets[0].id)
+      })
+      .catch((requestError: Error) => { if (active) setError(requestError.message) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [projectId])
+
+  const assets = useMemo(() => [
+    ...uploadedAssets.map(uploadedDisplayAsset),
+    ...builtInAssets,
+  ], [uploadedAssets])
+  const selected = assets.find((asset) => asset.id === selectedId) ?? assets[0]
+  const selectedDimensions = selected ? dimensions[selected.id] ?? selected.dimensions_mm : defaultDimensions
+  const selectedForRoom = selected ? { ...selected, dimensions_mm: selectedDimensions } : null
+  const selectedInUse = !!selected && usedAssetIds.includes(selected.id)
+
+  const updateSelectedDimensions = useCallback((next: Dimensions) => {
+    if (!selectedId) return
+    setDimensions((current) => {
+      const previous = current[selectedId]
+      if (previous && previous.width === next.width && previous.depth === next.depth && previous.height === next.height) return current
+      return { ...current, [selectedId]: next }
+    })
+  }, [selectedId])
+
+  const importEntries = async (entries: ModelImportFile[]) => {
+    try {
+      validateModelImport(entries)
+      setUploading(true)
+      setError('')
+      const uploaded = await studioApi.uploadModelAsset(projectId, entries)
+      setUploadedAssets((current) => [uploaded, ...current])
+      setSelectedId(uploaded.id)
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : '模型上传失败')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const chooseFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.currentTarget.files?.length) void importEntries(inputFiles(event.currentTarget.files))
+    event.currentTarget.value = ''
+  }
+
+  const dropFiles = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    dragDepth.current = 0
+    setDragging(false)
+    if (!uploading) await importEntries(await droppedModelFiles(event.dataTransfer))
+  }
+
+  const openFilePicker = () => { if (!uploading) fileInputRef.current?.click() }
+  const importKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      openFilePicker()
+    }
+  }
+
+  const removeSelected = async () => {
+    if (!selected || selected.origin !== 'uploaded' || selectedInUse) return
+    if (!window.confirm(`从项目模型库删除“${selected.label}”？`)) return
+    try {
+      setError('')
+      await studioApi.deleteModelAsset(projectId, selected.id)
+      const remaining = uploadedAssets.filter((asset) => asset.id !== selected.id)
+      setUploadedAssets(remaining)
+      setSelectedId(remaining[0]?.id ?? builtInAssets[0]?.id ?? '')
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : '模型删除失败')
+    }
+  }
 
   return (
     <div className="model-library">
       <div className="library-toolbar">
         <div>
           <strong>模型库</strong>
-          <span>{legacyImportSources.length} 个导入源 · {conversionCount} 个 GLB 运行时资产</span>
+          <span>{assets.length} 个可用模型 · {uploadedAssets.length} 个项目上传</span>
         </div>
-        <button className="button secondary" onClick={onOpenRoom}><Box size={16} />三维房间</button>
+        <button className="button secondary" onClick={onOpenRoom} disabled={!canAddToRoom}><Box size={16} />三维房间</button>
       </div>
 
-      <div className="library-flow" aria-label="模型资产全流程">
-        <button className={step === 'imported' ? 'active' : ''} onClick={() => setStep('imported')}><FileUp size={16} />放入</button>
-        <button className={step === 'converted' ? 'active' : ''} onClick={() => setStep('converted')}><RefreshCw size={16} />转换</button>
-        <button className={step === 'deduped' ? 'active' : ''} onClick={() => setStep('deduped')}><CopyCheck size={16} />去重</button>
-        <button className={step === 'room' ? 'active' : ''} onClick={() => setStep('room')}><Plus size={16} />加入房间</button>
+      <div
+        className={`model-import-zone${dragging ? ' dragging' : ''}${uploading ? ' uploading' : ''}`}
+        role="button"
+        tabIndex={0}
+        aria-label="拖放或选择模型文件"
+        onKeyDown={importKeyDown}
+        onClick={openFilePicker}
+        onDragEnter={(event) => { event.preventDefault(); dragDepth.current += 1; setDragging(true) }}
+        onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' }}
+        onDragLeave={(event) => { event.preventDefault(); dragDepth.current -= 1; if (dragDepth.current <= 0) setDragging(false) }}
+        onDrop={(event) => void dropFiles(event)}
+      >
+        <UploadCloud size={28} />
+        <div>
+          <strong>{uploading ? '正在上传模型' : dragging ? '松开以导入模型' : '拖放模型或模型文件夹'}</strong>
+          <span>支持 GLB、GLTF、FBX、3DS、OBJ；GLTF 可连同 BIN 与纹理一起导入</span>
+        </div>
+        <div className="model-import-actions">
+          <button className="button secondary compact" type="button" disabled={uploading} onClick={(event) => { event.stopPropagation(); fileInputRef.current?.click() }}><FileBox size={15} />选择模型</button>
+          <button className="button secondary compact" type="button" disabled={uploading} onClick={(event) => { event.stopPropagation(); folderInputRef.current?.click() }}><FolderOpen size={15} />选择文件夹</button>
+        </div>
+        <input ref={fileInputRef} className="visually-hidden" type="file" multiple accept=".glb,.gltf,.fbx,.3ds,.obj,.bin,.mtl,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tga,.dds,.ktx,.ktx2,.basis" onChange={chooseFiles} />
+        <input ref={folderInputRef} className="visually-hidden" type="file" multiple onChange={chooseFiles} />
       </div>
 
-      {step === 'deduped' && (
-        <section className="dedupe-panel">
-          <CheckCircle2 size={18} />
-          <div>
-            <strong>按 source_asset_id + SHA-256 去重完成</strong>
-            <span>唯一导入源 {dedupeResult.unique} 个；重复导入会回用既有 converted_asset_id，不生成第二份运行时资产。</span>
+      {error && <div className="model-library-error" role="alert">{error}</div>}
+
+      <div className="model-library-workbench">
+        <section className="model-asset-list" aria-label="模型资产列表">
+          <header><strong>资产</strong><span>{loading ? '读取中' : `${assets.length} 项`}</span></header>
+          <div className="model-asset-scroll">
+            {assets.map((asset) => (
+              <button className={`model-asset-row${selected?.id === asset.id ? ' active' : ''}`} key={asset.id} onClick={() => setSelectedId(asset.id)}>
+                <span className="model-asset-icon"><BoxSelect size={19} /></span>
+                <span className="model-asset-copy"><strong>{asset.label}</strong><span>{asset.format.toUpperCase()} · {fileSize(asset.bytes)}</span></span>
+                <span className={`model-origin ${asset.origin}`}>{asset.origin === 'uploaded' ? '项目' : '内置'}</span>
+              </button>
+            ))}
           </div>
         </section>
-      )}
 
-      <div className="library-grid">
-        {legacyImportSources.map((source) => {
-          const asset = modelAssetRegistry[source.converted_asset_id as keyof typeof modelAssetRegistry]
-          return (
-            <article className="library-card" key={source.id}>
-              <div className="library-preview">
-                {asset?.thumbnail ? <img src={asset.thumbnail} alt={asset.label} /> : <FileUp size={32} />}
+        <section className="model-browser" aria-label="模型浏览器">
+          {selected && selectedForRoom ? <>
+            <header className="model-browser-header">
+              <div><strong>{selected.label}</strong><span>{selected.filename}</span></div>
+              <div>
+                {selected.origin === 'uploaded' && <button className="icon-button" type="button" title={selectedInUse ? '模型正在房间中使用，不能删除' : '删除上传模型'} disabled={selectedInUse} onClick={() => void removeSelected()}><Trash2 size={16} /></button>}
+                <button className="button primary compact" type="button" disabled={!canAddToRoom} onClick={() => onAddToRoom(selectedForRoom)}><Plus size={15} />加入房间</button>
               </div>
-              <div className="library-card-body">
-                <strong>{source.label}</strong>
-                <span>{source.original_filename} · {source.bytes.toLocaleString()} bytes</span>
-                <code>{source.sha256.slice(0, 16)}</code>
-                <div className="library-status">
-                  <span className="done">导入</span>
-                  <span className={asset ? 'done' : ''}>转换</span>
-                  <span className="done">去重</span>
-                  <span className={step === 'room' ? 'done' : ''}>房间</span>
-                </div>
-              </div>
-              <div className="library-card-actions">
-                <button className="button secondary compact" onClick={() => setStep('converted')} disabled={!asset}><RefreshCw size={14} />查看 GLB</button>
-                <button className="button primary compact" onClick={() => { onAddToRoom(asset.id as keyof typeof modelAssetRegistry); setStep('room') }} disabled={!asset || !canAddToRoom}><Plus size={14} />加入房间</button>
-              </div>
-            </article>
-          )
-        })}
-      </div>
-
-      <div className="runtime-table">
-        {convertedAssets.map((asset) => (
-          <div key={asset.id}>
-            <strong>{asset.label}</strong>
-            <span>{asset.format.toUpperCase()} · {asset.bytes.toLocaleString()} bytes · {asset.legacy_source_ids?.join(', ')}</span>
-            <code>{asset.sha256.slice(0, 20)}</code>
-          </div>
-        ))}
+            </header>
+            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} />
+            <div className="model-browser-meta">
+              <div><span>格式</span><strong>{selected.format.toUpperCase()}</strong></div>
+              <div><span>文件</span><strong>{selected.fileCount}</strong></div>
+              <div><span>尺寸</span><strong>{selectedDimensions.width} × {selectedDimensions.depth} × {selectedDimensions.height} mm</strong></div>
+              <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '内置资源'}</code></div>
+            </div>
+          </> : <div className="model-browser-empty"><HardDriveUpload size={28} /><strong>尚无模型</strong></div>}
+        </section>
       </div>
     </div>
   )

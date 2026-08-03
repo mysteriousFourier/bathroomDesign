@@ -1,9 +1,12 @@
 import { ContactShadows, Edges, Grid, OrbitControls, PerspectiveCamera, useGLTF } from '@react-three/drei'
-import { Canvas, type ThreeEvent, useFrame, useThree } from '@react-three/fiber'
+import { Canvas, type ThreeEvent, useFrame, useLoader, useThree } from '@react-three/fiber'
 import { Eye, EyeOff, Focus, Layers, Move3d } from 'lucide-react'
 import { Suspense, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Box3, BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Shape, Vector3 } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
+import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerPolygons, wallLength } from '../spec'
 import type { FixtureModelAsset, FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
 
@@ -130,12 +133,30 @@ function GltfFixtureAsset({ fixture, selected, src }: { fixture: FixtureSpec; se
   return <NormalizedFixtureAsset fixture={fixture} selected={selected} object={gltf.scene} />
 }
 
+function FbxFixtureAsset({ fixture, selected, src }: { fixture: FixtureSpec; selected: boolean; src: string }) {
+  const object = useLoader(FBXLoader, src)
+  return <NormalizedFixtureAsset fixture={fixture} selected={selected} object={object} />
+}
+
+function TdsFixtureAsset({ fixture, selected, src }: { fixture: FixtureSpec; selected: boolean; src: string }) {
+  const object = useLoader(TDSLoader, src)
+  return <NormalizedFixtureAsset fixture={fixture} selected={selected} object={object} />
+}
+
+function ObjFixtureAsset({ fixture, selected, src }: { fixture: FixtureSpec; selected: boolean; src: string }) {
+  const object = useLoader(OBJLoader, src)
+  return <NormalizedFixtureAsset fixture={fixture} selected={selected} object={object} />
+}
+
 function FixtureAssetModel({ fixture, selected }: { fixture: FixtureSpec; selected: boolean }) {
   const asset = fixture.model_asset
   if (!asset) return null
   const format = modelAssetFormat(asset)
-  if (format !== 'gltf' && format !== 'glb') return null
-  return <GltfFixtureAsset fixture={fixture} selected={selected} src={asset.src} />
+  if (format === 'gltf' || format === 'glb') return <GltfFixtureAsset fixture={fixture} selected={selected} src={asset.src} />
+  if (format === 'fbx') return <FbxFixtureAsset fixture={fixture} selected={selected} src={asset.src} />
+  if (format === '3ds') return <TdsFixtureAsset fixture={fixture} selected={selected} src={asset.src} />
+  if (format === 'obj') return <ObjFixtureAsset fixture={fixture} selected={selected} src={asset.src} />
+  return null
 }
 
 function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; selected: boolean; onSelect: () => void }) {

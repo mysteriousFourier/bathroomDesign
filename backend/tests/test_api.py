@@ -416,3 +416,65 @@ async def test_project_cannot_be_deleted_during_analysis(tmp_path) -> None:
         assert response.status_code == 409
         assert "正在识别" in response.json()["detail"]
         assert (await client.get(f"/api/projects/{project_id}")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_model_folder_upload_list_read_and_delete(tmp_path) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "模型文件夹"})).json()["id"]
+        uploaded = await client.post(
+            f"/api/projects/{project_id}/model-assets",
+            data={"relative_paths": ["basin/model.gltf", "basin/model.bin", "basin/textures/albedo.png"]},
+            files=[
+                ("files", ("model.gltf", b'{"asset":{"version":"2.0"}}', "model/gltf+json")),
+                ("files", ("model.bin", b"binary-mesh", "application/octet-stream")),
+                ("files", ("albedo.png", b"texture", "image/png")),
+            ],
+        )
+
+        assert uploaded.status_code == 201
+        asset = uploaded.json()
+        assert asset["format"] == "gltf"
+        assert asset["file_count"] == 3
+        assert asset["sha256"] == "f74cabc3532658af0aa3e7abdd6939d22aa5cd78849dc06e3817248fe1c3788d"
+
+        listed = await client.get(f"/api/projects/{project_id}/model-assets")
+        assert listed.status_code == 200
+        assert [item["id"] for item in listed.json()] == [asset["id"]]
+
+        model_file = await client.get(asset["src"])
+        assert model_file.status_code == 200
+        assert model_file.content == b'{"asset":{"version":"2.0"}}'
+        assert model_file.headers["content-type"].startswith("model/gltf+json")
+
+        deleted = await client.delete(f"/api/projects/{project_id}/model-assets/{asset['id']}")
+        assert deleted.status_code == 204
+        assert (await client.get(asset["src"])).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_model_upload_rejects_unsafe_paths_and_multiple_primary_files(tmp_path) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "模型校验"})).json()["id"]
+        unsafe = await client.post(
+            f"/api/projects/{project_id}/model-assets",
+            data={"relative_paths": "../model.glb"},
+            files={"files": ("model.glb", b"glTF", "model/gltf-binary")},
+        )
+        assert unsafe.status_code == 422
+        assert "路径不安全" in unsafe.json()["detail"]
+
+        multiple = await client.post(
+            f"/api/projects/{project_id}/model-assets",
+            data={"relative_paths": ["a.glb", "b.obj"]},
+            files=[
+                ("files", ("a.glb", b"glTF", "model/gltf-binary")),
+                ("files", ("b.obj", b"o mesh", "text/plain")),
+            ],
+        )
+        assert multiple.status_code == 422
+        assert "只能包含一个" in multiple.json()["detail"]

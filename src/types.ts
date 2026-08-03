@@ -89,7 +89,7 @@ export interface OpeningSpec {
 export type FixtureKind = 'toilet' | 'vanity' | 'shower' | 'floor_drain' | 'drain' | 'water' | 'electric' | 'pipe' | 'column' | 'radiator' | 'other'
 export type FixturePointUsage = 'general' | 'toilet' | 'shower' | 'basin'
 
-export type ModelAssetFormat = 'gltf' | 'glb'
+export type ModelAssetFormat = 'gltf' | 'glb' | 'fbx' | '3ds' | 'obj'
 export type ModelAssetLifecycle = 'approved' | 'needs_conversion' | 'converted' | 'converted_duplicate' | 'deprecated'
 
 export interface FixtureModelAsset {
@@ -268,6 +268,19 @@ export interface Asset {
   height: number
   created_at: string
   url: string
+}
+
+export interface ImportedModelAsset {
+  id: string
+  project_id: string
+  label: string
+  filename: string
+  format: ModelAssetFormat
+  bytes: number
+  sha256: string
+  file_count: number
+  created_at: string
+  src: string
 }
 
 export interface CaptureCheck {

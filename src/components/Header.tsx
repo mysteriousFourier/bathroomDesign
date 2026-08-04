@@ -1,4 +1,4 @@
-import { Box, Check, Download, FileJson, Library, Printer, Redo2, Save, Undo2 } from 'lucide-react'
+import { Box, Check, Download, FileJson, Library, MessageCircle, Printer, Redo2, Save, Undo2 } from 'lucide-react'
 
 interface HeaderProps {
   projectName?: string
@@ -16,20 +16,22 @@ interface HeaderProps {
   onExportMeasurement: () => void
   onExport: () => void
   onOpenLibrary: () => void
+  onOpenChat: () => void
 }
 
-export function Header({ projectName, dirty, canUndo, canRedo, canConfirm, canModel, canExportMeasurement, saving, onUndo, onRedo, onSave, onConfirm, onExportMeasurement, onExport, onOpenLibrary }: HeaderProps) {
+export function Header({ projectName, dirty, canUndo, canRedo, canConfirm, canModel, canExportMeasurement, saving, onUndo, onRedo, onSave, onConfirm, onExportMeasurement, onExport, onOpenLibrary, onOpenChat }: HeaderProps) {
   return (
     <header className="app-header">
-      <div className="brand-block" aria-label="量界卫生间建模工作台">
+      <div className="brand-block" aria-label="小和卫生间建模工作台">
         <span className="brand-mark"><Box size={19} strokeWidth={1.8} /></span>
-        <div><strong>量界</strong><span>SPATIAL STUDIO</span></div>
+        <div><strong>小和</strong><span>SPATIAL STUDIO</span></div>
       </div>
       <div className="project-heading">
         <strong>{projectName ?? '未选择项目'}</strong>
         {projectName && <span className={dirty ? 'save-state dirty' : 'save-state'}>{dirty ? '有未保存修改' : '已保存'}</span>}
       </div>
       <div className="header-actions">
+        <button className="button secondary chat-entry" onClick={onOpenChat}><MessageCircle size={16}/>Chat</button>
         <a className="button secondary" href="/measurement-template.html" target="_blank" rel="noreferrer" title="打开可打印量房模板"><Printer size={16} />量房模板</a>
         <button className="button secondary" onClick={onOpenLibrary}><Library size={16} />模型库</button>
         <span className="toolbar-separator" />

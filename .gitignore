@@ -10,6 +10,9 @@ __pycache__/
 *.pyc
 *.tsbuildinfo
 backend/data/
+!backend/data/
+backend/data/*
+!backend/data/product_catalog.csv
 .env
 .agents/
 /*.jpg

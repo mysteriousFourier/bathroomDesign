@@ -1,4 +1,4 @@
-import type { AnalysisResponse, Asset, CaptureAssessment, Health, ImportedModelAsset, Project, RoomSpec } from './types'
+import type { AnalysisResponse, Asset, CaptureAssessment, ChatMessage, DesignChatResponse, Health, ImportedModelAsset, Project, RoomSpec } from './types'
 import type { ModelImportFile } from './modelImport'
 
 const defaultTimeoutMs = 90_000
@@ -69,5 +69,6 @@ export const studioApi = {
     { method: 'POST', timeoutMs: 600_000 },
   ),
   analyzePhotos: (id: string) => request<AnalysisResponse>(`/api/projects/${id}/analyze-photos`, { method: 'POST', timeoutMs: 300_000 }),
+  designChat: (messages: ChatMessage[], room: RoomSpec | null) => request<DesignChatResponse>('/api/design-chat', { method:'POST', headers:jsonHeaders, body:JSON.stringify({messages,room}), timeoutMs:150_000 }),
   measurementDownloadUrl: (id: string) => `/api/projects/${id}/measurement/download`,
 }

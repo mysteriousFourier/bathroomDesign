@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { studioApi } from './api'
 import { EmptyWorkspace } from './components/EmptyWorkspace'
 import { Header } from './components/Header'
+import { DesignChat } from './components/DesignChat'
 import { Inspector } from './components/Inspector'
 import { ModelCanvas, type ModelCanvasHandle } from './components/ModelCanvas'
 import { ModelAssetLibrary } from './components/ModelAssetLibrary'
@@ -86,6 +87,7 @@ export default function App() {
   const [planRotation, setPlanRotation] = useState<number | null>(null)
   const [focusEvidenceId, setFocusEvidenceId] = useState<string | null>(null)
   const [activeEvidenceId, setActiveEvidenceId] = useState<string | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
   const modelRef = useRef<ModelCanvasHandle>(null)
   const projectRef = useRef<Project | null>(null)
   projectRef.current = project
@@ -464,7 +466,8 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Header projectName={project?.name} dirty={dirty} canUndo={history.length > 0} canRedo={future.length > 0} canConfirm={canConfirm} canModel={canModel} canExportMeasurement={canExportMeasurement} saving={busy === 'save'} onUndo={undo} onRedo={redo} onSave={() => void save()} onConfirm={() => void confirm()} onExportMeasurement={exportMeasurement} onExport={exportModel} onOpenLibrary={() => setMode('library')} />
+      <Header projectName={project?.name} dirty={dirty} canUndo={history.length > 0} canRedo={future.length > 0} canConfirm={canConfirm} canModel={canModel} canExportMeasurement={canExportMeasurement} saving={busy === 'save'} onUndo={undo} onRedo={redo} onSave={() => void save()} onConfirm={() => void confirm()} onExportMeasurement={exportMeasurement} onExport={exportModel} onOpenLibrary={() => setMode('library')} onOpenChat={() => setChatOpen(true)} />
+      <DesignChat open={chatOpen} room={spec} onClose={() => setChatOpen(false)} />
       <ProjectRail projects={projects} project={project} health={health} busy={busy} planRotation={planRotation} onPlanRotationChange={setPlanRotation} onSelectProject={(id) => void selectProject(id)} onCreateProject={createProject} onDeleteProject={() => void deleteProject()} onUpload={upload} onAnalyzePlan={() => void analyzePlan()} onAnalyzePhotos={() => void analyzePhotos()} />
       <main className="workspace">
         <WorkflowStatus project={project} spec={spec} busy={busy} dirty={dirty} />

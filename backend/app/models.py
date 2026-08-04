@@ -780,6 +780,14 @@ class MeasurementModel(BaseModel):
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=8000)
+
+class DesignChatRequest(BaseModel):
+    messages: list[ChatMessage] = Field(min_length=1, max_length=40)
+    room: RoomSpec | None = None
+
 
 class AssetResponse(BaseModel):
     id: str

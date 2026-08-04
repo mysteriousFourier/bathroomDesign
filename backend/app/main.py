@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import shutil
 import uuid
+import zipfile
 from contextlib import asynccontextmanager
 from io import BytesIO
 from pathlib import Path
+import httpx
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,12 +19,15 @@ from .ai import AIConfigurationError, AIResponseError, analyze_floorplan_fast as
 from .capture import assess_capture
 from .config import settings
 from .database import db
+from .design_chat import design_chat
+from .knowledge_graph import ProductKnowledgeGraph
 from .measurement import measurement_contract_export, validate_measurement
 from .model_assets import delete_model_asset, list_model_assets, resolve_model_asset_file, store_model_asset
 from .models import (
     AnalysisResponse,
     AssetResponse,
     CaptureAssessment,
+    DesignChatRequest,
     MeasurementModel,
     MeasurementValidationResponse,
     ModelAssetResponse,
@@ -36,6 +41,8 @@ from .validation import validate_spec
 
 
 project_root = Path(__file__).resolve().parents[2]
+product_graph = ProductKnowledgeGraph(settings.app_data_dir / "product-knowledge-graph.json")
+default_product_catalog = project_root / "backend" / "data" / "product_catalog.csv"
 backend_source_version = max(
     (int(path.stat().st_mtime) for path in (project_root / "backend" / "app").glob("*.py")),
     default=0,
@@ -48,10 +55,14 @@ backend_config_version = hashlib.sha256(environment_path.read_bytes()).hexdigest
 async def lifespan(_application: FastAPI):
     Image.MAX_IMAGE_PIXELS = settings.max_image_pixels
     db.initialize()
+    # Ship the approved baseline catalog with the application. Subsequent XLSX/CSV
+    # imports keep using the same stable material numbers and update it in place.
+    if default_product_catalog.is_file() and not product_graph.path.is_file():
+        product_graph.import_catalog(default_product_catalog.name, default_product_catalog.read_bytes())
     yield
 
 
-app = FastAPI(title="量界 API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="小和 API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -89,6 +100,19 @@ def health() -> dict:
         "fallback_model": fallback_model,
         "ocr_configured": settings.ocr_engine.lower() == "paddle",
     }
+
+@app.post("/api/knowledge/products/import")
+async def import_products(file: UploadFile = File(...)) -> dict:
+    content=await file.read(50*1024*1024+1)
+    if len(content)>50*1024*1024:raise HTTPException(413,"产品清单不能超过 50 MB")
+    try:return product_graph.import_catalog(Path(file.filename or "catalog.xlsx").name,content)
+    except (ValueError,KeyError,zipfile.BadZipFile) as error:raise HTTPException(422,str(error)) from error
+
+@app.post("/api/design-chat")
+async def design_chat_endpoint(payload: DesignChatRequest) -> dict:
+    try:return await design_chat([x.model_dump() for x in payload.messages],product_graph,payload.room.model_dump() if payload.room else None)
+    except RuntimeError as error:raise HTTPException(503,str(error)) from error
+    except (httpx.HTTPError,KeyError,IndexError) as error:raise HTTPException(502,"对话模型暂时不可用") from error
 
 
 @app.get("/api/projects", response_model=list[ProjectResponse])

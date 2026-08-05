@@ -339,6 +339,10 @@ export interface Health {
 export interface ChatMessage { role:'user'|'assistant'; content:string }
 export interface SurfaceEstimate { source:string; floor_area_sqm:number; wall_gross_area_sqm:number|null; opening_area_sqm:number; wall_net_area_sqm:number|null; waste_rate:number; floor_purchase_sqm:number; wall_purchase_sqm:number|null; floor_layout:string; wall_layout:string; warnings:string[] }
 export interface RequirementState { collected:Record<string,string|string[]|null>; missing_fields:string[]; complete:boolean }
-export interface DesignChatResponse { message:string; requirements:RequirementState; surfaces:SurfaceEstimate; equipment:Record<string,string[]>; products:Array<{id:string;attributes:Record<string,string>}> }
+export interface QuoteLine { product_id:string; 材料编号:string; 单价:number; 单位:string; 来源:string; 材料名称?:string; 采购量?:number; 材料小计?:number; 家具名称?:string; 数量?:number; 家具小计?:number }
+export interface StyleMatch { user_terms:string[]; catalog_style:string|null; confidence:number; status:'matched'|'mapped'|'needs_clarification'; candidates:Array<{catalog_style:string;feeling:string}>; resolver_version:string }
+export interface ModelLookup { product_id:string; catalog_code:string; category:string; catalog_style:string; normalized_requested_style:string|null; spec:string; model_asset_id:string|null; layout_fixture_kind:string; binding_status:'awaiting_model_asset'|'bound' }
+export interface SelectedFurniture { product_id:string; category:string; catalog_style:string; requested_style:string|null; model_lookup:ModelLookup }
+export interface DesignChatResponse { message:string; requirements:RequirementState; style_match:StyleMatch; surfaces:SurfaceEstimate; material_quotes:QuoteLine[]; furniture_quotes:Array<QuoteLine & {风格?:string;匹配风格?:string;model_lookup?:ModelLookup}>; selected_furniture:SelectedFurniture[]; material_total:number; furniture_total:number; quote_total:number; equipment:Record<string,string[]>; products:Array<{id:string;attributes:Record<string,string>}> }
 
 export type Selection = { type: 'room' } | { type: 'fixture'; id: string } | { type: 'opening'; id: string } | { type: 'dry_wet_zone'; id: string } | { type: 'plan_line'; id: string } | { type: 'plan_label'; id: string }

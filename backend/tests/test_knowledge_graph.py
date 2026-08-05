@@ -1,6 +1,6 @@
 from pathlib import Path
 from backend.app.knowledge_graph import ProductKnowledgeGraph, equipment_rules
-from backend.app.design_chat import PROMPT, QUOTE_TOOL, _safe_model_message, calculate_material_quote, material_quotes, requirement_state, surface_estimate
+from backend.app.design_chat import PROMPT, QUOTE_TOOL, _safe_model_message, calculate_design_quote, default_product_ids, furniture_quotes, material_quotes, requirement_state, resolve_style, surface_estimate
 
 def test_incremental_catalog(tmp_path: Path):
     graph=ProductKnowledgeGraph(tmp_path/"graph.json")
@@ -48,7 +48,13 @@ def test_chat_area_is_never_read_from_user_text():
 def test_prompt_brings_diverted_conversation_back_without_scolding():
     assert "无法获得可靠实时信息" in PROMPT
     assert "missing_fields" in PROMPT
-    assert "禁止输出任何单价、小计、总价" in PROMPT
+    assert "只能逐字引用工具返回的材料合计、家具合计和总计" in PROMPT
+
+def test_prompt_collects_requirements_like_a_human_designer():
+    assert "用户自己的词" in PROMPT
+    assert "只问一个" in PROMPT
+    assert "禁止让用户按表格格式回答" in PROMPT
+    assert "允许用户说“不确定”" in PROMPT
 
 def test_requirement_state_accumulates_only_user_facts():
     state=requirement_state([
@@ -82,11 +88,11 @@ def test_quote_tool_calculates_from_server_candidates_only():
         {"product_id":"wall-qb1","材料编号":"QB1","采购量":10,"单价":80,"材料小计":800},
         {"product_id":"floor-db1","材料编号":"DB1","采购量":4.4,"单价":340,"材料小计":1496},
     ]
-    result=calculate_material_quote(candidates,["wall-qb1","floor-db1","NOT-IN-CATALOG"])
+    result=calculate_design_quote(candidates,[],["wall-qb1","floor-db1","NOT-IN-CATALOG"])
     assert result["材料合计"]==2296
-    assert [line["材料编号"] for line in result["报价明细"]]==["QB1","DB1"]
+    assert [line["材料编号"] for line in result["材料报价"]]==["QB1","DB1"]
     assert QUOTE_TOOL["function"]["parameters"]["properties"].keys()=={"product_ids"}
-    assert "必须调用 calculate_material_quote" in PROMPT
+    assert "必须调用 calculate_design_quote" in PROMPT
 
 def test_constrained_graph_forbidden_category_wins(tmp_path: Path):
     graph=ProductKnowledgeGraph(tmp_path/"graph.json")
@@ -111,6 +117,33 @@ def test_quote_uses_unique_product_id_when_catalog_codes_collide():
         {"product_id":"wall-x1","材料编号":"X1","材料名称":"墙板","材料小计":800},
         {"product_id":"floor-x1","材料编号":"X1","材料名称":"地砖","材料小计":1200},
     ]
-    result=calculate_material_quote(candidates,["floor-x1"])
+    result=calculate_design_quote(candidates,[],["floor-x1"])
     assert result["材料合计"]==1200
-    assert [x["材料名称"] for x in result["报价明细"]]==["地砖"]
+    assert [x["材料名称"] for x in result["材料报价"]]==["地砖"]
+
+def test_unified_quote_has_material_furniture_and_grand_total():
+    materials=[{"product_id":"wall","材料名称":"墙板","材料小计":800}]
+    furniture=[{"product_id":"toilet","家具名称":"马桶","家具小计":1200}]
+    result=calculate_design_quote(materials,furniture,["wall","toilet","fake"])
+    assert result["材料合计"]==800
+    assert result["家具合计"]==1200
+    assert result["总计"]==2000
+    assert [x["家具名称"] for x in result["家具报价"]]==["马桶"]
+
+def test_style_aliases_converge_to_catalog_vocabulary():
+    mapped=resolve_style([{"role":"user","content":"想要奶油色、温柔精致一点"}])
+    assert mapped["catalog_style"]=="轻法" and mapped["status"]=="mapped"
+    exact=resolve_style([{"role":"user","content":"那就知识图谱里的轻法"}])
+    assert exact["catalog_style"]=="轻法" and exact["confidence"]==1
+
+def test_unknown_style_exposes_feelings_for_clarification():
+    result=resolve_style([{"role":"user","content":"要像周末雨后一样的感觉"}])
+    assert result["status"]=="needs_clarification"
+    assert {x["catalog_style"] for x in result["candidates"]}=={"素雅","轻法","中古"}
+
+def test_furniture_style_filter_and_model_lookup_contract():
+    products=[{"id":"dark","attributes":{"材料编号":"HS1","材料名称":"花洒","风格":"中古","规格型号":"枪灰","单价":"500"}},{"id":"light","attributes":{"材料编号":"HS2","材料名称":"花洒","风格":"素雅、轻法","规格型号":"银白","单价":"600"}},{"id":"chair","attributes":{"材料编号":"LYY","材料名称":"淋浴椅","风格":"通用","单价":"300"}}]
+    result=furniture_quotes(products,{"catalog_style":"中古","user_terms":["复古"]})
+    assert [x["product_id"] for x in result]==["dark","chair"]
+    assert result[0]["风格匹配依据"]==["复古"]
+    assert result[0]["model_lookup"]["binding_status"]=="awaiting_model_asset"

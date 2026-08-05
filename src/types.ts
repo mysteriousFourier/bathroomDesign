@@ -328,6 +328,33 @@ export interface AnalysisResponse {
   missing: string[]
 }
 
+export interface MeasurementImportLayer {
+  name: string
+  entity_count: number
+  boundary_candidates: number
+  point_markers: number
+}
+
+export interface MeasurementImportInspection {
+  filename: string
+  format: string
+  detected_unit: string | null
+  unit_required: boolean
+  can_import: boolean
+  dwg_converter_available: boolean
+  layers: MeasurementImportLayer[]
+  warnings: string[]
+}
+
+export interface MeasurementImportResponse {
+  project: Project
+  source_format: string
+  source_unit: string
+  scale_to_mm: number
+  selected_layer: string | null
+  warnings: string[]
+}
+
 export interface Health {
   ok: boolean
   ai_configured: boolean

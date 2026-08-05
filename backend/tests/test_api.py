@@ -36,6 +36,42 @@ async def test_frontend_and_template_routes_do_not_depend_on_working_directory(t
 
 
 @pytest.mark.asyncio
+async def test_measurement_file_inspection_and_svg_import_updates_project(tmp_path) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    svg = b'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3600 2400">
+      <path id="room-boundary" d="M0 0H3600V2400H0Z"/>
+      <circle id="floor-drain" cx="2800" cy="1700" r="50"/>
+    </svg>'''
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project = (await client.post("/api/projects", json={"name": "SVG 导入"})).json()
+        inspection = await client.post(
+            f"/api/projects/{project['id']}/measurement/import/inspect",
+            files={"file": ("room.svg", svg, "image/svg+xml")},
+        )
+        unchanged = await client.get(f"/api/projects/{project['id']}")
+
+        assert inspection.status_code == 200
+        assert inspection.json()["format"] == "svg"
+        assert inspection.json()["can_import"] is True
+        assert unchanged.json()["measurement"] is None
+
+        imported = await client.post(
+            f"/api/projects/{project['id']}/measurement/import",
+            data={"unit": "mm", "height_mm": "2750"},
+            files={"file": ("room.svg", svg, "image/svg+xml")},
+        )
+
+    assert imported.status_code == 200, imported.text
+    result = imported.json()
+    assert result["project"]["status"] == "review"
+    assert result["project"]["spec"]["height_mm"] == 2750
+    assert result["project"]["spec"]["boundary"][2] == {"x_mm": 3600, "z_mm": 2400}
+    assert result["project"]["spec"]["fixtures"][0]["kind"] == "floor_drain"
+    assert result["project"]["measurement"]["anchors"][0]["x_mm"] == 2800
+
+
+@pytest.mark.asyncio
 async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
     configure_temp_database(tmp_path)
     monkeypatch.setattr(settings, "openai_base_url", "")
@@ -157,8 +193,9 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
         contract_measurement = downloaded.json()
         assert set(contract_measurement) == {
             "schemaVersion", "roomId", "boundary", "walls", "openings",
-            "drainagePoints", "pipeEnclosures", "waterSupplyPoints", "heights",
+            "drainagePoints", "pipeEnclosures", "waterSupplyPoints", "measurementPoints", "heights",
         }
+        assert contract_measurement["schemaVersion"] == "1.1.0"
         assert contract_measurement["roomId"] == str(UUID(project_id))
         assert contract_measurement["heights"]["roomHeight"] == 2600
         assert contract_measurement["walls"][0]["startPoint"] == {"x": 0, "y": 0}

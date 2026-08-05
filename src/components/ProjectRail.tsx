@@ -1,4 +1,4 @@
-import { AlertTriangle, BookOpen, CheckCircle2, ChevronDown, CircleAlert, FileImage, ImagePlus, LoaderCircle, Plus, ScanLine, Trash2, Upload } from 'lucide-react'
+import { AlertTriangle, BookOpen, CheckCircle2, ChevronDown, CircleAlert, FileImage, FileInput, ImagePlus, LoaderCircle, Plus, ScanLine, Trash2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { studioApi } from '../api'
 import type { Asset, CaptureAssessment, Health, Project } from '../types'
@@ -13,6 +13,7 @@ interface ProjectRailProps {
   onCreateProject: (name: string) => Promise<void>
   onDeleteProject: () => void
   onUpload: (role: 'floorplan' | 'photo', files: File[]) => Promise<void>
+  onOpenMeasurementImport: () => void
   planRotation: number | null
   onPlanRotationChange: (rotation: number | null) => void
   onAnalyzePlan: () => void
@@ -121,6 +122,7 @@ export function ProjectRail(props: ProjectRailProps) {
           event.target.value = ''
         }} />
         <button className="button secondary wide" disabled={!props.project || !!props.busy} onClick={() => planInput.current?.click()}><Upload size={16} />上传平面图</button>
+        <button className="button secondary wide" disabled={!props.project || !!props.busy} onClick={props.onOpenMeasurementImport}><FileInput size={16} />导入量房数据</button>
         <button className="button primary wide" disabled={!plans.length || !!props.busy || !props.health?.ai_configured} onClick={props.onAnalyzePlan}>
           {props.busy === 'plan' ? <LoaderCircle className="spin" size={16} /> : <ScanLine size={16} />}{props.busy === 'plan' ? '正在识别' : '识别照片标注'}
         </button>

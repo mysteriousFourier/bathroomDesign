@@ -22,6 +22,7 @@ from .database import db
 from .design_chat import design_chat
 from .knowledge_graph import ProductKnowledgeGraph
 from .measurement import measurement_contract_export, validate_measurement
+from .measurement_import import MeasurementImportError, import_measurement_file, inspect_measurement_file
 from .model_assets import delete_model_asset, list_model_assets, resolve_model_asset_file, store_model_asset
 from .models import (
     AnalysisResponse,
@@ -29,6 +30,8 @@ from .models import (
     CaptureAssessment,
     DesignChatRequest,
     MeasurementModel,
+    MeasurementImportInspection,
+    MeasurementImportResponse,
     MeasurementValidationResponse,
     ModelAssetResponse,
     ProjectCreate,
@@ -341,6 +344,56 @@ def download_measurement(project_id: str) -> JSONResponse:
     return JSONResponse(
         content=measurement_contract_export(measurement),
         headers={"Content-Disposition": 'attachment; filename="measurement.json"'},
+    )
+
+
+async def _measurement_import_content(file: UploadFile) -> tuple[bytes, str]:
+    content = await file.read(settings.max_upload_mb * 1024 * 1024 + 1)
+    if len(content) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"量房文件不能超过 {settings.max_upload_mb} MB")
+    if not content:
+        raise HTTPException(status_code=422, detail="量房文件为空")
+    return content, Path(file.filename or "measurement").name[:180]
+
+
+@app.post("/api/projects/{project_id}/measurement/import/inspect", response_model=MeasurementImportInspection)
+async def inspect_measurement_import(project_id: str, file: UploadFile = File(...)) -> MeasurementImportInspection:
+    project_or_404(project_id)
+    content, filename = await _measurement_import_content(file)
+    try:
+        return MeasurementImportInspection.model_validate(inspect_measurement_file(content, filename))
+    except MeasurementImportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except (OSError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=f"量房文件检查失败：{error}") from error
+
+
+@app.post("/api/projects/{project_id}/measurement/import", response_model=MeasurementImportResponse)
+async def import_project_measurement(
+    project_id: str,
+    file: UploadFile = File(...),
+    unit: str = Form("auto"),
+    layer: str | None = Form(None),
+    height_mm: int = Form(2600),
+) -> MeasurementImportResponse:
+    project_or_404(project_id)
+    content, filename = await _measurement_import_content(file)
+    try:
+        imported = import_measurement_file(content, filename, unit=unit, layer=layer or None, height_mm=height_mm)
+    except MeasurementImportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except (OSError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=f"量房文件导入失败：{error}") from error
+    issues, sufficient, _ = validate_spec(imported.spec)
+    imported.spec.issues = [*imported.spec.issues, *issues]
+    project = db.save_spec(project_id, imported.spec, "review")
+    return MeasurementImportResponse(
+        project=project,
+        source_format=imported.source_format,
+        source_unit=imported.source_unit,
+        scale_to_mm=imported.scale_to_mm,
+        selected_layer=imported.selected_layer,
+        warnings=imported.warnings + ([] if sufficient else ["导入数据尚未通过建模门禁，请在二维审图中校正"]),
     )
 
 

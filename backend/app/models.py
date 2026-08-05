@@ -849,6 +849,33 @@ class AnalysisResponse(BaseModel):
     missing: list[str]
 
 
+class MeasurementImportLayer(BaseModel):
+    name: str
+    entity_count: int = Field(ge=0)
+    boundary_candidates: int = Field(ge=0)
+    point_markers: int = Field(ge=0)
+
+
+class MeasurementImportInspection(BaseModel):
+    filename: str
+    format: str
+    detected_unit: str | None = None
+    unit_required: bool
+    can_import: bool
+    dwg_converter_available: bool
+    layers: list[MeasurementImportLayer] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MeasurementImportResponse(BaseModel):
+    project: ProjectResponse
+    source_format: str
+    source_unit: str
+    scale_to_mm: float = Field(gt=0)
+    selected_layer: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ValidationResponse(BaseModel):
     issues: list[ValidationIssue]
     sufficient: bool

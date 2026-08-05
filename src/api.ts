@@ -1,4 +1,4 @@
-import type { AnalysisResponse, Asset, CaptureAssessment, ChatMessage, DesignChatResponse, Health, ImportedModelAsset, Project, RoomSpec } from './types'
+import type { AnalysisResponse, Asset, CaptureAssessment, ChatMessage, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, Project, RoomSpec } from './types'
 import type { ModelImportFile } from './modelImport'
 
 const defaultTimeoutMs = 90_000
@@ -69,6 +69,19 @@ export const studioApi = {
     { method: 'POST', timeoutMs: 600_000 },
   ),
   analyzePhotos: (id: string) => request<AnalysisResponse>(`/api/projects/${id}/analyze-photos`, { method: 'POST', timeoutMs: 300_000 }),
+  inspectMeasurementImport: async (id: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<MeasurementImportInspection>(`/api/projects/${id}/measurement/import/inspect`, { method: 'POST', body: form, timeoutMs: 120_000 })
+  },
+  importMeasurement: async (id: string, file: File, options: { unit: string; layer: string; heightMm: number }) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('unit', options.unit)
+    if (options.layer) form.append('layer', options.layer)
+    form.append('height_mm', String(options.heightMm))
+    return request<MeasurementImportResponse>(`/api/projects/${id}/measurement/import`, { method: 'POST', body: form, timeoutMs: 180_000 })
+  },
   designChat: (messages: ChatMessage[], room: RoomSpec | null) => request<DesignChatResponse>('/api/design-chat', { method:'POST', headers:jsonHeaders, body:JSON.stringify({messages,room}), timeoutMs:150_000 }),
   measurementDownloadUrl: (id: string) => `/api/projects/${id}/measurement/download`,
 }

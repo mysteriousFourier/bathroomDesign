@@ -7,6 +7,7 @@ import { DesignChat } from './components/DesignChat'
 import { Inspector } from './components/Inspector'
 import { ModelCanvas, type ModelCanvasHandle } from './components/ModelCanvas'
 import { ModelAssetLibrary } from './components/ModelAssetLibrary'
+import { MeasurementImportDialog } from './components/MeasurementImportDialog'
 import { PlanReview } from './components/PlanReview'
 import { PhotoAnnotation } from './components/PhotoAnnotation'
 import { ProjectRail } from './components/ProjectRail'
@@ -16,7 +17,7 @@ import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { fixtureModelAssetFromLibrary, type RoomModelAsset } from './modelAssets'
 import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, updateOpeningFromLine, wallLength, wetZoneBoundaryValid } from './spec'
-import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
+import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
 
@@ -88,6 +89,7 @@ export default function App() {
   const [focusEvidenceId, setFocusEvidenceId] = useState<string | null>(null)
   const [activeEvidenceId, setActiveEvidenceId] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const [measurementImportOpen, setMeasurementImportOpen] = useState(false)
   const modelRef = useRef<ModelCanvasHandle>(null)
   const projectRef = useRef<Project | null>(null)
   projectRef.current = project
@@ -196,6 +198,17 @@ export default function App() {
       showMessage('success', `${files.length} 张图片已上传`)
     } catch (error) { showMessage('error', (error as Error).message) }
     finally { setBusy(null) }
+  }
+
+  const applyMeasurementImport = (result: MeasurementImportResponse) => {
+    const imported = result.project
+    const nextSpec = visibleSpec(imported)
+    setProject(imported)
+    setProjects((items) => items.map((item) => item.id === imported.id ? imported : item))
+    setSpec(nextSpec); setHistory([]); setFuture([]); setDirty(false); setMode('review'); setSelection({ type: 'room' })
+    setFocusEvidenceId(null); setActiveEvidenceId(null); setPlanRotation(null)
+    const warningSuffix = result.warnings.length ? `，有 ${result.warnings.length} 项需要复核` : ''
+    showMessage('success', `${result.source_format.toUpperCase()} 已按 ${result.source_unit} 导入${warningSuffix}`)
   }
 
   const applyAnalysis = (result: Awaited<ReturnType<typeof studioApi.analyzePlan>>) => {
@@ -468,7 +481,8 @@ export default function App() {
     <div className="app-shell">
       <Header projectName={project?.name} dirty={dirty} canUndo={history.length > 0} canRedo={future.length > 0} canConfirm={canConfirm} canModel={canModel} canExportMeasurement={canExportMeasurement} saving={busy === 'save'} onUndo={undo} onRedo={redo} onSave={() => void save()} onConfirm={() => void confirm()} onExportMeasurement={exportMeasurement} onExport={exportModel} onOpenLibrary={() => setMode('library')} onOpenChat={() => setChatOpen(true)} />
       <DesignChat open={chatOpen} room={spec} onClose={() => setChatOpen(false)} />
-      <ProjectRail projects={projects} project={project} health={health} busy={busy} planRotation={planRotation} onPlanRotationChange={setPlanRotation} onSelectProject={(id) => void selectProject(id)} onCreateProject={createProject} onDeleteProject={() => void deleteProject()} onUpload={upload} onAnalyzePlan={() => void analyzePlan()} onAnalyzePhotos={() => void analyzePhotos()} />
+      <MeasurementImportDialog open={measurementImportOpen} projectId={project?.id ?? null} hasMeasurement={!!project?.measurement} onClose={() => setMeasurementImportOpen(false)} onImported={applyMeasurementImport} />
+      <ProjectRail projects={projects} project={project} health={health} busy={busy} planRotation={planRotation} onPlanRotationChange={setPlanRotation} onSelectProject={(id) => void selectProject(id)} onCreateProject={createProject} onDeleteProject={() => void deleteProject()} onUpload={upload} onOpenMeasurementImport={() => setMeasurementImportOpen(true)} onAnalyzePlan={() => void analyzePlan()} onAnalyzePhotos={() => void analyzePhotos()} />
       <main className="workspace">
         <WorkflowStatus project={project} spec={spec} busy={busy} dirty={dirty} />
         {busy === 'boot' ? <div className="loading-screen"><LoaderCircle className="spin" size={28} /><span>正在打开工作台</span></div> : !project ? (

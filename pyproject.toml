@@ -12,6 +12,9 @@ dependencies = [
   "python-multipart>=0.0.20,<1",
   "pydantic-settings>=2.7,<3",
   "fastembed>=0.7,<0.8",
+  "defusedxml>=0.7,<1",
+  "ezdxf>=1.4,<2",
+  "svgelements>=1.9,<2",
 ]
 
 [build-system]

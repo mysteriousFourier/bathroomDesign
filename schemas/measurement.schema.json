@@ -2,9 +2,9 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://opc-bathroom/schemas/measurement.schema.json",
   "title": "Measurement Schema",
-  "description": "Bathroom measurement data: room boundary, walls, openings, drainage points, pipe enclosures, water supply points, and height parameters.",
+  "description": "Bathroom measurement data: room boundary, walls, openings, complete measurement points, service points, and height parameters.",
   "type": "object",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "required": [
     "schemaVersion",
     "roomId",
@@ -65,6 +65,13 @@
       "description": "Water supply connection points (cold/hot). Optional — a room without water supply points is valid (e.g. storage).",
       "items": {
         "$ref": "#/definitions/WaterSupplyPoint"
+      }
+    },
+    "measurementPoints": {
+      "type": "array",
+      "description": "Complete, lossless point collection used for round-tripping every supported point type. The service-specific arrays remain for compatibility.",
+      "items": {
+        "$ref": "#/definitions/MeasurementPoint"
       }
     },
     "heights": {
@@ -293,6 +300,48 @@
           "type": "integer",
           "minimum": 0,
           "description": "Height of the supply outlet center above finished floor in mm."
+        }
+      },
+      "additionalProperties": false
+    },
+    "MeasurementPoint": {
+      "type": "object",
+      "description": "A typed measured point or fixed fixture in the room.",
+      "required": ["pointId", "kind", "label", "position", "width", "depth", "height", "rotation"],
+      "properties": {
+        "pointId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["toilet", "vanity", "shower", "floor_drain", "drain", "water", "electric", "pipe", "column", "radiator", "other"]
+        },
+        "label": {
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/definitions/Point2D"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rotation": {
+          "type": "integer"
+        },
+        "pointUsage": {
+          "type": "string",
+          "enum": ["general", "toilet", "shower", "basin"]
         }
       },
       "additionalProperties": false

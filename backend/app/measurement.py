@@ -171,7 +171,7 @@ def _contract_anchor_boundary(anchor: MeasurementAnchor) -> list[dict[str, int]]
 
 
 def measurement_contract_export(measurement: MeasurementModel) -> dict:
-    """Return the frozen W1D1 measurement.schema.json representation."""
+    """Return the measurement.schema.json representation."""
     walls = sorted(measurement.walls, key=lambda wall: wall.index)
     wall_index = {wall.id: index for index, wall in enumerate(walls)}
     boundary = [_contract_point(wall.start) for wall in walls]
@@ -240,11 +240,25 @@ def measurement_contract_export(measurement: MeasurementModel) -> dict:
         for anchor in measurement.anchors
         if anchor.kind in {"toilet", "vanity", "shower", "water"}
     ]
+    measurement_points = [
+        {
+            "pointId": anchor.id,
+            "kind": anchor.kind,
+            "label": anchor.label,
+            "position": _contract_anchor_position(anchor),
+            "width": anchor.width_mm,
+            "depth": anchor.depth_mm,
+            "height": anchor.height_mm,
+            "rotation": anchor.rotation_deg,
+            **({"pointUsage": anchor.point_usage} if anchor.point_usage is not None else {}),
+        }
+        for anchor in measurement.anchors
+    ]
 
     room_height = measurement.heights.room_height_mm or measurement.heights.wall_height_mm or 0
     wall_height = measurement.heights.wall_height_mm or room_height
     return {
-        "schemaVersion": "1.0.0",
+        "schemaVersion": "1.1.0",
         "roomId": _contract_uuid(measurement.measurement_id),
         "boundary": boundary,
         "walls": [
@@ -260,6 +274,7 @@ def measurement_contract_export(measurement: MeasurementModel) -> dict:
         "drainagePoints": drainage_points,
         "pipeEnclosures": pipe_enclosures,
         "waterSupplyPoints": water_supply_points,
+        "measurementPoints": measurement_points,
         "heights": {
             "roomHeight": room_height,
             "groundElevation": measurement.heights.ground_elevation_mm,

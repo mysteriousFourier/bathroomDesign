@@ -1,6 +1,6 @@
 from pathlib import Path
 from backend.app.knowledge_graph import ProductKnowledgeGraph, equipment_rules
-from backend.app.design_chat import PROMPT, QUOTE_TOOL, _safe_model_message, calculate_design_quote, default_product_ids, furniture_quotes, material_quotes, requirement_state, resolve_style, surface_estimate
+from backend.app.design_chat import PROMPT, QUOTE_TOOL, _safe_model_message, calculate_design_quote, default_product_ids, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, requirement_state, resolve_style, surface_estimate
 
 def test_incremental_catalog(tmp_path: Path):
     graph=ProductKnowledgeGraph(tmp_path/"graph.json")
@@ -48,7 +48,8 @@ def test_chat_area_is_never_read_from_user_text():
 def test_prompt_brings_diverted_conversation_back_without_scolding():
     assert "无法获得可靠实时信息" in PROMPT
     assert "missing_fields" in PROMPT
-    assert "只能逐字引用工具返回的材料合计、家具合计和总计" in PROMPT
+    assert "家具组合的最低价" in PROMPT
+    assert "总价区间为材料合计分别加家具最低价、最高价" in PROMPT
 
 def test_prompt_collects_requirements_like_a_human_designer():
     assert "用户自己的词" in PROMPT
@@ -147,3 +148,23 @@ def test_furniture_style_filter_and_model_lookup_contract():
     assert [x["product_id"] for x in result]==["dark","chair"]
     assert result[0]["风格匹配依据"]==["复古"]
     assert result[0]["model_lookup"]["binding_status"]=="awaiting_model_asset"
+
+def test_furniture_combination_price_range_uses_each_required_category():
+    candidates=[
+        {"product_id":"toilet-a","家具名称":"马桶","家具小计":800},
+        {"product_id":"toilet-b","家具名称":"马桶","家具小计":1600},
+        {"product_id":"chair-a","家具名称":"淋浴椅","家具小计":170},
+        {"product_id":"chair-b","家具名称":"淋浴椅","家具小计":390},
+    ]
+    rules={"必须设备":["马桶","淋浴椅"],"不能有的设备":[]}
+    groups=furniture_candidate_groups(candidates,rules)
+    assert groups[0]["candidate_count"]==2
+    assert (groups[0]["min_price"],groups[0]["max_price"])==(800,1600)
+    assert furniture_price_range(groups)=={"min":970,"max":1990}
+
+def test_default_quote_never_preselects_furniture():
+    materials=[{"product_id":"wall","材料名称":"墙板"},{"product_id":"floor","材料名称":"地砖"}]
+    furniture=[{"product_id":"toilet-1","家具名称":"马桶"}]
+    rules={"必须设备":["马桶"],"不能有的设备":[]}
+    assert default_product_ids(materials,furniture,rules)==["wall","floor"]
+    assert "不得传入家具 ID" in QUOTE_TOOL["function"]["parameters"]["properties"]["product_ids"]["description"]

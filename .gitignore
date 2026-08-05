@@ -4,6 +4,7 @@ dist/
 .tmp/
 /tmp/
 .uv-cache/
+.cache/
 .venv/
 __pycache__/
 .pytest_cache/

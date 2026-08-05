@@ -11,6 +11,7 @@ dependencies = [
   "pillow>=11,<12",
   "python-multipart>=0.0.20,<1",
   "pydantic-settings>=2.7,<3",
+  "fastembed>=0.7,<0.8",
 ]
 
 [build-system]

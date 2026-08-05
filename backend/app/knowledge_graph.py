@@ -1,5 +1,5 @@
 from __future__ import annotations
-import csv, hashlib, json, re, zipfile
+import csv, hashlib, json, math, os, re, zipfile
 from io import BytesIO, StringIO
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -32,11 +32,62 @@ def _xlsx(content:bytes)->list[list[str]]:
                 if any(values):rows.append(values)
         return rows
 class ProductKnowledgeGraph:
+    RRF_K=60
+    RRF_WEIGHTS={"bm25":1.0,"vector":1.0,"graph":1.0}
+    _embedding_model=None
+    _embedding_cache={}
     def __init__(self,path:Path):self.path=path
-    def load(self):return json.loads(self.path.read_text("utf-8")) if self.path.is_file() else {"version":1,"products":{}}
+    def load(self):return json.loads(self.path.read_text("utf-8")) if self.path.is_file() else {"version":2,"products":{},"entities":{},"relations":[]}
+    @staticmethod
+    def _terms(text:str):
+        chunks=[x.lower() for x in re.findall(r"[\w\u4e00-\u9fff]+",text) if len(x)>1]
+        return [part for chunk in chunks for part in ([chunk] if len(chunk)<=2 else [chunk,*[chunk[i:i+2] for i in range(len(chunk)-1)]])]
+    @staticmethod
+    def _entity_id(kind:str,value:str):return hashlib.sha256(f"{kind}|{value}".encode()).hexdigest()[:20]
+    @classmethod
+    def _vector_ranking(cls,query:str,products:list[dict])->list[str]:
+        """Optional free local semantic branch; absence/failure degrades to BM25+graph."""
+        model_name=os.getenv("EMBEDDING_MODEL","").strip()
+        if not model_name:return []
+        try:
+            if cls._embedding_model is None:
+                from fastembed import TextEmbedding
+                cls._embedding_model=TextEmbedding(model_name=model_name,cache_dir=os.getenv("EMBEDDING_CACHE_DIR") or None)
+            documents=[" ".join(product["attributes"].values()) for product in products]
+            cache_key=hashlib.sha256((model_name+"\0"+"\0".join(documents)).encode()).hexdigest()
+            if cache_key not in cls._embedding_cache:
+                cls._embedding_cache={cache_key:list(cls._embedding_model.embed(documents))}
+            query_vector=next(iter(cls._embedding_model.query_embed(query)))
+            scores=[(float(query_vector@vector),product["id"]) for vector,product in zip(cls._embedding_cache[cache_key],products)]
+            return [pid for _,pid in sorted(scores,reverse=True)]
+        except Exception:
+            return []
+    def _rebuild_relations(self,graph):
+        """Materialize a small, deterministic property graph from catalog fields."""
+        entities={};relations=[]
+        relation_fields={"材料名称":"CATEGORY","人群":"AUDIENCE","风格":"STYLE","规格型号":"SPEC"}
+        for product in graph["products"].values():
+            if not product.get("active",True):continue
+            entities[product["id"]]={"id":product["id"],"type":"PRODUCT","label":product["attributes"].get("物品名称") or product["attributes"].get("材料名称",product["id"])}
+            for field,kind in relation_fields.items():
+                for value in re.split(r"[、,，/；;\s]+",product["attributes"].get(field,"").strip()):
+                    if not value:continue
+                    eid=self._entity_id(kind,value);entities[eid]={"id":eid,"type":kind,"label":value}
+                    relations.append({"from":product["id"],"type":f"HAS_{kind}","to":eid})
+        graph.update({"version":2,"entities":entities,"relations":relations})
     def import_catalog(self,filename:str,content:bytes):
         rows=_xlsx(content) if filename.lower().endswith(".xlsx") else list(csv.reader(StringIO(content.decode("utf-8-sig")))) if filename.lower().endswith(".csv") else None
         if not rows or len(rows)<2:raise ValueError("仅支持含数据的 .xlsx 或 .csv 产品清单")
+        # The source workbook uses one logical remark for rows 1-9 and another
+        # for rows 10-18.  Excel display/merge artefacts can make the values
+        # appear different, so normalize each group before building records.
+        remark_index=next((i for i,value in enumerate(rows[0]) if value.strip()=="备注"),None)
+        if remark_index is not None:
+            for start,end in ((1,10),(10,19)):
+                canonical=next((row[remark_index].strip() for row in rows[start:end] if len(row)>remark_index and row[remark_index].strip()),"")
+                if canonical:
+                    for row in rows[start:end]:
+                        row.extend([""]*(remark_index+1-len(row)));row[remark_index]=canonical
         headers=[x.strip() or f"字段{i+1}" for i,x in enumerate(rows[0])];graph=self.load();products=graph["products"];seen=set();counts={"created":0,"updated":0,"unchanged":0}
         for row in rows[1:]:
             record={headers[i]:x.strip() for i,x in enumerate(row[:len(headers)]) if x.strip()}
@@ -49,14 +100,47 @@ class ProductKnowledgeGraph:
         deactivated=0
         for pid,product in products.items():
             if pid not in seen and product.get("active",True):product["active"]=False;deactivated+=1
+        self._rebuild_relations(graph)
         self.path.parent.mkdir(parents=True,exist_ok=True);self.path.write_text(json.dumps(graph,ensure_ascii=False,indent=2),"utf-8");return {**counts,"deactivated":deactivated,"total":len(seen)}
     def search(self,query:str,limit:int=12):
-        chunks=[x.lower() for x in re.findall(r"[\w\u4e00-\u9fff]+",query) if len(x)>1]
-        terms={part for chunk in chunks for part in ([chunk] if len(chunk)<=2 else [chunk,*[chunk[i:i+2] for i in range(len(chunk)-1)]])};ranked=[]
-        for product in self.load()["products"].values():
-            values=[value.lower() for value in product["attributes"].values()]
-            text=" ".join(values);score=sum(x in text for x in terms)+4*sum(value in terms for value in values)
-            audience=product["attributes"].get("人群","").lower()
-            if audience and audience in terms:score+=20
-            if score and product.get("active",True):ranked.append((score,product))
-        return [x for _,x in sorted(ranked,key=lambda x:x[0],reverse=True)[:limit]]
+        graph=self.load();products=[p for p in graph["products"].values() if p.get("active",True)];terms=self._terms(query)
+        if not terms:return []
+        docs={p["id"]:self._terms(" ".join(p["attributes"].values())) for p in products};n=max(len(docs),1)
+        df={term:sum(term in set(tokens) for tokens in docs.values()) for term in set(terms)};avgdl=sum(map(len,docs.values()))/n or 1
+        lexical=[]
+        for product in products:
+            tokens=docs[product["id"]];score=0.0
+            for term in terms:
+                tf=tokens.count(term)
+                if tf:score += math.log(1+(n-df[term]+.5)/(df[term]+.5))*(tf*2.2)/(tf+1.2*(.25+.75*len(tokens)/avgdl))
+            values={v.lower() for v in product["attributes"].values()}
+            if any(term in values for term in terms):score+=8
+            if any(term in product["id"].lower() for term in terms):score+=50
+            if score:lexical.append((score,product["id"]))
+        lexical_ids=[pid for _,pid in sorted(lexical,reverse=True)]
+        # Graph branch: match category/audience/style/spec entities and traverse
+        # their incoming HAS_* edges back to products.
+        matching={eid for eid,e in graph.get("entities",{}).items() if e.get("type")!="PRODUCT" and any(t in e.get("label","").lower() for t in terms)}
+        graph_ids=[]
+        for edge in graph.get("relations",[]):
+            if edge["to"] in matching and edge["from"] not in graph_ids:graph_ids.append(edge["from"])
+        # Reciprocal-rank fusion keeps exact lexical matches while adding graph
+        # neighbors; return an auditable retrieval trace with every product.
+        vector_ids=self._vector_ranking(query,products)
+        scores={}
+        for name,ranking in (("bm25",lexical_ids),("vector",vector_ids),("graph",graph_ids)):
+            for rank,pid in enumerate(ranking,1):scores[pid]=scores.get(pid,0)+self.RRF_WEIGHTS[name]/(self.RRF_K+rank)
+        by_id={p["id"]:p for p in products};result=[]
+        for pid in sorted(scores,key=lambda x:scores[x],reverse=True)[:limit]:
+            branches=[name for name,ranking in (("bm25",lexical_ids),("vector",vector_ids),("graph",graph_ids)) if pid in ranking]
+            item=dict(by_id[pid]);item["retrieval"]={"method":"hybrid_rrf","branches":branches,"rrf_k":self.RRF_K,"weights":self.RRF_WEIGHTS,"score":round(scores[pid],6),"source":f"product_catalog:{pid}"};result.append(item)
+        return result
+    def search_constrained(self,query:str,limit:int=12,allowed_categories:set[str]|None=None,forbidden:set[str]|None=None):
+        """Apply hard business constraints after fuzzy retrieval; forbidden wins."""
+        forbidden=forbidden or set();result=[]
+        for product in self.search(query,limit=max(limit*4,24)):
+            category=product["attributes"].get("材料名称","")
+            if category in forbidden or (allowed_categories is not None and category not in allowed_categories):continue
+            result.append(product)
+            if len(result)>=limit:break
+        return result

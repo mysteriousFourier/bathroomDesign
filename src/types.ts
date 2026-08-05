@@ -338,6 +338,7 @@ export interface Health {
 }
 export interface ChatMessage { role:'user'|'assistant'; content:string }
 export interface SurfaceEstimate { source:string; floor_area_sqm:number; wall_gross_area_sqm:number|null; opening_area_sqm:number; wall_net_area_sqm:number|null; waste_rate:number; floor_purchase_sqm:number; wall_purchase_sqm:number|null; floor_layout:string; wall_layout:string; warnings:string[] }
-export interface DesignChatResponse { message:string; surfaces:SurfaceEstimate; equipment:Record<string,string[]>; products:Array<{id:string;attributes:Record<string,string>}> }
+export interface RequirementState { collected:Record<string,string|string[]|null>; missing_fields:string[]; complete:boolean }
+export interface DesignChatResponse { message:string; requirements:RequirementState; surfaces:SurfaceEstimate; equipment:Record<string,string[]>; products:Array<{id:string;attributes:Record<string,string>}> }
 
 export type Selection = { type: 'room' } | { type: 'fixture'; id: string } | { type: 'opening'; id: string } | { type: 'dry_wet_zone'; id: string } | { type: 'plan_line'; id: string } | { type: 'plan_label'; id: string }

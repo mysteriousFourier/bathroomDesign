@@ -65,6 +65,7 @@ class OpeningSpec(BaseModel):
     source: SourceKind = SourceKind.estimated
     confidence: float = Field(default=0.5, ge=0, le=1)
     swing_direction: Literal["left", "right", "inward", "outward", "unknown"] = "unknown"
+    opening_form: Literal["hinged", "sliding", "folding", "pocket", "revolving", "unknown"] = "unknown"
     evidence_ids: list[str] = Field(default_factory=list)
     wall_binding: dict[str, object] | None = None
     line: dict[str, dict[str, int | float]] | None = None
@@ -236,6 +237,8 @@ class VisualEvidence(BaseModel):
     related_to: str = ""
     view_id: str = "full"
     confidence: float = Field(default=0.5, ge=0, le=1)
+    target_id: str | None = None
+    door_form: Literal["hinged", "sliding", "folding", "pocket", "revolving", "unknown"] | None = None
 
     @field_validator("id", mode="before")
     @classmethod
@@ -256,6 +259,8 @@ class VisualEvidence(BaseModel):
 class PlanEvidenceReport(BaseModel):
     rotation_degrees: Literal[0, 90, 180, 270] = 0
     evidence: list[VisualEvidence] = Field(default_factory=list)
+    edge_chain: list[dict[str, object]] = Field(default_factory=list)
+    plan_lines: list[dict[str, object]] = Field(default_factory=list)
     uncertain: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
@@ -694,6 +699,7 @@ class MeasurementOpening(BaseModel):
     sill_mm: int = Field(default=0, ge=0)
     label: str = "门洞"
     swing_direction: Literal["left", "right", "inward", "outward", "unknown"] = "unknown"
+    opening_form: Literal["hinged", "sliding", "folding", "pocket", "revolving", "unknown"] = "unknown"
     source: SourceKind = SourceKind.estimated
     confidence: float = Field(default=0.5, ge=0, le=1)
     status: Literal["verified", "unverified", "provisional"] = "unverified"

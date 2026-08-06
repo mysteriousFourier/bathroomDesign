@@ -22,8 +22,8 @@ export function SolutionList({ spec, active, onOpenModel }: {
   if (errorCount) {
     return (
       <section className="solution-list no-solution" aria-label="方案列表">
-        <div className="solution-title"><span>方案列表</span><strong>无可行方案</strong></div>
-        <p><FileWarning size={15} />当前模型存在错误，三维详情和导出已锁定。请先修正墙体、净高或洞口问题。</p>
+        <div className="solution-title"><span>方案列表</span><strong>三维暂不可用</strong></div>
+        <p><FileWarning size={15} />二维审图仍可继续编辑；修正墙体、净高或洞口问题后，才会解锁三维详情和导出。</p>
       </section>
     )
   }

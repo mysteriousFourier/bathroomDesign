@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, projectPointToWall, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
+import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
 import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -275,6 +275,16 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
               if (/^[DCO]\d+$/i.test(item.label) || ['门洞', '窗洞', '洞口'].includes(item.label)) item.label = nextOpeningLabel(draft, nextKind)
               item.kind = nextKind; item.source = 'user'; item.confidence = 1
             })}><option value="door">门</option><option value="window">窗</option><option value="opening">洞口</option></select></label>
+            {selectedOpening.kind === 'door' && <>
+              <label className="text-field"><span>门型</span><select value={selectedOpening.opening_form ?? 'hinged'} onChange={(event) => edit((draft) => {
+                const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id)
+                if (item) { item.opening_form = event.target.value as NonNullable<typeof item.opening_form>; item.source = 'user'; item.confidence = 1 }
+              })}><option value="hinged">平开门（门扇＋弧线）</option><option value="sliding">推拉门</option><option value="folding">折叠门</option><option value="pocket">口袋门</option><option value="revolving">旋转门</option><option value="unknown">未确认</option></select></label>
+              <label className="text-field"><span>开启方向</span><select value={selectedOpening.swing_direction ?? 'unknown'} onChange={(event) => edit((draft) => {
+                const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id)
+                if (item) { item.swing_direction = event.target.value as NonNullable<typeof item.swing_direction>; item.source = 'user'; item.confidence = 1 }
+              })}><option value="unknown">自动 / 未确认</option><option value="left">左侧合页</option><option value="right">右侧合页</option><option value="inward">向内开</option><option value="outward">向外开</option></select></label>
+            </>}
             <label className="text-field"><span>绑定墙段</span><select value={selectedOpening.wall_index} onChange={(event) => edit((draft) => {
               const item = draft.openings.find((candidate) => candidate.id === selectedOpening.id)
               if (item) setOpeningOnWall(draft, item, Number(event.target.value), item.offset_mm, item.width_mm)
@@ -297,11 +307,21 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
               item.source = 'user'; item.confidence = 1
             })}><option value="pipe_chase">包管线</option><option value="inner_wall">内墙线</option><option value="door_line">门线</option></select></label>
             <label className="text-field"><span>名称</span><input value={selectedPlanLine.label} onChange={(event) => edit((draft) => { const item = draft.plan_lines?.find((candidate) => candidate.id === selectedPlanLine.id); if (item) item.label = event.target.value })} /></label>
-            {selectedPlanLine.points.map((point, index) => <div className="boundary-point-row" key={`${selectedPlanLine.id}-${index}`}>
-              <span className="boundary-point-index">P{index + 1}</span>
-              <NumberField label="X" value={point.x_mm} min={0} onChange={(value) => edit((draft) => { const item = draft.plan_lines?.find((candidate) => candidate.id === selectedPlanLine.id); if (item) item.points[index].x_mm = value })} />
-              <NumberField label="Z" value={point.z_mm} min={0} onChange={(value) => edit((draft) => { const item = draft.plan_lines?.find((candidate) => candidate.id === selectedPlanLine.id); if (item) item.points[index].z_mm = value })} />
-            </div>)}
+            <div className="plan-line-length-summary"><span>总长度</span><strong>{polylineLength(selectedPlanLine.points)} mm</strong><span>{selectedPlanLine.points.length} 个折点</span></div>
+            <div className="plan-line-segments">
+              {selectedPlanLine.points.slice(1).map((_point, index) => <NumberField key={`${selectedPlanLine.id}-length-${index}`} label={`P${index + 1} → P${index + 2} 长度`} value={polylineSegmentLength(selectedPlanLine.points, index)} min={1} step={10} onChange={(value) => edit((draft) => {
+                const item = draft.plan_lines?.find((candidate) => candidate.id === selectedPlanLine.id)
+                if (item) item.points = resizePolylineSegment(item.points, index, value)
+              })} />)}
+            </div>
+            <details className="plan-line-coordinates">
+              <summary>坐标微调</summary>
+              {selectedPlanLine.points.map((point, index) => <div className="boundary-point-row" key={`${selectedPlanLine.id}-${index}`}>
+                <span className="boundary-point-index">P{index + 1}</span>
+                <NumberField label="X" value={point.x_mm} min={0} onChange={(value) => edit((draft) => { const item = draft.plan_lines?.find((candidate) => candidate.id === selectedPlanLine.id); if (item) item.points[index].x_mm = value })} />
+                <NumberField label="Z" value={point.z_mm} min={0} onChange={(value) => edit((draft) => { const item = draft.plan_lines?.find((candidate) => candidate.id === selectedPlanLine.id); if (item) item.points[index].z_mm = value })} />
+              </div>)}
+            </details>
             <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.plan_lines = draft.plan_lines?.filter((item) => item.id !== selectedPlanLine.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除线条</button>
           </div>
         )}

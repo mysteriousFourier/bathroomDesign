@@ -1,17 +1,18 @@
-import { BoxSelect, Check, DoorOpen, Eye, EyeOff, Grid2X2, MousePointer2, PenLine, Plus, ScanText, Trash2 } from 'lucide-react'
+import { BoxSelect, Check, DoorOpen, Eye, EyeOff, Grid2X2, MousePointer2, PenLine, Plus, ScanText, Spline, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { drawableEvidence, observationId, reviewEvidence } from '../evidence'
 import { reconcileBoundaryEdges, solveBoundaryEdges } from '../geometry'
-import { cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureCanBindWall, fixturePointShape, fixturePointUsage, generateDryWetZones, nextOpeningLabel, openingHostLength, rebindOpeningsToImageBoundary, setOpeningOnWall, snapPointToNearestWall, wallLength, wallRunParts } from '../spec'
-import type { Asset, BoundaryEdge, FixtureSpec, ImageBoundaryPoint, OpeningSpec, Point2D, RoomSpec } from '../types'
+import { cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureCanBindWall, fixturePointShape, fixturePointUsage, generateDryWetZones, imagePointToRoom, nextOpeningLabel, openingHostLength, polylineSegmentLength, rebindOpeningsToImageBoundary, resizePolylineSegment, roomPointToImage, setOpeningOnWall, snapPointToNearestWall, wallLength, wallRunParts } from '../spec'
+import type { Asset, BoundaryEdge, FixtureSpec, ImageBoundaryPoint, OpeningSpec, PlanLineKind, Point2D, RoomSpec } from '../types'
 
 const canvasWidth = 1000
 const canvasHeight = 750
-type AnnotationTool = 'edit' | 'add' | 'draw' | 'opening' | 'label' | 'region'
+type AnnotationTool = 'edit' | 'add' | 'draw' | 'opening' | 'line' | 'label' | 'region'
 type CanvasPoint = { x: number; y: number }
 type WallRangeDrag = { wallIndex: number; startRatio: number; endRatio: number }
 type OpeningDrag = { pointerId: number; id: string; wallIndex: number; startRatio: number; endRatio: number; originStartRatio: number; originEndRatio: number; pointerRatio: number; mode: 'move' | 'start' | 'end' }
 type OpeningCreate = { pointerId: number; start: CanvasPoint; current: CanvasPoint }
+const planLineLabels: Record<PlanLineKind, string> = { pipe_chase: '包管线', inner_wall: '内墙线', door_line: '门线（辅助）' }
 
 const toCanvas = (point: ImageBoundaryPoint): CanvasPoint => ({ x: point.x, y: point.y * canvasHeight / 1000 })
 const toImage = (point: CanvasPoint): ImageBoundaryPoint => ({
@@ -137,6 +138,8 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
   const [wallRangeDrag, setWallRangeDrag] = useState<WallRangeDrag | null>(null)
   const [openingDrag, setOpeningDrag] = useState<OpeningDrag | null>(null)
   const [openingCreate, setOpeningCreate] = useState<OpeningCreate | null>(null)
+  const [lineKind, setLineKind] = useState<PlanLineKind | null>(null)
+  const [lineDraft, setLineDraft] = useState<{ id: string | null; points: Point2D[] }>({ id: null, points: [] })
   const openingCreateRef = useRef<OpeningCreate | null>(null)
   const [openingKind, setOpeningKind] = useState<OpeningSpec['kind']>('door')
   const [orthogonal, setOrthogonal] = useState(true)
@@ -165,6 +168,10 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
   const closurePreview = useMemo(() => solveBoundaryEdges(edgeChain), [edgeChain])
   const closureAdjustments = closurePreview?.filter((edge) => edge.closure_adjustment_mm).length ?? 0
   const pointString = canvasPoints.map((point) => `${point.x},${point.y}`).join(' ')
+  const lineDraftCanvasPoints = lineDraft.points.map((point) => {
+    const imagePoint = roomPointToImage(spec, point)
+    return imagePoint ? toCanvas({ ...imagePoint, role: 'other', confidence: 1 }) : null
+  }).filter((point): point is CanvasPoint => !!point)
   const pendingEvidence = useMemo(() => reviewEvidence(spec, plan?.id).length, [plan?.id, spec])
   const evidence = useMemo(() => drawableEvidence(spec, plan?.id), [plan?.id, spec])
   const visibleEvidence = showEvidence
@@ -180,6 +187,14 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     ? activeEvidence.target_id?.match(/^wall:(\d+)@(0(?:\.\d+)?|1(?:\.0+)?):(0(?:\.\d+)?|1(?:\.0+)?)$/)
     : null
   const regionRole = activeEvidence?.semantic_role === 'ceiling_height' ? 'ceiling' : activeEvidence?.semantic_role === 'pipe_box' ? 'pipe_box' : null
+
+  const chooseLineTool = (kind: PlanLineKind | null) => {
+    setLineKind(kind)
+    setLineDraft({ id: null, points: [] })
+    setSelectedPoint(null)
+    setSelectedOpeningId(null)
+    setTool(kind ? 'line' : 'edit')
+  }
 
   useEffect(() => {
     if (regionRole && !activeEvidence?.target_id?.startsWith(`${regionRole}:`)) setTool('region')
@@ -398,6 +413,45 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     setTool('edit')
   }
 
+  const addPlanLinePoint = (location: CanvasPoint) => {
+    if (!lineKind || canvasPoints.length < 3) return
+    const anchor = lineDraftCanvasPoints.at(-1)
+    const aligned = orthogonal && anchor ? orthogonalCanvasPoint(anchor, location) : location
+    const imagePoint = toImage(aligned)
+    const nextPoint = imagePointToRoom(spec, imagePoint.x, imagePoint.y)
+    const nextPoints = [...lineDraft.points, nextPoint]
+    if (!lineDraft.points.length) {
+      setLineDraft({ id: null, points: nextPoints })
+      return
+    }
+    if (lineDraft.id) {
+      const draft = cloneSpec(spec)
+      const line = draft.plan_lines?.find((item) => item.id === lineDraft.id)
+      if (!line) return
+      line.points.push(nextPoint)
+      line.source = 'user'; line.confidence = 1
+      onChange(draft)
+      setLineDraft({ id: lineDraft.id, points: nextPoints })
+      return
+    }
+    const id = `line-${lineKind}-${crypto.randomUUID().slice(0, 8)}`
+    const draft = cloneSpec(spec)
+    ;(draft.plan_lines ??= []).push({ id, kind: lineKind, label: planLineLabels[lineKind], points: nextPoints, source: 'user', confidence: 1 })
+    onChange(draft)
+    setLineDraft({ id, points: nextPoints })
+  }
+
+  const updatePlanLineLength = (segmentIndex: number, value: number) => {
+    if (!lineDraft.id || !Number.isFinite(value) || value <= 0) return
+    const draft = cloneSpec(spec)
+    const line = draft.plan_lines?.find((item) => item.id === lineDraft.id)
+    if (!line) return
+    line.points = resizePolylineSegment(line.points, segmentIndex, value)
+    line.source = 'user'; line.confidence = 1
+    onChange(draft)
+    setLineDraft({ id: lineDraft.id, points: line.points })
+  }
+
   const addPoint = (location: CanvasPoint) => {
     if (tool === 'draw' || points.length < 2) {
       const aligned = orthogonal && canvasPoints.length ? orthogonalCanvasPoint(canvasPoints.at(-1)!, location) : location
@@ -501,6 +555,15 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     <div className="annotation-toolbar">
       <div className="annotation-tools" role="toolbar" aria-label="照片标注工具">
         <button className={tool === 'edit' ? 'active' : ''} onClick={() => setTool('edit')}><MousePointer2 size={15} />选择</button>
+        <label className={`annotation-line-select${tool === 'line' ? ' active' : ''}`} title="在原图上逐点绘制包管线、内墙线或辅助门线">
+          <Spline size={15} />
+          <select aria-label="照片标注线型" value={lineKind ?? ''} onChange={(event) => chooseLineTool(event.target.value ? event.target.value as PlanLineKind : null)}>
+            <option value="">加线条…</option>
+            <option value="pipe_chase">包管线</option>
+            <option value="inner_wall">内墙线</option>
+            <option value="door_line">门线（辅助）</option>
+          </select>
+        </label>
         <button className={tool === 'add' ? 'active' : ''} onClick={() => setTool('add')}><Plus size={15} />加折点</button>
         <button className={tool === 'draw' ? 'active' : ''} onClick={() => { setTool('draw'); setPoints([]); setSelectedPoint(null) }}><PenLine size={15} />重画轮廓</button>
         <button className={tool === 'opening' ? 'active' : ''} onClick={() => setTool('opening')}><DoorOpen size={15} />加门窗</button>
@@ -516,6 +579,11 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
         <button className="button primary compact" title={pendingEvidence ? '请先处理右侧全部待校正项' : pendingDimensions ? '请补全每段墙长' : undefined} disabled={points.length < 3 || pendingEvidence > 0 || pendingDimensions > 0} onClick={() => onConfirm(points, edgeChain)}><Check size={15} />确认标注并生成二维图</button>
       </div>
       <div className="annotation-dimensions">
+        {tool === 'line' && lineDraft.id && lineDraft.points.slice(1).map((_point, index) => <label key={`${lineDraft.id}-length-${index}`} className="plan-line-dimension">
+          <span>L{index + 1}</span>
+          <input type="number" min="1" step="10" inputMode="numeric" value={polylineSegmentLength(lineDraft.points, index)} aria-label={`线段 ${index + 1} 长度（毫米）`} onChange={(event) => updatePlanLineLength(index, Number(event.target.value))} />
+          <small>mm</small>
+        </label>)}
         {dimensionParts.map((part) => <label key={`${part.wall_index}:${part.key}`} data-wall-index={part.wall_index} data-part-kind={part.kind} className={`${part.kind === 'opening' ? 'opening-dimension' : 'wall-dimension'}${part.opening_id === selectedOpeningId ? ' selected' : ''}`}>
           <span>{part.label}</span>
           <input type="number" min="1" step="1" inputMode="numeric" value={part.length_mm || ''} placeholder="mm" aria-label={`${part.label} 实测长度（毫米）`} onFocus={() => { if (part.opening_id) { setSelectedPoint(null); setSelectedOpeningId(part.opening_id) } }} onChange={(event) => updateDimensionPartLength(part.wall_index, part.key, event.target.value)} />
@@ -533,6 +601,10 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
           openingCreateRef.current = draft
           setOpeningCreate(draft)
           event.currentTarget.setPointerCapture(event.pointerId)
+          return
+        }
+        if (tool === 'line') {
+          addPlanLinePoint(location)
           return
         }
         if (tool === 'edit' && activeEvidence?.semantic_role === 'door_size' && canvasPoints.length >= 2) {
@@ -646,6 +718,26 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
       }}>
       <rect width={canvasWidth} height={canvasHeight} className="annotation-background" />
       {plan && <image href={plan.url} x="0" y="0" width={sourceImage.width} height={sourceImage.height} transform={sourceImage.transform} preserveAspectRatio="none" />}
+      <g className="annotation-plan-lines" pointerEvents="none">
+        {(spec.plan_lines ?? []).map((line) => {
+          const linePoints = line.points.map((point) => {
+            const imagePoint = roomPointToImage(spec, point)
+            return imagePoint ? toCanvas({ ...imagePoint, role: 'other', confidence: 1 }) : null
+          }).filter((point): point is CanvasPoint => !!point)
+          if (linePoints.length < 2) return null
+          const pointString = linePoints.map((point) => `${point.x},${point.y}`).join(' ')
+          const labelPoint = linePoints[Math.floor((linePoints.length - 1) / 2)]
+          return <g key={`annotation-line-${line.id}`} className={`annotation-plan-line ${line.kind}`} data-plan-line-id={line.id}>
+            <polyline points={pointString} />
+            {linePoints.map((point, index) => <circle key={`${line.id}-${index}`} cx={point.x} cy={point.y} r="4" />)}
+            <text x={labelPoint.x} y={labelPoint.y - 10}>{line.label || planLineLabels[line.kind]}</text>
+          </g>
+        })}
+        {!lineDraft.id && lineDraftCanvasPoints.length > 0 && <g className={`annotation-plan-line ${lineKind ?? 'inner_wall'} draft`}>
+          <polyline points={lineDraftCanvasPoints.map((point) => `${point.x},${point.y}`).join(' ')} />
+          {lineDraftCanvasPoints.map((point, index) => <circle key={`annotation-line-draft-${index}`} cx={point.x} cy={point.y} r="5" />)}
+        </g>}
+      </g>
       <g className="annotation-evidence-layer">{visibleEvidence.map((item) => {
         const bbox = item.bbox!, id = item.field.slice(4), pending = item.review_required && !item.confirmed
         const bindingActive = id === activeEvidenceId && ['wall_segment', 'wall_thickness', 'door_size', 'door_position', 'ceiling_height', 'pipe_box'].includes(item.semantic_role ?? '')
@@ -782,5 +874,6 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
       })}
       {boxStart && boxEnd && <rect className="annotation-selection" x={Math.min(boxStart.x, boxEnd.x)} y={Math.min(boxStart.y, boxEnd.y)} width={Math.abs(boxEnd.x - boxStart.x)} height={Math.abs(boxEnd.y - boxStart.y)} />}
     </svg>
+    {!plan && <div className="annotation-empty-state"><strong>尚未上传平面图</strong><span>请先在左侧“测量图”中上传图片，照片标注会显示原图。</span></div>}
   </div>
 }

@@ -231,11 +231,18 @@ export default function App() {
       const activePlanId = active?.assets.filter((asset) => asset.role === 'floorplan').at(-1)?.id
       if (active?.id !== requestProjectId || activePlanId !== requestPlanId) return
       applyAnalysis(result)
+      const heightMissing = result.missing.includes('房间净高')
+      const unresolved = result.missing.filter((item) => item !== '房间净高')
+      const firstError = result.spec.issues.find((issue) => issue.severity === 'error')
       showMessage(
         result.sufficient ? 'success' : 'info',
         result.sufficient
           ? '视觉模型已生成照片标注草稿，请先在原图上校正'
-          : `照片标注仍有未绑定项：${result.missing.join('、')}`,
+          : unresolved.length
+            ? `照片标注仍有未绑定项：${unresolved.join('、')}${heightMissing ? '；二维可继续校正，进入三维前请补录净高' : ''}`
+            : heightMissing
+              ? '二维数据可继续编辑；缺少有效净高，进入三维前请补录'
+              : `二维数据已生成，请继续校正：${firstError?.message ?? '存在未完成项'}`,
       )
     } catch (error) {
       try {
@@ -512,7 +519,7 @@ export default function App() {
                   onOpeningAdd={(start, end) => {
                     const next = cloneSpec(spec)
                     const id = `door-${crypto.randomUUID().slice(0, 8)}`
-                    const opening = { id, kind: 'door' as const, wall_index: 0, offset_mm: 0, width_mm: Math.max(1, Math.round(Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm))), height_mm: 2100, sill_mm: 0, label: nextOpeningLabel(next), source: 'user' as const, confidence: 1 }
+                    const opening = { id, kind: 'door' as const, wall_index: 0, offset_mm: 0, width_mm: Math.max(1, Math.round(Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm))), height_mm: 2100, sill_mm: 0, label: nextOpeningLabel(next), opening_form: 'hinged' as const, swing_direction: 'unknown' as const, source: 'user' as const, confidence: 1 }
                     next.openings.push(opening)
                     updateOpeningFromLine(next, opening, { start, end })
                     commitSpec(next)

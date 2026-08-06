@@ -38,6 +38,7 @@ from .models import (
     PlanEvidenceReport,
     PlanExtraction,
     PlanAnnotation,
+    PlanLineSpec,
     Point2D,
     RoomSpec,
     ShapeCorner,
@@ -51,7 +52,9 @@ from .models import (
 from .validation import has_self_intersection, point_in_polygon, polygon_area, validate_spec
 
 
-WALL_CROP_CACHE_VERSION = 12
+# Bump whenever the upload recognition path changes its evidence contract so
+# stale wall-crop/template tokens cannot become measurements on a re-run.
+WALL_CROP_CACHE_VERSION = 14
 MIN_STANDALONE_WALL_CROP_LENGTH = 30
 
 
@@ -81,12 +84,48 @@ TEMPLATE_EVIDENCE_PROMPT = """
 
 草图墙线只表达连接和转折，线条在照片中画得长或短与实际毫米长度无关。每个尺寸数字必须单独输出一条 evidence，bbox 紧贴数字本身，并用 related_to 标明 dimension_chain:top、dimension_chain:bottom、dimension_chain:left、dimension_chain:right 或 dimension_chain:recess。不要把相邻尺寸线上的数字混为同一链。
 
-D1/W1/W2 每个有填写的行输出一条 opening evidence，text 完整写成“编号 CG 数值 CK 数值 CH 数值”，bbox 框住该行。净高、整屋吊顶分别输出 height evidence；米制小数换算成毫米文字，例如“整屋吊顶 2100”。
+D1/W1/W2 每个有填写的行输出一条 opening evidence，text 完整写成“编号 CG 数值 CK 数值 CH 数值”，bbox 框住该行。净高、整屋吊顶分别输出 height evidence；米制小数按图中原文换算成毫米，不提供示例答案。
 
 点位逐个输出 fixture evidence：⊗=地漏、实心点或○=排水、△=给水、□=电点；bbox 只框草图内符号，不得把右侧图例算作点位。
 
 所有 bbox 坐标都相对第一张完整转正图片，使用 0 到 1000。看不清就写入 uncertain，禁止按常识补数。只输出 JSON：
 {"rotation_degrees":0,"evidence":[{"id":"T1","kind":"dimension|height|opening|fixture","text":"原文或规范化字段","bbox":{"x_min":0,"y_min":0,"x_max":1000,"y_max":1000},"orientation":"horizontal|vertical|free","related_to":"dimension_chain:top|opening:D1|overall_ceiling|point","view_id":"full","confidence":0.5}],"uncertain":[]}。
+""".strip()
+
+# The quality-first visual model receives the whole source in one request. The
+# old tile/strip prompts below remain available for replay tooling, but the
+# upload path deliberately avoids them: fixed crop coordinates were tuned to a
+# single sample and caused both excessive calls and missed top-edge readings.
+SINGLE_PASS_PLAN_PROMPT = """
+你是建筑量房图读图员。只读取这一张转正原始照片，不使用 OCR、工具、外部知识或像素比例推算。把图中实际可见的手写字段逐字转成 JSON；看不清或空白必须为 null，并写入 uncertain，禁止按常识补值。
+
+请检查：
+1. 左侧草图外轮廓每一条固定墙边及凹口，门扇和开启线不是墙。按顺时针输出 edge_chain；长度只能来自图中明确手写尺寸，没有直接长度则为 null。
+2. 顶、右、底、左、凹口各尺寸链的总尺寸和所有分段尺寸。总尺寸和分段尺寸都要分别保留。
+3. 右侧高度表的净高、整屋吊顶、局部/梁底。
+4. 右侧门窗洞口表 D1、W1、W2 的 CG、CK、CH；空行保留 null。
+5. 左侧草图内实际门洞，输出编号、形式、所在墙侧、宽度和高度。
+6. 左侧草图内实际点位，排除右下角图例，并尽量给出符号的归一化 bbox。
+7. 识别左侧草图中不属于房间外轮廓的固定内墙、包管/管井线；每条输出其类型和沿完整原图 0 到 1000 归一化坐标的折线点。看不清位置时不要补画。
+
+只返回以下结构的 JSON 对象，不要 Markdown：
+{
+  "edge_chain": [{"direction":"right|down|left|up","length_mm":null,"evidence_text":null}],
+  "dimension_chains": {
+    "top":{"overall_mm":null,"segments_mm":[]},
+    "right":{"overall_mm":null,"segments_mm":[]},
+    "bottom":{"overall_mm":null,"segments_mm":[]},
+    "left":{"overall_mm":null,"segments_mm":[]},
+    "recess":{"overall_mm":null,"segments_mm":[]}
+  },
+  "heights":{"room_height_mm":null,"overall_ceiling_mm":null,"local_beam_mm":null},
+  "opening_rows":[{"code":"D1|W1|W2","CG":null,"CK":null,"CH":null}],
+  "plan_openings":[{"code":null,"form":"hinged|sliding|folding|pocket|revolving|unknown","wall_side":"top|right|bottom|left|unknown","width_mm":null,"height_mm":null}],
+  "fixtures":[{"type":"floor_drain|drain|water|electric|other","position":null,"bbox":null}],
+  "interior_lines":[{"kind":"pipe_chase|inner_wall","label":null,"points":[{"x":null,"y":null}],"confidence":null}],
+  "uncertain":[]
+}
+数值只能抄录图片，不得按经验、默认值或比例推算；四位数末尾的零必须保留。若字段无法确认，保留 null 并说明原因。
 """.strip()
 
 PLAN_REGION_PROMPT = """
@@ -1198,9 +1237,15 @@ def _ocr_room_height_hint(ocr_assist: dict | None) -> int | None:
     if not ocr_assist:
         return None
     for token in ocr_assist.get("tokens") or []:
+        role = str(token.get("semantic_role") or "").lower()
+        related_to = str(token.get("related_to") or "").lower()
         readings = _ocr_readings(token)
         for raw_text in readings:
-            is_room_height = bool(re.search(r"层高|净高|室内高|室内净高", raw_text))
+            is_room_height = (
+                role == "room_height"
+                or related_to in {"room_height", "net_height", "clear_height"}
+                or bool(re.search(r"层高|净高|室内高|室内净高", raw_text))
+            )
             if not is_room_height:
                 continue
             match = re.search(r"\d+(?:[.,]\d+)?", raw_text)
@@ -2573,6 +2618,26 @@ def _merge_segment_edge_chains(primary: list[BoundaryEdge], fallback: list[Bound
     ]
 
 
+def _segment_edge_chain_from_visual_evidence(
+    shape: ShapeTraceResult,
+    ocr_assist: dict,
+) -> list[BoundaryEdge]:
+    """Bind one-pass dimension evidence to the raster wall directions locally."""
+    directions = _shape_directions(shape)
+    if not directions:
+        return []
+    seed = [
+        BoundaryEdge(direction=direction, length_mm=None, role=_edge_role(shape, index), evidence_ids=[], confidence=0.5)
+        for index, direction in enumerate(directions)
+    ]
+    explicit = _explicit_wall_segment_edge_chain(shape, ocr_assist)
+    template_tokens = [token for token in ocr_assist.get("tokens") or [] if token.get("template_visual")]
+    if template_tokens:
+        adjacent = _template_adjacent_dimension_edge_chain(shape, ocr_assist)
+        seed = _merge_segment_edge_chains(adjacent, seed)
+    return _merge_segment_edge_chains(seed, explicit)
+
+
 async def _coordinate_segment_edge_chain(
     client: httpx.AsyncClient,
     endpoint: str,
@@ -2677,7 +2742,7 @@ async def _resolve_segment_edge_chain(
     if template_tokens:
         # Whole-template evidence already contains every visible dimension in
         # one coordinate system. Do not anchor the solver to partial wall-crop
-        # bindings: a local 400/800/55 chain may describe one geometric edge.
+        # bindings: several adjacent local readings may describe one geometric edge.
         seed = [
             BoundaryEdge(direction=edge.direction, length_mm=None, role=edge.role, evidence_ids=[], confidence=0.5)
             for edge in seed
@@ -3222,6 +3287,17 @@ def _prepare_ocr_assist(path: Path, rotation: int, *, fast: bool = False) -> dic
         "wall_crop_model": wall_crop_model,
         "rotation_degrees": rotation,
     }
+
+
+def _discard_legacy_visual_tokens(ocr_assist: dict) -> None:
+    """Keep only local OCR before the single-pass reader supplies fresh vision evidence."""
+    legacy_engines = {"wall-crop-vision", "glm-vision-ocr", "template-vision"}
+    ocr_assist["tokens"] = [
+        token for token in (ocr_assist.get("tokens") or [])
+        if not token.get("template_visual")
+        and not token.get("wall_crop_vision")
+        and str(token.get("engine") or "") not in legacy_engines
+    ]
 
 
 def _image_path_data_url(path: Path, max_size: int = 1800) -> str:
@@ -3949,28 +4025,10 @@ TEMPLATE_TILE_VIEWS = [
     ("r2c3", ImageBBox(x_min=600, y_min=440, x_max=1000, y_max=1000)),
 ]
 
-TEMPLATE_DIMENSION_STRIP_VIEWS = [
-    ("strip-top-total", ImageBBox(x_min=330, y_min=240, x_max=470, y_max=340), "horizontal"),
-    ("strip-top-left", ImageBBox(x_min=160, y_min=285, x_max=325, y_max=395), "horizontal"),
-    ("strip-top-mid", ImageBBox(x_min=320, y_min=280, x_max=450, y_max=420), "horizontal"),
-    ("strip-top-right", ImageBBox(x_min=450, y_min=285, x_max=660, y_max=405), "horizontal"),
-    ("strip-top-full-chain", ImageBBox(x_min=155, y_min=245, x_max=665, y_max=410), "horizontal"),
-    ("strip-recess-left", ImageBBox(x_min=300, y_min=365, x_max=390, y_max=520), "vertical"),
-    ("strip-recess-right", ImageBBox(x_min=400, y_min=365, x_max=485, y_max=520), "vertical"),
-    ("strip-recess-bottom", ImageBBox(x_min=315, y_min=455, x_max=455, y_max=555), "horizontal"),
-    ("strip-recess-full", ImageBBox(x_min=300, y_min=340, x_max=490, y_max=555), "free"),
-    ("strip-left-upper", ImageBBox(x_min=80, y_min=335, x_max=215, y_max=505), "vertical"),
-    ("strip-left-main", ImageBBox(x_min=50, y_min=500, x_max=180, y_max=760), "vertical"),
-    ("strip-left-full-chain", ImageBBox(x_min=50, y_min=330, x_max=215, y_max=770), "vertical"),
-    ("strip-right-main", ImageBBox(x_min=585, y_min=480, x_max=730, y_max=775), "vertical"),
-    ("strip-right-total", ImageBBox(x_min=650, y_min=455, x_max=815, y_max=795), "vertical"),
-    ("strip-right-full-chain", ImageBBox(x_min=585, y_min=330, x_max=730, y_max=775), "vertical"),
-    ("strip-bottom-door", ImageBBox(x_min=35, y_min=800, x_max=325, y_max=930), "horizontal"),
-    ("strip-bottom-main", ImageBBox(x_min=350, y_min=745, x_max=625, y_max=900), "horizontal"),
-    ("strip-bottom-total", ImageBBox(x_min=245, y_min=760, x_max=455, y_max=895), "horizontal"),
-    ("strip-bottom-total-tight", ImageBBox(x_min=285, y_min=775, x_max=405, y_max=845), "horizontal"),
-    ("strip-bottom-full-chain", ImageBBox(x_min=35, y_min=760, x_max=630, y_max=1000), "horizontal"),
-]
+# Fixed sample-specific dimension strips are intentionally disabled. The active
+# reader scans the full image once, while legacy callers may derive wall-local
+# views from the detected shape via `_shape_dimension_strip_views`.
+TEMPLATE_DIMENSION_STRIP_VIEWS: list[tuple[str, ImageBBox, str]] = []
 TEMPLATE_DIMENSION_STRIP_REGIONS = {
     view_id: region for view_id, region, _ in TEMPLATE_DIMENSION_STRIP_VIEWS
 }
@@ -4304,6 +4362,85 @@ def _edge_chain_to_boundary(edges: list[BoundaryEdge]) -> list[Point2D]:
     return [Point2D(x_mm=point.x_mm - min_x, z_mm=point.z_mm - min_z) for point in points[:-1]]
 
 
+def _shape_from_metric_edge_chain(edges: list[BoundaryEdge]) -> ShapeTraceResult | None:
+    boundary = _edge_chain_to_boundary(edges)
+    if len(boundary) < 4:
+        return None
+    min_x = min(point.x_mm for point in boundary)
+    max_x = max(point.x_mm for point in boundary)
+    min_z = min(point.z_mm for point in boundary)
+    max_z = max(point.z_mm for point in boundary)
+    if max_x <= min_x or max_z <= min_z:
+        return None
+    corners = [
+        ShapeCorner(
+            x=round(140 + (point.x_mm - min_x) * 560 / (max_x - min_x)),
+            y=round(240 + (point.z_mm - min_z) * 560 / (max_z - min_z)),
+            role="structure_return" if edges[index].role == "structure_return" else "wall_corner",
+            confidence=min(0.85, edges[index].confidence),
+        )
+        for index, point in enumerate(boundary)
+    ]
+    return ShapeTraceResult(
+        corners=corners,
+        closed=True,
+        uncertain=["房间轮廓由单次视觉返回的逐边尺寸生成；需要人工复核"],
+    )
+
+
+def _materialize_direct_plan_lines(
+    report: PlanEvidenceReport,
+    shape: ShapeTraceResult | None,
+    boundary: list[Point2D],
+) -> list[PlanLineSpec]:
+    if not report.plan_lines or shape is None or len(shape.corners) < 2 or len(boundary) < 3:
+        return []
+    min_px = min(point.x for point in shape.corners)
+    max_px = max(point.x for point in shape.corners)
+    min_py = min(point.y for point in shape.corners)
+    max_py = max(point.y for point in shape.corners)
+    min_x = min(point.x_mm for point in boundary)
+    max_x = max(point.x_mm for point in boundary)
+    min_z = min(point.z_mm for point in boundary)
+    max_z = max(point.z_mm for point in boundary)
+    if max_px <= min_px or max_py <= min_py or max_x <= min_x or max_z <= min_z:
+        return []
+    result: list[PlanLineSpec] = []
+    for index, raw in enumerate(report.plan_lines):
+        kind = str(raw.get("kind") or "")
+        if kind not in {"pipe_chase", "inner_wall"}:
+            continue
+        points: list[Point2D] = []
+        for point in raw.get("points") or []:
+            if not isinstance(point, dict):
+                continue
+            try:
+                image_x = float(point.get("x"))
+                image_y = float(point.get("y"))
+            except (TypeError, ValueError):
+                continue
+            points.append(Point2D(
+                x_mm=round(min_x + (image_x - min_px) * (max_x - min_x) / (max_px - min_px)),
+                z_mm=round(min_z + (image_y - min_py) * (max_z - min_z) / (max_py - min_py)),
+            ))
+        if len(points) < 2:
+            continue
+        try:
+            confidence = min(1.0, max(0.0, float(raw.get("confidence", 0.7) or 0.7)))
+        except (TypeError, ValueError):
+            confidence = 0.7
+        result.append(PlanLineSpec(
+            id=str(raw.get("id") or f"direct-line-{index + 1}"),
+            kind=kind,
+            label=str(raw.get("label") or ("包管线" if kind == "pipe_chase" else "内墙线")),
+            points=points,
+            source=SourceKind.estimated,
+            confidence=confidence,
+            evidence_ids=[str(item) for item in raw.get("evidence_ids", [])],
+        ))
+    return result
+
+
 def _estimated_metric_geometry_from_shape(
     shape: ShapeTraceResult | None,
     ocr_assist: dict | None,
@@ -4417,8 +4554,16 @@ def _edge_opening_range(
     for wall_index, edge in enumerate(edges):
         if edge.length_mm is None or not edge.evidence_ids:
             continue
+        edge_token_ids = list(edge.evidence_ids)
+        # A direct edge reading is the axis total; when segment readings are
+        # also attached, exclude that total from the additive opening chain.
+        if any("segment" in str(tokens.get(item, {}).get("view_id", "")) for item in edge_token_ids):
+            edge_token_ids = [
+                item for item in edge_token_ids
+                if "segment" in str(tokens.get(item, {}).get("view_id", ""))
+            ]
         segments: list[tuple[float, int, str]] = []
-        for evidence_id in edge.evidence_ids:
+        for evidence_id in edge_token_ids:
             token = tokens.get(evidence_id)
             if not token:
                 continue
@@ -4477,9 +4622,41 @@ def _opening_range_from_target(
     return wall_index, offset, []
 
 
+def _door_form_from_text(text: str, value: object = None) -> str:
+    allowed = {"hinged", "sliding", "folding", "pocket", "revolving", "unknown"}
+    normalized = str(value or "").lower()
+    if normalized in allowed:
+        return normalized
+    compact = re.sub(r"\s+", "", text).lower()
+    if any(word in compact for word in ("推拉", "移门", "滑门", "sliding")):
+        return "sliding"
+    if any(word in compact for word in ("折叠", "folding")):
+        return "folding"
+    if any(word in compact for word in ("口袋门", "暗藏门", "pocket")):
+        return "pocket"
+    if any(word in compact for word in ("旋转门", "revolving")):
+        return "revolving"
+    if any(word in compact for word in ("平开", "内开", "外开", "单扇", "双扇", "子母", "hinged")):
+        return "hinged"
+    return "unknown"
+
+
+def _door_swing_from_text(text: str) -> str:
+    compact = re.sub(r"\s+", "", text).lower()
+    if "内开" in compact or "inward" in compact:
+        return "inward"
+    if "外开" in compact or "outward" in compact:
+        return "outward"
+    if "左开" in compact:
+        return "left"
+    if "右开" in compact:
+        return "right"
+    return "unknown"
+
+
 def _opening_specs_from_tokens(ocr_assist: dict | None, edges: list[BoundaryEdge]) -> list[OpeningSpec]:
     tokens = {str(token.get("id", "")): token for token in (ocr_assist or {}).get("tokens", [])}
-    candidates: list[tuple[float, str, int, int, int, str, tuple[int, int, list[str]] | None]] = []
+    candidates: list[tuple[float, str, int, int, int, str, str, str, tuple[int, int, list[str]] | None]] = []
     for token_id, token in tokens.items():
         for reading in _ocr_readings(token):
             row = _coded_opening_row(reading)
@@ -4490,14 +4667,16 @@ def _opening_specs_from_tokens(ocr_assist: dict | None, edges: list[BoundaryEdge
             if chain is None:
                 chain = _opening_range_from_target(token.get("target_id"), width_mm, edges)
             score = float(token.get("confidence", 0.5)) + (1 if chain else 0)
-            candidates.append((score, code, sill_mm, width_mm, height_mm, token_id, chain))
-    selected: dict[str, tuple[float, str, int, int, int, str, tuple[int, int, list[str]] | None]] = {}
+            door_form = _door_form_from_text(reading, token.get("door_form")) if code.startswith("D") else "unknown"
+            swing_direction = _door_swing_from_text(reading) if code.startswith("D") else "unknown"
+            candidates.append((score, code, sill_mm, width_mm, height_mm, token_id, door_form, swing_direction, chain))
+    selected: dict[str, tuple[float, str, int, int, int, str, str, str, tuple[int, int, list[str]] | None]] = {}
     for candidate in candidates:
         code = candidate[1]
         if code not in selected or candidate[0] > selected[code][0]:
             selected[code] = candidate
     openings: list[OpeningSpec] = []
-    for _, code, sill_mm, width_mm, height_mm, token_id, chain in selected.values():
+    for _, code, sill_mm, width_mm, height_mm, token_id, door_form, swing_direction, chain in selected.values():
         if chain is None:
             continue
         wall_index, offset_mm, chain_ids = chain
@@ -4513,6 +4692,8 @@ def _opening_specs_from_tokens(ocr_assist: dict | None, edges: list[BoundaryEdge
             label=code,
             source=SourceKind.derived,
             confidence=min(0.95, selected[code][0] / 2),
+            opening_form=door_form,
+            swing_direction=swing_direction,
             evidence_ids=list(dict.fromkeys([token_id, *chain_ids])),
         ))
     return openings or _opening_specs_from_dimension_chain_tokens(ocr_assist, edges)
@@ -4581,6 +4762,8 @@ def _opening_specs_from_dimension_chain_tokens(
             label=code,
             source=SourceKind.estimated,
             confidence=min(0.75, float(token.get("confidence", 0.5)) * (0.55 if width_source == "dimension_chain" else 0.7) + 0.25),
+            opening_form=_door_form_from_text(str(token.get("raw_text", "")), token.get("door_form")) if code.startswith("D") else "unknown",
+            swing_direction=_door_swing_from_text(str(token.get("raw_text", ""))) if code.startswith("D") else "unknown",
             evidence_ids=list(dict.fromkeys([token_id, *evidence_ids])),
         ))
     return candidates
@@ -4780,7 +4963,7 @@ async def _collect_template_evidence(
                 "不要因为户型线条看起来长短去估计任何数值，只能输出图中真实可见的数字。"
                 "四位尺寸末尾的 0 必须保留，不要把清晰的四位数字简写成三位。"
                 "如果后面提供了旋转阅读图，它只帮助读竖排文字，bbox 仍必须回填到第一张未旋转尺寸带坐标。"
-                "只输出 JSON：{\"rotation_degrees\":0,\"evidence\":[{\"id\":\"S1\",\"kind\":\"dimension\",\"text\":\"800\","
+                "只输出 JSON：{\"rotation_degrees\":0,\"evidence\":[{\"id\":\"S1\",\"kind\":\"dimension\",\"text\":\"原图数字\","
                 "\"bbox\":{\"x_min\":0,\"y_min\":0,\"x_max\":1000,\"y_max\":1000},\"orientation\":\"horizontal\","
                 "\"related_to\":\"dimension_chain:bottom\",\"view_id\":\"strip\",\"confidence\":0.5}],\"uncertain\":[]}。"
             )
@@ -4907,18 +5090,436 @@ bbox 框住整行；bbox 使用完整转正原图 0 到 1000 坐标。
     return rows[:6]
 
 
+def _direct_mm(value: object, *, allow_zero: bool = False) -> int | None:
+    if value in (None, "") or isinstance(value, bool):
+        return None
+    if allow_zero and re.fullmatch(r"\s*0(?:[.,]0+)?\s*(?:mm|毫米)?\s*", str(value), flags=re.IGNORECASE):
+        return 0
+    try:
+        if isinstance(value, (int, float)):
+            number = float(value)
+            result = round(number * 1000) if not number.is_integer() and number < 20 else round(number)
+        else:
+            normalized = str(value).strip().replace(",", ".")
+            number = float(normalized)
+            result = round(number * 1000) if "." in normalized and number < 20 else round(number)
+    except (TypeError, ValueError):
+        numbers = _ocr_numbers(str(value))
+        return numbers[0] if numbers else None
+    if result < 0 or (result == 0 and not allow_zero):
+        return None
+    return result
+
+
+def _direct_side_bbox(side: str, index: int = 0, count: int = 1) -> ImageBBox:
+    count = max(1, count)
+    fraction = (index + 0.5) / count
+    if side in {"top", "bottom"}:
+        center_x = round(170 + fraction * 500)
+        center_y = 285 if side == "top" else 815
+        return ImageBBox(x_min=center_x - 35, y_min=center_y - 18, x_max=center_x + 35, y_max=center_y + 18)
+    if side in {"left", "right"}:
+        center_x = 135 if side == "left" else 690
+        center_y = round(300 + fraction * 470)
+        return ImageBBox(x_min=center_x - 18, y_min=center_y - 35, x_max=center_x + 18, y_max=center_y + 35)
+    center_x = round(330 + fraction * 170)
+    return ImageBBox(x_min=center_x - 32, y_min=390, x_max=center_x + 32, y_max=430)
+
+
+def _direct_fixture_bbox(raw_bbox: object, position: object, index: int) -> ImageBBox:
+    try:
+        if isinstance(raw_bbox, dict):
+            return ImageBBox.model_validate(raw_bbox)
+    except (ValidationError, TypeError, ValueError):
+        pass
+    text = str(position or "").lower()
+    center_x = 500
+    center_y = 560 + min(index, 4) * 35
+    if "left" in text or "左" in text:
+        center_x = 260
+    elif "right" in text or "右" in text:
+        center_x = 560
+    if "top" in text or "上" in text:
+        center_y = 390
+    elif "bottom" in text or "下" in text:
+        center_y = 700
+    return ImageBBox(x_min=center_x - 12, y_min=center_y - 12, x_max=center_x + 12, y_max=center_y + 12)
+
+
+def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[BoundaryEdge], list[str]]:
+    """Convert the model's direct field response into traceable visual evidence."""
+    evidence: list[VisualEvidence] = []
+    edges: list[BoundaryEdge] = []
+    raw_edges = payload.get("edge_chain")
+    side_for_direction = {"right": "top", "down": "right", "left": "bottom", "up": "left"}
+    edge_indexes_by_side: dict[str, list[int]] = {side: [] for side in ("top", "right", "bottom", "left")}
+    if isinstance(raw_edges, list):
+        for index, raw in enumerate(raw_edges):
+            if not isinstance(raw, dict):
+                continue
+            direction = str(raw.get("direction") or "").lower()
+            if direction not in side_for_direction:
+                continue
+            side = side_for_direction[direction]
+            edge_indexes_by_side[side].append(len(edges))
+            length_mm = _direct_mm(raw.get("length_mm"))
+            try:
+                confidence = min(1.0, max(0.0, float(raw.get("confidence", 0.88) or 0.88)))
+            except (TypeError, ValueError):
+                confidence = 0.88
+            evidence_ids: list[str] = []
+            if length_mm is not None:
+                evidence_id = f"direct-edge-{len(edges) + 1}"
+                evidence_ids = [evidence_id]
+                evidence.append(VisualEvidence(
+                    id=evidence_id,
+                    kind="dimension",
+                    text=str(raw.get("evidence_text") or length_mm),
+                    bbox=_direct_side_bbox(side, index, len(raw_edges)),
+                    orientation="horizontal" if direction in {"right", "left"} else "vertical",
+                    related_to=f"dimension_chain:{side}",
+                    view_id=f"direct-edge-{side}",
+                    confidence=confidence,
+                    target_id=f"wall:{len(edges)}@0:1",
+                ))
+            edges.append(BoundaryEdge(
+                direction=direction,
+                length_mm=length_mm,
+                evidence_ids=evidence_ids,
+                confidence=confidence,
+            ))
+    if len(edges) < 4:
+        edges = []
+
+    raw_chains = payload.get("dimension_chains")
+    if isinstance(raw_chains, dict):
+        for side in ("top", "right", "bottom", "left", "recess"):
+            raw_chain = raw_chains.get(side)
+            if not isinstance(raw_chain, dict):
+                continue
+            values: list[tuple[str, int, object]] = []
+            overall = _direct_mm(raw_chain.get("overall_mm"))
+            if overall is not None:
+                values.append(("overall", overall, raw_chain.get("overall_bbox")))
+            raw_segments = raw_chain.get("segments_mm") or raw_chain.get("segments") or []
+            if isinstance(raw_segments, list):
+                for raw_segment in raw_segments:
+                    raw_value = raw_segment.get("value_mm") if isinstance(raw_segment, dict) else raw_segment
+                    segment = _direct_mm(raw_value)
+                    if segment is not None:
+                        values.append(("segment", segment, raw_segment.get("bbox") if isinstance(raw_segment, dict) else None))
+            for index, (scope, value, raw_bbox) in enumerate(values):
+                try:
+                    bbox = ImageBBox.model_validate(raw_bbox) if isinstance(raw_bbox, dict) else _direct_side_bbox(side, index, len(values))
+                except (ValidationError, TypeError, ValueError):
+                    bbox = _direct_side_bbox(side, index, len(values))
+                evidence.append(VisualEvidence(
+                    id=f"direct-{side}-{scope}-{index + 1}",
+                    kind="dimension",
+                    text=str(value),
+                    bbox=bbox,
+                    orientation="horizontal" if side in {"top", "bottom"} else "vertical" if side in {"left", "right"} else "free",
+                    related_to=f"dimension_chain:{side}",
+                    view_id=f"direct-{side}-{scope}",
+                    confidence=0.9,
+                ))
+                if scope == "segment" and side in edge_indexes_by_side and edges:
+                    for edge_index in edge_indexes_by_side[side]:
+                        if edge_index < len(edges):
+                            edges[edge_index].evidence_ids.append(f"direct-{side}-{scope}-{index + 1}")
+                            break
+
+    raw_heights = payload.get("heights")
+    height_fields = {
+        "room_height_mm": ("净高", "room_height"),
+        "overall_ceiling_mm": ("整屋吊顶", "overall_ceiling"),
+        "local_beam_mm": ("局部梁底", "local_beam"),
+    }
+    if isinstance(raw_heights, dict):
+        for index, (field, (label, relation)) in enumerate(height_fields.items()):
+            value = _direct_mm(raw_heights.get(field))
+            if value is None:
+                continue
+            evidence.append(VisualEvidence(
+                id=f"direct-height-{field}",
+                kind="height",
+                text=f"{label} {value}",
+                bbox=ImageBBox(x_min=790, y_min=360 + index * 45, x_max=930, y_max=395 + index * 45),
+                orientation="horizontal",
+                related_to=relation,
+                view_id="direct-height-table",
+                confidence=0.92,
+            ))
+
+    raw_plan_openings = payload.get("plan_openings")
+    plan_openings = {
+        str(item.get("code") or "").upper(): item
+        for item in raw_plan_openings
+        if isinstance(item, dict) and item.get("code")
+    } if isinstance(raw_plan_openings, list) else {}
+    raw_rows = payload.get("opening_rows")
+    row_codes: set[str] = set()
+    if isinstance(raw_rows, list):
+        for index, raw in enumerate(raw_rows):
+            if not isinstance(raw, dict):
+                continue
+            code = str(raw.get("code") or "").upper()
+            if not re.fullmatch(r"[DW]\d+", code):
+                continue
+            sill = _direct_mm(raw.get("CG", raw.get("cg")), allow_zero=True)
+            width = _direct_mm(raw.get("CK", raw.get("ck")))
+            height = _direct_mm(raw.get("CH", raw.get("ch")))
+            if sill is None and width is None and height is None:
+                continue
+            parts = [code]
+            for label, value in (("CG", sill), ("CK", width), ("CH", height)):
+                if value is not None:
+                    parts.extend([label, str(value)])
+            if sill is not None and width is not None and height is not None:
+                row_codes.add(code)
+            plan_opening = plan_openings.get(code, {})
+            side = str(plan_opening.get("wall_side") or "unknown").lower()
+            target_id = None
+            if side in edge_indexes_by_side and edge_indexes_by_side[side]:
+                target_id = f"wall:{edge_indexes_by_side[side][0]}@0.5"
+            form = _door_form_from_text(" ".join(parts), plan_opening.get("form"))
+            evidence.append(VisualEvidence(
+                id=f"direct-opening-row-{code.lower()}",
+                kind="opening",
+                text=" ".join(parts),
+                bbox=ImageBBox(x_min=760, y_min=135 + index * 48, x_max=970, y_max=172 + index * 48),
+                orientation="horizontal",
+                related_to=f"opening:{code}:{side}",
+                view_id="direct-opening-table",
+                confidence=0.92,
+                target_id=target_id,
+                door_form=form,
+            ))
+    for index, (code, raw) in enumerate(plan_openings.items()):
+        if code in row_codes:
+            continue
+        width = _direct_mm(raw.get("width_mm"))
+        height = _direct_mm(raw.get("height_mm"))
+        form = _door_form_from_text(code, raw.get("form"))
+        side = str(raw.get("wall_side") or "unknown").lower()
+        target_id = None
+        if side in edge_indexes_by_side and edge_indexes_by_side[side]:
+            target_id = f"wall:{edge_indexes_by_side[side][0]}@0.5"
+        text = " ".join(str(item) for item in (code, form, width, height) if item not in (None, ""))
+        evidence.append(VisualEvidence(
+            id=f"direct-plan-opening-{index + 1}",
+            kind="opening",
+            text=text,
+            bbox=_direct_side_bbox(side),
+            orientation="horizontal" if side in {"top", "bottom"} else "vertical" if side in {"left", "right"} else "free",
+            related_to=f"opening:{code}:{side}",
+            view_id="direct-plan-opening",
+            confidence=0.82,
+            target_id=target_id,
+            door_form=form,
+        ))
+
+    raw_fixtures = payload.get("fixtures")
+    if isinstance(raw_fixtures, list):
+        for index, raw in enumerate(raw_fixtures):
+            if not isinstance(raw, dict):
+                continue
+            fixture_type = str(raw.get("type") or raw.get("kind") or "other")
+            position = raw.get("position")
+            try:
+                confidence = min(1.0, max(0.0, float(raw.get("confidence", 0.7) or 0.7)))
+            except (TypeError, ValueError):
+                confidence = 0.7
+            evidence.append(VisualEvidence(
+                id=f"direct-fixture-{index + 1}",
+                kind="fixture",
+                text=fixture_type,
+                bbox=_direct_fixture_bbox(raw.get("bbox"), position, index),
+                orientation="free",
+                related_to=f"point:{position or 'unknown'}",
+                view_id="direct-plan-fixture",
+                confidence=confidence,
+            ))
+
+    uncertain = payload.get("uncertain")
+    if uncertain in (None, "", {}):
+        uncertain_items: list[str] = []
+    elif isinstance(uncertain, list):
+        uncertain_items = [str(item) for item in uncertain]
+    else:
+        uncertain_items = [str(uncertain)]
+    return evidence, edges, uncertain_items
+
+
+def _direct_plan_lines(payload: dict) -> list[dict[str, object]]:
+    raw_lines = payload.get("interior_lines") or payload.get("plan_lines") or []
+    if not isinstance(raw_lines, list):
+        return []
+    lines: list[dict[str, object]] = []
+    kind_aliases = {"包管": "pipe_chase", "管井": "pipe_chase", "内墙": "inner_wall", "隔墙": "inner_wall"}
+    for index, raw in enumerate(raw_lines):
+        if not isinstance(raw, dict):
+            continue
+        kind = kind_aliases.get(str(raw.get("kind") or raw.get("type") or "").strip(), str(raw.get("kind") or raw.get("type") or ""))
+        if kind not in {"pipe_chase", "inner_wall"}:
+            continue
+        points = raw.get("points") or raw.get("line_points") or []
+        if not isinstance(points, list) or len(points) < 2:
+            continue
+        normalized_points: list[dict[str, int]] = []
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            try:
+                if point.get("x_mm") is not None and point.get("z_mm") is not None:
+                    x = round(float(point["x_mm"]))
+                    z = round(float(point["z_mm"]))
+                else:
+                    x = round(float(point.get("x")))
+                    z = round(float(point.get("y")))
+            except (TypeError, ValueError):
+                continue
+            if 0 <= x <= 1000 and 0 <= z <= 1000:
+                normalized_points.append({"x": x, "y": z})
+        if len(normalized_points) < 2:
+            continue
+        try:
+            confidence = min(1.0, max(0.0, float(raw.get("confidence", 0.7) or 0.7)))
+        except (TypeError, ValueError):
+            confidence = 0.7
+        lines.append({
+            "id": str(raw.get("id") or f"direct-line-{index + 1}"),
+            "kind": kind,
+            "label": str(raw.get("label") or ("包管线" if kind == "pipe_chase" else "内墙线")),
+            "points": normalized_points,
+            "confidence": confidence,
+            "evidence_ids": [str(item) for item in raw.get("evidence_ids", [])] if isinstance(raw.get("evidence_ids"), list) else [],
+        })
+    return lines
+
+
+async def _recognize_plan_single_pass(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    headers: dict[str, str],
+    path: Path,
+    rotation: int,
+    candidates: list[TopologyCandidate],
+    trace_ids: list[str],
+) -> tuple[TopologyCandidateSelection, PlanEvidenceReport]:
+    """Read the plan once with the configured quality-first visual model.
+
+    The response deliberately combines topology choice and visual evidence. A
+    single full-image context is more reliable for top-edge numbers and door
+    forms than a collection of fixed crops, and it makes the request budget
+    explicit for callers and tests.
+    """
+    model = settings.read_model
+    if not model:
+        raise AIConfigurationError("尚未配置 READ_MODEL")
+    oriented = _oriented_image(path, rotation, trim_document=True).convert("RGB")
+    content: list[dict] = [
+        {"type": "text", "text": f"请直接读取这张转正原始量房照片（顺时针旋转 {rotation} 度）。"},
+        {"type": "image_url", "image_url": {"url": _image_data_url(oriented, max_size=2048), "detail": "high"}},
+    ]
+    response = await _request_content(
+        client,
+        endpoint,
+        headers,
+        [
+            {"role": "system", "content": SINGLE_PASS_PLAN_PROMPT},
+            {"role": "user", "content": content},
+        ],
+        model,
+        json_object=True,
+        stage="plan-single-pass",
+        extra_payload={"max_tokens": 4096},
+        trace_ids=trace_ids,
+        max_retries=0,
+    )
+    parsed = _extract_json(response)
+    direct_evidence, direct_edges, direct_uncertain = _direct_plan_evidence(parsed)
+    direct_plan_lines = _direct_plan_lines(parsed)
+    raw_evidence = parsed.get("evidence", [])
+    valid_evidence: list[VisualEvidence] = list(direct_evidence)
+    invalid_evidence = 0
+    if isinstance(raw_evidence, list):
+        for item in raw_evidence:
+            try:
+                if isinstance(item, dict):
+                    normalized_item = dict(item)
+                    kind_aliases = {
+                        "尺寸": "dimension", "长度": "dimension", "高度": "height",
+                        "门": "opening", "门洞": "opening", "门窗": "opening",
+                        "点位": "fixture", "设施": "fixture", "文字": "label",
+                    }
+                    kind = str(normalized_item.get("kind", "")).strip()
+                    normalized_item["kind"] = kind_aliases.get(kind, kind)
+                    orientation_aliases = {"横向": "horizontal", "竖向": "vertical", "纵向": "vertical"}
+                    orientation = str(normalized_item.get("orientation", "free")).strip()
+                    normalized_item["orientation"] = orientation_aliases.get(orientation, orientation)
+                    if "door_form" in normalized_item:
+                        normalized_item["door_form"] = _door_form_from_text(
+                            str(normalized_item.get("text", "")), normalized_item.get("door_form"),
+                        )
+                    valid_evidence.append(VisualEvidence.model_validate(normalized_item))
+                else:
+                    valid_evidence.append(VisualEvidence.model_validate(item))
+            except (ValidationError, TypeError, ValueError):
+                invalid_evidence += 1
+    uncertain: list[str] = direct_uncertain
+    if invalid_evidence:
+        uncertain = [
+            *(uncertain if isinstance(uncertain, list) else [uncertain]),
+            f"单次视觉识别丢弃 {invalid_evidence} 条格式无效证据；请人工复核",
+        ]
+    report = PlanEvidenceReport(
+        rotation_degrees=rotation,
+        evidence=valid_evidence,
+        edge_chain=[edge.model_dump(mode="json") for edge in direct_edges],
+        plan_lines=direct_plan_lines,
+        uncertain=uncertain,
+    )
+    if not report.evidence:
+        raise AIResponseError("单次视觉识别未返回任何可用图像证据")
+    selection = TopologyCandidateSelection.model_validate({
+        "selected_id": parsed.get("selected_id"),
+        "accepted": parsed.get("accepted", False),
+        "confidence": parsed.get("confidence", 0),
+        "missing_features": parsed.get("missing_features", []),
+    })
+    valid_ids = {candidate.id for candidate in candidates}
+    if selection.accepted and selection.selected_id not in valid_ids:
+        selection = TopologyCandidateSelection(
+            accepted=False,
+            confidence=selection.confidence,
+            missing_features=[*selection.missing_features, "模型返回了不存在的候选 ID"],
+        )
+    if not selection.accepted:
+        selection.selected_id = None
+    report.rotation_degrees = rotation
+    return selection, report
+
+
 def _ocr_ceiling_height_hint(ocr_assist: dict | None) -> tuple[int, str, float] | None:
     if not ocr_assist:
         return None
     candidates: list[tuple[int, str, float]] = []
     for token in ocr_assist.get("tokens") or []:
+        role = str(token.get("semantic_role") or "").lower()
+        related_to = str(token.get("related_to") or "").lower()
         for raw_text in _ocr_readings(token):
-            if "吊顶" not in raw_text:
+            is_ceiling = (
+                role == "ceiling_height"
+                or related_to in {"overall_ceiling", "ceiling_height"}
+                or "吊顶" in raw_text
+            )
+            if not is_ceiling:
                 continue
             overall = (
                 "整屋" in raw_text
                 or _ocr_token_is_central(token)
-                or str(token.get("related_to", "")).lower() == "overall_ceiling"
+                or related_to == "overall_ceiling"
             )
             if not overall:
                 continue
@@ -4940,6 +5541,16 @@ def _merge_template_evidence(ocr_assist: dict, report: PlanEvidenceReport | None
     tokens[:] = [token for token in tokens if not token.get("template_visual")]
     existing_ids = {str(token.get("id")) for token in tokens}
     point_markers: list[VisualEvidence] = []
+    opening_targets: dict[str, tuple[str, str]] = {}
+    for item in report.evidence:
+        if not item.target_id:
+            continue
+        match = re.search(r"\b([DW]\d+)\b", f"{item.text} {item.related_to}", flags=re.IGNORECASE)
+        if match:
+            opening_targets[match.group(1).upper()] = (
+                item.target_id,
+                _door_form_from_text(item.text, item.door_form),
+            )
     for index, item in enumerate(report.evidence, start=1):
         if item.kind == "fixture":
             center_x = (item.bbox.x_min + item.bbox.x_max) / 2
@@ -4960,6 +5571,12 @@ def _merge_template_evidence(ocr_assist: dict, report: PlanEvidenceReport | None
             role = "wall_segment"
         else:
             role = "other"
+        code_match = re.search(r"\b([DW]\d+)\b", f"{item.text} {item.related_to}", flags=re.IGNORECASE)
+        target_id = item.target_id
+        door_form = _door_form_from_text(item.text, item.door_form)
+        if code_match and not target_id:
+            target_id, linked_form = opening_targets.get(code_match.group(1).upper(), (None, door_form))
+            door_form = linked_form
         tokens.append({
             "id": token_id,
             "raw_text": item.text,
@@ -4969,10 +5586,12 @@ def _merge_template_evidence(ocr_assist: dict, report: PlanEvidenceReport | None
             "confidence": item.confidence,
             "engine": "template-vision",
             "template_visual": True,
+            "source_evidence_id": item.id,
             "view_id": item.view_id,
             "bbox_quality": _template_bbox_quality(item.view_id, item.bbox),
             "semantic_role": role,
-            "target_id": None,
+            "target_id": target_id,
+            "door_form": door_form,
             "review_required": bool(role == "door_size" or item.confidence < 0.85),
             "image_hash": ocr_assist.get("image_hash", ""),
             "related_to": item.related_to,
@@ -4988,6 +5607,29 @@ def _merge_point_markers(*groups: list[VisualEvidence]) -> list[VisualEvidence]:
             continue
         merged.append(marker)
     return merged[:16]
+
+
+def _direct_edge_chain_from_report(
+    report: PlanEvidenceReport,
+    ocr_assist: dict,
+) -> list[BoundaryEdge]:
+    source_to_token = {
+        str(token.get("source_evidence_id")): str(token.get("id"))
+        for token in ocr_assist.get("tokens") or []
+        if token.get("source_evidence_id") and token.get("id")
+    }
+    edges: list[BoundaryEdge] = []
+    for raw in report.edge_chain:
+        try:
+            edge = BoundaryEdge.model_validate(raw)
+        except (ValidationError, TypeError, ValueError):
+            return []
+        edge.evidence_ids = [
+            source_to_token.get(evidence_id, evidence_id)
+            for evidence_id in edge.evidence_ids
+        ]
+        edges.append(edge)
+    return edges if len(edges) >= 4 else []
 
 
 async def _detect_point_markers(
@@ -6526,95 +7168,52 @@ async def analyze_floorplan_fast(
     asset_id: str | None = None,
     rotation_degrees: int | None = None,
 ) -> RoomSpec:
-    """Build pixel topology first, then recognize and bind text around each wall."""
+    """Recognize the full plan once, then bind evidence with local code."""
+    if not settings.ai_configured:
+        raise AIConfigurationError("尚未配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 READ_MODEL")
     rotation = rotation_degrees if rotation_degrees is not None else _preferred_plan_rotation(path)
     candidates = _raster_topology_candidates(path, rotation, fast=True)
     shape: ShapeTraceResult | None = None
     trace_ids: list[str] = []
-    ocr_assist: dict
+    ocr_assist: dict = {"tokens": [], "rotation_degrees": rotation, "image_hash": ""}
     edge_chain: list[BoundaryEdge] = []
     point_markers: list[VisualEvidence] = []
-    fast_models = _vision_recognition_models()
-    recognition_models = _vision_recognition_models()
-    if settings.ai_configured:
-        endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
-        headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
-        async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
-            # Noisy contours often add door-leaf or perspective stair steps.
-            # Keep them available to the visual audit, which can remove false
-            # turns; filtering them out here can discard the closest wall trace.
-            selectable_candidates = [candidate for candidate in candidates if 4 <= len(candidate.corners) <= 24]
-            selected_shape: ShapeTraceResult | None = None
-            if selectable_candidates:
-                try:
-                    selected_shape = await _select_raster_topology(
-                        client, endpoint, headers, path, rotation, selectable_candidates, trace_ids, fast_models,
-                    )
-                except AIAuthenticationError:
-                    raise
-                except (AIResponseError, ValidationError):
-                    selected_shape = None
-            if selected_shape is None and selectable_candidates:
-                for model in fast_models:
-                    try:
-                        traced = await _resolve_cropped_shape_trace(
-                            client, endpoint, headers, path, rotation, selectable_candidates, model, trace_ids,
-                        )
-                        collapsed_all_candidates = (
-                            len(traced.corners) == 4
-                            and all(len(candidate.corners) > 4 for candidate in selectable_candidates)
-                        )
-                        if (
-                            traced.closed
-                            and 4 <= len(traced.corners) <= 16
-                            and _shape_directions(traced)
-                            and not collapsed_all_candidates
-                        ):
-                            selected_shape = traced
-                            break
-                    except AIAuthenticationError:
-                        raise
-                    except (AIResponseError, ValidationError, TypeError, ValueError):
-                        continue
-            if selected_shape is not None:
-                for model in fast_models:
-                    try:
-                        audited = await _audit_shape_trace(
-                            client, endpoint, headers, path, rotation, selected_shape, model, trace_ids,
-                        )
-                        collapsed_to_rectangle = len(selected_shape.corners) > 4 and len(audited.corners) == 4
-                        if audited.closed and not collapsed_to_rectangle:
-                            shape = audited
-                            break
-                    except AIAuthenticationError:
-                        raise
-                    except (AIResponseError, ValidationError):
-                        continue
-                if shape is None:
-                    shape = selected_shape.model_copy(deep=True)
-                    shape.uncertain.append("逐点视觉复核未返回可用结果，保留已通过候选选择的闭合轮廓")
-            # Full-page OCR supplies candidates. Uniform visual tiles verify and
-            # complete them; wall-centred crops amplify the printed grid and are
-            # intentionally excluded from the recognition path.
-            ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
-            template_report = await _collect_template_evidence(
-                client, endpoint, headers, path, rotation, trace_ids, shape,
+    endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
+    headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
+        # The single request is the only visual/OCR-like recognition step. The
+        # local raster candidate is used only as a deterministic coordinate
+        # frame; it is never sent as another image or used to invent readings.
+        selectable_candidates = [candidate for candidate in candidates if 4 <= len(candidate.corners) <= 24]
+        fallback_candidate = _program_topology_fallback(selectable_candidates)
+        selection, report = await _recognize_plan_single_pass(
+            client, endpoint, headers, path, rotation, selectable_candidates, trace_ids,
+        )
+        raw_direct_edges = _direct_edge_chain_from_report(report, ocr_assist)
+        direct_shape = _shape_from_metric_edge_chain(raw_direct_edges)
+        selected = next(
+            (candidate for candidate in selectable_candidates if candidate.id == selection.selected_id),
+            None,
+        ) if selection.accepted else fallback_candidate
+        if selected is None and direct_shape is None:
+            raise AIResponseError("单次视觉识别未形成可用的闭合房间轮廓")
+        if selected is not None:
+            shape = ShapeTraceResult(
+                corners=selected.corners,
+                closed=True,
+                uncertain=(
+                    [f"单次视觉识别选择候选 {selected.id}"]
+                    if selection.accepted
+                    else [f"程序回退选择候选 {selected.id}；需要人工复核"]
+                ) + selection.missing_features,
             )
-            template_points = _merge_template_evidence(ocr_assist, template_report)
-            ocr_assist = await _refine_ocr_with_vision(
-                client, endpoint, headers, ocr_assist, trace_ids, recognition_models[0],
-            )
-            await _refine_photo_annotation_bindings(client, endpoint, headers, ocr_assist, shape, trace_ids, recognition_models)
-            if shape is not None:
-                detected_points = await _detect_point_markers(
-                    client, endpoint, headers, path, rotation, recognition_models, trace_ids,
-                )
-                point_markers = _merge_point_markers(template_points, detected_points)
-                edge_chain = await _resolve_segment_edge_chain(
-                    client, endpoint, headers, path, rotation, shape, ocr_assist, trace_ids, recognition_models,
-                )
-    else:
-        ocr_assist = _prepare_ocr_assist(path, rotation, fast=True)
+        else:
+            shape = direct_shape
+        template_points = _merge_template_evidence(ocr_assist, report)
+        point_markers = _merge_point_markers(template_points)
+        local_edge_chain = _segment_edge_chain_from_visual_evidence(shape, ocr_assist) if shape is not None else []
+        direct_edge_chain = _direct_edge_chain_from_report(report, ocr_assist)
+        edge_chain = _merge_segment_edge_chains(direct_edge_chain, local_edge_chain)
     provisional = _provisional_room_spec(
         shape,
         ocr_assist,
@@ -6623,10 +7222,9 @@ async def analyze_floorplan_fast(
         edge_chain=edge_chain,
         point_markers=point_markers,
     )
-    if provisional is None:
-        if not settings.ai_configured:
-            raise AIConfigurationError("尚未配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 READ_MODEL")
-        raise AIResponseError("OCR 未取得至少两条房间尺度数字；请从待校正裁片补录")
+    if provisional is None or len(provisional.boundary) < 3:
+        raise AIResponseError("单次视觉识别未取得可用的房间尺度证据；未保存空结果")
+    provisional.plan_lines = _materialize_direct_plan_lines(report, shape, provisional.boundary)
     return provisional
 
 

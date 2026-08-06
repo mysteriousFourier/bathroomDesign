@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     ai_max_retries: int = 3
     ai_retry_base_seconds: float = 0.75
     ai_max_tool_rounds: int = 4
-    ai_trace_enabled: bool = True
+    # Model responses can contain recognized room measurements. Keep response
+    # tracing opt-in so normal runs do not persist that data outside the project DB.
+    ai_trace_enabled: bool = False
     ai_compare_topology_models: bool = False
     ai_wall_crop_concurrency: int = 4
     # Keep the refined OCR run as the canonical cache so wall-crop and

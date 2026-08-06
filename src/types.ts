@@ -83,6 +83,7 @@ export interface OpeningSpec {
   source: SourceKind
   confidence: number
   swing_direction?: 'left' | 'right' | 'inward' | 'outward' | 'unknown'
+  opening_form?: 'hinged' | 'sliding' | 'folding' | 'pocket' | 'revolving' | 'unknown'
   evidence_ids?: string[]
   wall_binding?: {
     wall_index: number

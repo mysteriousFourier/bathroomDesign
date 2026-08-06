@@ -1780,13 +1780,8 @@ async def test_fast_analysis_does_not_invent_placeholder_without_a_detected_cont
     monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "read_model", "")
 
-    spec = await ai.analyze_floorplan_fast(source)
-
-    assert spec.boundary == []
-    assert spec.plan_annotation is not None
-    assert spec.plan_annotation.boundary == []
-    assert spec.plan_annotation.edge_chain == []
-    assert not any("3000" in issue.message or "2000" in issue.message for issue in spec.issues)
+    with pytest.raises(ai.AIConfigurationError, match="尚未配置"):
+        await ai.analyze_floorplan_fast(source)
 
 
 def test_photo_binding_target_rejects_null_mismatched_and_out_of_range_values() -> None:

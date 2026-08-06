@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, syncToiletWithDrain, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
+import { clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, syncToiletWithDrain, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
+
+describe('plan line dimensions', () => {
+  it('resizes one segment in millimetres while preserving the following shape', () => {
+    const points = [{ x_mm: 100, z_mm: 200 }, { x_mm: 500, z_mm: 200 }, { x_mm: 500, z_mm: 700 }]
+    expect(polylineSegmentLength(points, 0)).toBe(400)
+    expect(polylineLength(points)).toBe(900)
+    const resized = resizePolylineSegment(points, 0, 600)
+    expect(resized).toEqual([{ x_mm: 100, z_mm: 200 }, { x_mm: 700, z_mm: 200 }, { x_mm: 700, z_mm: 700 }])
+    expect(polylineLength(resized)).toBe(1100)
+  })
+})
 
 describe('room boundary validation', () => {
   it('keeps openings bound to a wall while the wall geometry changes', () => {
@@ -264,6 +275,18 @@ describe('room boundary validation', () => {
   })
   it('accepts a closed orthogonal room', () => {
     expect(clientValidate(manualRoom(2400, 1800, 2600)).filter((issue) => issue.severity === 'error')).toEqual([])
+  })
+
+  it('keeps a valid 2D room editable while missing height gates 3D', () => {
+    const spec = manualRoom(2400, 1800, 2600)
+    spec.height_mm = null
+
+    const issues = clientValidate(spec)
+
+    expect(issues).toEqual([
+      expect.objectContaining({ code: 'missing_height', severity: 'error' }),
+    ])
+    expect(issues.some((issue) => issue.code === 'invalid_boundary')).toBe(false)
   })
 
   it('rejects diagonal edges before modeling', () => {

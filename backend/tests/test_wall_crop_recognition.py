@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+from io import BytesIO
 
 import numpy as np
 import pytest
@@ -9,7 +11,15 @@ from PIL import Image
 
 from backend.app import ai
 from backend.app.config import settings
-from backend.app.models import BoundaryEdge, ImageBBox, ShapeCorner, ShapeTraceResult, TopologyCandidate
+from backend.app.models import (
+    BoundaryEdge,
+    ImageBBox,
+    PlanEvidenceReport,
+    ShapeCorner,
+    ShapeTraceResult,
+    TopologyCandidate,
+    TopologyCandidateSelection,
+)
 
 
 def rectangle_shape() -> ShapeTraceResult:
@@ -25,11 +35,12 @@ def rectangle_shape() -> ShapeTraceResult:
 
 
 def test_runtime_topology_prompts_do_not_contain_sample_answers() -> None:
-    prompts = (ai.PLAN_TOPOLOGY_AUDIT_PROMPT, ai.SEGMENT_EDGE_CHAIN_PROMPT)
+    prompts = (ai.SINGLE_PASS_PLAN_PROMPT, ai.PLAN_TOPOLOGY_AUDIT_PROMPT, ai.SEGMENT_EDGE_CHAIN_PROMPT)
 
     for prompt in prompts:
-        assert "2855" not in prompt
-        assert "5582" not in prompt
+        for sample_value in ("615", "800", "1840", "2055", "2100", "2855", "5582"):
+            assert sample_value not in prompt
+    assert '"x_min":0,"y_min":0,"x_max":0,"y_max":0' not in ai.SINGLE_PASS_PLAN_PROMPT
 
 
 def test_hough_line_segments_accepts_flat_and_nested_opencv_shapes() -> None:
@@ -63,43 +74,113 @@ def test_ocr_rotation_candidates_skip_template_visual_tokens() -> None:
     assert [token["id"] for token in candidates] == ["E001"]
 
 
-def test_template_dimension_strip_views_cover_each_measurement_band() -> None:
-    names = {name for name, _, _ in ai.TEMPLATE_DIMENSION_STRIP_VIEWS}
+def test_upload_path_has_no_fixed_sample_dimension_strips() -> None:
+    assert ai.TEMPLATE_DIMENSION_STRIP_VIEWS == []
+    assert ai.TEMPLATE_DIMENSION_STRIP_REGIONS == {}
 
-    assert {
-        "strip-top-total",
-        "strip-top-left",
-        "strip-top-mid",
-        "strip-top-right",
-        "strip-top-full-chain",
-        "strip-recess-left",
-        "strip-recess-right",
-        "strip-recess-bottom",
-        "strip-recess-full",
-        "strip-left-upper",
-        "strip-left-main",
-        "strip-left-full-chain",
-        "strip-right-main",
-        "strip-right-total",
-        "strip-right-full-chain",
-        "strip-bottom-door",
-        "strip-bottom-main",
-        "strip-bottom-total",
-        "strip-bottom-total-tight",
-        "strip-bottom-full-chain",
-    } <= names
-    assert any(orientation == "vertical" for _, _, orientation in ai.TEMPLATE_DIMENSION_STRIP_VIEWS)
-    for _, bbox, orientation in ai.TEMPLATE_DIMENSION_STRIP_VIEWS:
-        assert bbox.x_min < bbox.x_max
-        assert orientation in {"horizontal", "vertical", "free"}
-        assert bbox.y_min < bbox.y_max
-        assert 0 <= bbox.x_min <= 1000
-        assert 0 <= bbox.x_max <= 1000
-        assert 0 <= bbox.y_min <= 1000
-        assert 0 <= bbox.y_max <= 1000
-    bottom_total = ai.TEMPLATE_DIMENSION_STRIP_REGIONS["strip-bottom-total"]
-    assert bottom_total.y_min < 820
-    assert bottom_total.y_max <= 900
+
+def test_single_pass_discards_legacy_visual_cache_tokens() -> None:
+    assist = {"tokens": [
+        {"id": "local", "engine": "paddle", "raw_text": "local"},
+        {"id": "old-crop", "engine": "wall-crop-vision", "wall_crop_vision": True},
+        {"id": "old-template", "engine": "template-vision", "template_visual": True},
+    ]}
+
+    ai._discard_legacy_visual_tokens(assist)
+
+    assert [token["id"] for token in assist["tokens"]] == ["local"]
+
+
+def test_single_pass_height_evidence_uses_structured_row_relation() -> None:
+    assist = {
+        "tokens": [{
+            "id": "TV-height",
+            "raw_text": "2550",
+            "bbox": {"x_min": 840, "y_min": 340, "x_max": 900, "y_max": 380},
+            "confidence": 0.95,
+            "template_visual": True,
+            "semantic_role": "room_height",
+            "related_to": "room_height",
+        }],
+    }
+
+    assert ai._ocr_room_height_hint(assist) == 2550
+
+
+def test_single_pass_top_dimension_populates_the_top_wall() -> None:
+    assist = {
+        "tokens": [{
+            "id": "TV001",
+            "raw_text": "1475",
+            "bbox": {"x_min": 420, "y_min": 35, "x_max": 500, "y_max": 75},
+            "orientation": "horizontal",
+            "confidence": 0.96,
+            "template_visual": True,
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:top",
+            "view_id": "full",
+            "bbox_quality": "tight",
+        }],
+    }
+
+    edges = ai._segment_edge_chain_from_visual_evidence(rectangle_shape(), assist)
+
+    assert edges[0].direction == "right"
+    assert edges[0].length_mm == 1475
+    assert edges[0].evidence_ids == ["TV001"]
+
+
+@pytest.mark.parametrize("door_form", ["sliding", "folding", "pocket"])
+def test_non_arc_door_forms_create_an_opening_from_a_visual_wall_binding(door_form: str) -> None:
+    assist = {
+        "tokens": [{
+            "id": "TV001",
+            "raw_text": "D1 CG 0 CK 900 CH 2070",
+            "confidence": 0.94,
+            "target_id": "wall:0@0.20:0.50",
+            "door_form": door_form,
+        }],
+    }
+    edges = [
+        BoundaryEdge(direction="right", length_mm=3000),
+        BoundaryEdge(direction="down", length_mm=1800),
+        BoundaryEdge(direction="left", length_mm=3000),
+        BoundaryEdge(direction="up", length_mm=1800),
+    ]
+
+    openings = ai._opening_specs_from_tokens(assist, edges)
+
+    assert len(openings) == 1
+    assert openings[0].wall_index == 0
+    assert openings[0].opening_form == door_form
+
+
+def test_single_pass_links_door_symbol_form_to_the_measurement_row() -> None:
+    report = PlanEvidenceReport(evidence=[
+        {
+            "id": "symbol",
+            "kind": "opening",
+            "text": "D1 推拉门",
+            "bbox": {"x_min": 100, "y_min": 800, "x_max": 220, "y_max": 900},
+            "related_to": "opening:D1",
+            "target_id": "wall:0@0.20:0.50",
+            "door_form": "sliding",
+        },
+        {
+            "id": "row",
+            "kind": "opening",
+            "text": "D1 CG 0 CK 900 CH 2070",
+            "bbox": {"x_min": 760, "y_min": 120, "x_max": 980, "y_max": 180},
+            "related_to": "opening:D1",
+        },
+    ])
+    assist = {"tokens": []}
+
+    ai._merge_template_evidence(assist, report)
+
+    row = next(token for token in assist["tokens"] if "CK 900" in token["raw_text"])
+    assert row["target_id"] == "wall:0@0.20:0.50"
+    assert row["door_form"] == "sliding"
 
 
 def test_shape_dimension_strip_views_follow_wall_edges() -> None:
@@ -631,6 +712,207 @@ async def test_wall_crop_recognition_propagates_authentication_failure(tmp_path,
 
 
 @pytest.mark.asyncio
+async def test_single_pass_reader_sends_exactly_one_model_request(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (3200, 2400), "white").save(source)
+    shape = rectangle_shape()
+    candidate = TopologyCandidate(id="C1", corners=shape.corners, pixel_support=0.9)
+    calls: list[dict] = []
+
+    async def fake_request(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        return json.dumps({
+            "selected_id": "C1",
+            "accepted": True,
+            "confidence": 0.93,
+            "missing_features": [],
+            "evidence": [{
+                "id": "top-1",
+                "kind": "dimension",
+                "text": "1475",
+                "bbox": {"x_min": 420, "y_min": 35, "x_max": 500, "y_max": 75},
+                "orientation": "horizontal",
+                "related_to": "dimension_chain:top",
+                "view_id": "full",
+                "confidence": 0.95,
+            }],
+            "uncertain": [],
+        })
+
+    monkeypatch.setattr(ai, "_request_content", fake_request)
+    monkeypatch.setattr(settings, "read_model", "quality-vision-test")
+
+    selection, report = await ai._recognize_plan_single_pass(
+        None, "endpoint", {}, source, 0, [candidate], [],
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["kwargs"]["max_retries"] == 0
+    messages = calls[0]["args"][3]
+    user_content = messages[1]["content"]
+    image_items = [item for item in user_content if item.get("type") == "image_url"]
+    assert len(image_items) == 1
+    encoded = image_items[0]["image_url"]["url"].split(",", 1)[1]
+    image = Image.open(BytesIO(base64.b64decode(encoded)))
+    assert image.width <= 2048
+    assert image.height <= 2048
+    assert selection.selected_id == "C1"
+    assert report.evidence[0].related_to == "dimension_chain:top"
+
+
+@pytest.mark.asyncio
+async def test_single_pass_reader_keeps_selection_when_one_evidence_item_is_invalid(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (320, 240), "white").save(source)
+    candidate = TopologyCandidate(id="C1", corners=rectangle_shape().corners, pixel_support=0.9)
+
+    async def fake_request(*_args, **_kwargs):
+        return json.dumps({
+            "selected_id": "C1",
+            "accepted": True,
+            "confidence": 0.9,
+            "evidence": [{
+                "id": "bad-kind",
+                "kind": "measurement",
+                "text": "1475",
+                "bbox": {"x_min": 0, "y_min": 0, "x_max": 0, "y_max": 0},
+            }, {
+                "id": "door-cn",
+                "kind": "门洞",
+                "text": "D1 折叠门",
+                "bbox": {"x_min": 300, "y_min": 700, "x_max": 400, "y_max": 820},
+                "door_form": "折叠门",
+                "target_id": "wall:2@0.15:0.5",
+            }],
+            "uncertain": [],
+        })
+
+    monkeypatch.setattr(ai, "_request_content", fake_request)
+    monkeypatch.setattr(ai, "_enhanced_plan_data_url", lambda *_args: "data:image/jpeg;base64,enhanced")
+    monkeypatch.setattr(ai, "_topology_candidate_sheet", lambda *_args: "data:image/jpeg;base64,candidates")
+    monkeypatch.setattr(settings, "read_model", "quality-vision-test")
+
+    selection, report = await ai._recognize_plan_single_pass(
+        None, "endpoint", {}, source, 0, [candidate], [],
+    )
+
+    assert selection.selected_id == "C1"
+    assert len(report.evidence) == 1
+    assert report.evidence[0].door_form == "folding"
+    assert report.evidence[0].target_id == "wall:2@0.15:0.5"
+    assert any("格式无效证据" in item for item in report.uncertain)
+
+
+@pytest.mark.asyncio
+async def test_single_pass_reader_accepts_direct_structured_fields(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (640, 480), "white").save(source)
+
+    async def fake_request(*_args, **_kwargs):
+        return json.dumps({
+            "edge_chain": [
+                {"direction": "right", "length_mm": 3000, "evidence_text": "3000"},
+                {"direction": "down", "length_mm": 2000, "evidence_text": "2000"},
+                {"direction": "left", "length_mm": 3000, "evidence_text": "3000"},
+                {"direction": "up", "length_mm": 2000, "evidence_text": "2000"},
+            ],
+            "dimension_chains": {
+                "top": {"overall_mm": 3000, "segments_mm": [1000, 800, 1200]},
+                "right": {"overall_mm": 2000, "segments_mm": []},
+                "bottom": {"overall_mm": 3000, "segments_mm": [500, 800, 1700]},
+                "left": {"overall_mm": 2000, "segments_mm": []},
+                "recess": {"overall_mm": None, "segments_mm": []},
+            },
+            "heights": {"room_height_mm": 2500, "overall_ceiling_mm": None, "local_beam_mm": None},
+            "opening_rows": [{"code": "D1", "CG": 0, "CK": 800, "CH": 2050}],
+            "plan_openings": [{
+                "code": "D1", "form": "hinged", "wall_side": "bottom",
+                "width_mm": 800, "height_mm": 2050,
+            }],
+            "fixtures": [],
+            "interior_lines": [{
+                "kind": "pipe_chase", "label": "包管线",
+                "points": [{"x": 300, "y": 350}, {"x": 300, "y": 500}, {"x": 360, "y": 500}],
+                "confidence": 0.8,
+            }],
+            "uncertain": [],
+        })
+
+    monkeypatch.setattr(ai, "_request_content", fake_request)
+    monkeypatch.setattr(settings, "read_model", "quality-vision-test")
+
+    selection, report = await ai._recognize_plan_single_pass(
+        None, "endpoint", {}, source, 0, [], [],
+    )
+
+    assert not selection.accepted
+    assert [item["length_mm"] for item in report.edge_chain] == [3000, 2000, 3000, 2000]
+    assert any(item.text == "净高 2500" for item in report.evidence)
+    assert any(item.text == "D1 CG 0 CK 800 CH 2050" for item in report.evidence)
+    assert report.plan_lines[0]["kind"] == "pipe_chase"
+
+
+@pytest.mark.asyncio
+async def test_fast_analysis_builds_nonempty_spec_from_direct_edge_chain_without_ocr_or_local_contour(
+    tmp_path, monkeypatch,
+) -> None:
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (640, 480), "white").save(source)
+    payload = {
+        "edge_chain": [
+            {"direction": "right", "length_mm": 3000, "evidence_text": "3000"},
+            {"direction": "down", "length_mm": 2000, "evidence_text": "2000"},
+            {"direction": "left", "length_mm": 3000, "evidence_text": "3000"},
+            {"direction": "up", "length_mm": 2000, "evidence_text": "2000"},
+        ],
+        "dimension_chains": {
+            "top": {"overall_mm": 3000, "segments_mm": [1000, 800, 1200]},
+            "right": {"overall_mm": 2000, "segments_mm": []},
+            "bottom": {"overall_mm": 3000, "segments_mm": [500, 800, 1700]},
+            "left": {"overall_mm": 2000, "segments_mm": []},
+            "recess": {"overall_mm": None, "segments_mm": []},
+        },
+        "heights": {"room_height_mm": 2500},
+        "opening_rows": [{"code": "D1", "CG": 0, "CK": 800, "CH": 2050}],
+        "plan_openings": [{"code": "D1", "form": "hinged", "wall_side": "bottom"}],
+        "fixtures": [],
+        "interior_lines": [{
+            "kind": "inner_wall", "label": "内墙线",
+            "points": [{"x": 300, "y": 350}, {"x": 300, "y": 500}],
+            "confidence": 0.8,
+        }],
+        "uncertain": [],
+    }
+    direct_evidence, direct_edges, uncertain = ai._direct_plan_evidence(payload)
+    report = PlanEvidenceReport(
+        evidence=direct_evidence,
+        edge_chain=[edge.model_dump(mode="json") for edge in direct_edges],
+        plan_lines=ai._direct_plan_lines(payload),
+        uncertain=uncertain,
+    )
+
+    monkeypatch.setattr(ai, "_preferred_plan_rotation", lambda *_args: 0)
+    monkeypatch.setattr(ai, "_raster_topology_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(ai, "_prepare_ocr_assist", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("OCR called")))
+
+    async def fake_single(*_args, **_kwargs):
+        return TopologyCandidateSelection(), report
+
+    monkeypatch.setattr(ai, "_recognize_plan_single_pass", fake_single)
+    monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
+    monkeypatch.setattr(settings, "openai_api_key", "key")
+    monkeypatch.setattr(settings, "read_model", "vision-test")
+
+    spec = await ai.analyze_floorplan_fast(source)
+
+    assert len(spec.boundary) == 4
+    assert spec.height_mm == 2500
+    assert spec.openings[0].width_mm == 800
+    assert spec.openings[0].wall_index == 0
+    assert spec.plan_lines[0].kind == "inner_wall"
+
+
+@pytest.mark.asyncio
 async def test_fast_analysis_builds_shape_before_text_recognition(tmp_path, monkeypatch) -> None:
     source = tmp_path / "source.jpg"
     Image.new("RGB", (320, 240), "white").save(source)
@@ -641,52 +923,51 @@ async def test_fast_analysis_builds_shape_before_text_recognition(tmp_path, monk
     monkeypatch.setattr(ai, "_preferred_plan_rotation", lambda *_args: 0)
     monkeypatch.setattr(ai, "_raster_topology_candidates", lambda *_args, **_kwargs: [candidate])
 
-    async def fake_shape(*_args, **_kwargs):
-        events.append("shape")
-        return shape
-
-    async def fake_audit(*_args, **_kwargs):
-        events.append("audit")
-        return shape
-
     def fake_ocr(*_args, **_kwargs):
-        events.append("ocr")
-        return {"tokens": [], "rotation_degrees": 0}
+        raise AssertionError("fast analysis must not call OCR")
 
-    async def fake_global(*args, **_kwargs):
-        events.append("global")
-        return next(arg for arg in args if isinstance(arg, dict) and "tokens" in arg)
+    report = PlanEvidenceReport(evidence=[
+        {
+            "id": "top", "kind": "dimension", "text": "3000",
+            "bbox": {"x_min": 400, "y_min": 40, "x_max": 500, "y_max": 70},
+            "orientation": "horizontal", "related_to": "dimension_chain:top", "confidence": 0.95,
+        },
+        {
+            "id": "right", "kind": "dimension", "text": "2000",
+            "bbox": {"x_min": 900, "y_min": 400, "x_max": 940, "y_max": 500},
+            "orientation": "vertical", "related_to": "dimension_chain:right", "confidence": 0.95,
+        },
+        {
+            "id": "bottom", "kind": "dimension", "text": "3000",
+            "bbox": {"x_min": 400, "y_min": 900, "x_max": 500, "y_max": 940},
+            "orientation": "horizontal", "related_to": "dimension_chain:bottom", "confidence": 0.95,
+        },
+        {
+            "id": "left", "kind": "dimension", "text": "2000",
+            "bbox": {"x_min": 40, "y_min": 400, "x_max": 70, "y_max": 500},
+            "orientation": "vertical", "related_to": "dimension_chain:left", "confidence": 0.95,
+        },
+    ])
 
-    async def fake_binding(*_args, **_kwargs):
-        events.append("bind")
+    async def fake_single(*_args, **_kwargs):
+        events.append("vision")
+        return TopologyCandidateSelection(selected_id="C1", accepted=True, confidence=0.9), report
 
-    async def fake_edges(*_args, **_kwargs):
-        events.append("edges")
-        return []
-
-    async def fake_points(*_args, **_kwargs):
-        events.append("points")
-        return []
-
-    monkeypatch.setattr(ai, "_select_raster_topology", fake_shape)
-    monkeypatch.setattr(ai, "_audit_shape_trace", fake_audit)
+    monkeypatch.setattr(ai, "_recognize_plan_single_pass", fake_single)
     monkeypatch.setattr(ai, "_prepare_ocr_assist", fake_ocr)
-    monkeypatch.setattr(ai, "_refine_ocr_with_vision", fake_global)
-    monkeypatch.setattr(ai, "_refine_photo_annotation_bindings", fake_binding)
-    monkeypatch.setattr(ai, "_detect_point_markers", fake_points)
-    monkeypatch.setattr(ai, "_resolve_segment_edge_chain", fake_edges)
     monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
     monkeypatch.setattr(settings, "openai_api_key", "key")
     monkeypatch.setattr(settings, "read_model", "vision-test")
+    monkeypatch.setattr(settings, "chat_model", "chat-test")
 
     spec = await ai.analyze_floorplan_fast(source)
 
-    assert events == ["shape", "audit", "ocr", "global", "bind", "points", "edges"]
+    assert events == ["vision"]
     assert spec.plan_annotation.boundary == shape.corners
 
 
 @pytest.mark.asyncio
-async def test_fast_analysis_uses_cropped_trace_when_candidate_selector_rejects(tmp_path, monkeypatch) -> None:
+async def test_fast_analysis_does_not_run_crop_or_secondary_vision_pass(tmp_path, monkeypatch) -> None:
     source = tmp_path / "source.jpg"
     Image.new("RGB", (320, 240), "white").save(source)
     shape = rectangle_shape()
@@ -696,39 +977,66 @@ async def test_fast_analysis_uses_cropped_trace_when_candidate_selector_rejects(
     monkeypatch.setattr(ai, "_preferred_plan_rotation", lambda *_args: 0)
     monkeypatch.setattr(ai, "_raster_topology_candidates", lambda *_args, **_kwargs: [candidate])
 
-    async def reject_shape(*_args, **_kwargs):
-        events.append("select")
-        return None
-
-    async def cropped_shape(*_args, **_kwargs):
-        events.append("crop")
-        return shape
-
-    async def audit_shape(*_args, **_kwargs):
-        events.append("audit")
-        return shape
-
     def prepare_ocr(*_args, **_kwargs):
-        events.append("ocr")
-        return {"tokens": [], "rotation_degrees": 0}
+        raise AssertionError("fast analysis must not call OCR")
 
-    async def pass_assist(*args, **_kwargs):
-        return next(arg for arg in args if isinstance(arg, dict) and "tokens" in arg)
+    report = PlanEvidenceReport(evidence=[
+        {
+            "id": "top", "kind": "dimension", "text": "3000",
+            "bbox": {"x_min": 400, "y_min": 40, "x_max": 500, "y_max": 70},
+            "orientation": "horizontal", "related_to": "dimension_chain:top", "confidence": 0.95,
+        },
+        {
+            "id": "right", "kind": "dimension", "text": "2000",
+            "bbox": {"x_min": 900, "y_min": 400, "x_max": 940, "y_max": 500},
+            "orientation": "vertical", "related_to": "dimension_chain:right", "confidence": 0.95,
+        },
+        {
+            "id": "bottom", "kind": "dimension", "text": "3000",
+            "bbox": {"x_min": 400, "y_min": 900, "x_max": 500, "y_max": 940},
+            "orientation": "horizontal", "related_to": "dimension_chain:bottom", "confidence": 0.95,
+        },
+        {
+            "id": "left", "kind": "dimension", "text": "2000",
+            "bbox": {"x_min": 40, "y_min": 400, "x_max": 70, "y_max": 500},
+            "orientation": "vertical", "related_to": "dimension_chain:left", "confidence": 0.95,
+        },
+    ])
 
-    monkeypatch.setattr(ai, "_select_raster_topology", reject_shape)
-    monkeypatch.setattr(ai, "_resolve_cropped_shape_trace", cropped_shape)
-    monkeypatch.setattr(ai, "_audit_shape_trace", audit_shape)
+    async def fake_single(*_args, **_kwargs):
+        events.append("vision")
+        return TopologyCandidateSelection(selected_id="C1", accepted=True, confidence=0.9), report
+
+    monkeypatch.setattr(ai, "_recognize_plan_single_pass", fake_single)
     monkeypatch.setattr(ai, "_prepare_ocr_assist", prepare_ocr)
-    monkeypatch.setattr(ai, "_recognize_wall_crops_with_vision", pass_assist)
-    monkeypatch.setattr(ai, "_refine_ocr_with_vision", pass_assist)
-    monkeypatch.setattr(ai, "_refine_photo_annotation_bindings", lambda *_args, **_kwargs: __import__("asyncio").sleep(0))
-    monkeypatch.setattr(ai, "_detect_point_markers", lambda *_args, **_kwargs: __import__("asyncio").sleep(0, result=[]))
-    monkeypatch.setattr(ai, "_resolve_segment_edge_chain", lambda *_args, **_kwargs: __import__("asyncio").sleep(0, result=[]))
+    monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
+    monkeypatch.setattr(settings, "openai_api_key", "key")
+    monkeypatch.setattr(settings, "read_model", "vision-test")
+    monkeypatch.setattr(settings, "chat_model", "chat-test")
+
+    spec = await ai.analyze_floorplan_fast(source)
+
+    assert events == ["vision"]
+    assert spec.plan_annotation.boundary == shape.corners
+
+
+@pytest.mark.asyncio
+async def test_fast_analysis_propagates_model_failure_and_does_not_call_ocr(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (320, 240), "white").save(source)
+    candidate = TopologyCandidate(id="C1", corners=rectangle_shape().corners, pixel_support=0.9)
+
+    monkeypatch.setattr(ai, "_preferred_plan_rotation", lambda *_args: 0)
+    monkeypatch.setattr(ai, "_raster_topology_candidates", lambda *_args, **_kwargs: [candidate])
+    monkeypatch.setattr(ai, "_prepare_ocr_assist", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("OCR called")))
+
+    async def fail(*_args, **_kwargs):
+        raise ai.AIResponseError("upstream rejected image")
+
+    monkeypatch.setattr(ai, "_recognize_plan_single_pass", fail)
     monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
     monkeypatch.setattr(settings, "openai_api_key", "key")
     monkeypatch.setattr(settings, "read_model", "vision-test")
 
-    spec = await ai.analyze_floorplan_fast(source)
-
-    assert events == ["select", "crop", "audit", "ocr"]
-    assert spec.plan_annotation.boundary == shape.corners
+    with pytest.raises(ai.AIResponseError, match="upstream rejected image"):
+        await ai.analyze_floorplan_fast(source)

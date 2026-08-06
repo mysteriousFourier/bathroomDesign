@@ -36,8 +36,14 @@ export function WorkflowStatus({ project, spec, busy, dirty }: {
     return <div className="workflow-status warning"><Clock3 size={16} /><span>照片标注尚未确认；未绑定项不会进入二维图。</span></div>
   }
   if (errors.length) {
+    const heightMissing = errors.some((issue) => issue.code === 'missing_height')
+    const otherErrors = errors.filter((issue) => issue.code !== 'missing_height')
+    if (heightMissing && !otherErrors.length) {
+      return <div className="workflow-status error"><TriangleAlert size={16} /><span>二维数据可继续编辑；进入三维前请补录有效净高。</span></div>
+    }
+    const firstError = otherErrors[0] ?? errors[0]
     const remaining = errors.length > 1 ? `（之后还有 ${errors.length - 1} 项）` : ''
-    return <div className="workflow-status error"><TriangleAlert size={16} /><span>已生成可编辑模型，请先校正：{errors[0].message}{remaining}</span></div>
+    return <div className="workflow-status error"><TriangleAlert size={16} /><span>二维数据可继续校正；进入三维前请先处理：{firstError.message}{remaining}</span></div>
   }
   if (dirty) {
     return <div className="workflow-status warning"><Clock3 size={16} /><span>有未保存修正；保存后才可导出当前量房 JSON。</span></div>

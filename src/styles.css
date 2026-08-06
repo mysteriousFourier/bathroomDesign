@@ -171,10 +171,14 @@ p, h1, h2, figure { margin: 0; }
 .photo-annotation { padding-top: 188px; }
 .canvas-toolbar { position: absolute; top: 13px; left: 14px; right: 14px; height: 36px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 10px; pointer-events: none; }
 .canvas-toolbar span { display: flex; align-items: center; gap: 6px; }
-.canvas-toolbar .icon-button, .canvas-toolbar .canvas-mode-toggle, .canvas-toolbar > div { pointer-events: auto; }
-.canvas-toolbar .icon-button.active-tool, .canvas-toolbar .canvas-mode-toggle.active-tool { color: var(--green); border-color: #9fbaab; background: var(--green-soft); }
+.canvas-toolbar .icon-button, .canvas-toolbar .canvas-mode-toggle, .canvas-toolbar .canvas-tool-select, .canvas-toolbar > div { pointer-events: auto; }
+.canvas-toolbar .icon-button.active-tool, .canvas-toolbar .canvas-mode-toggle.active-tool, .canvas-toolbar .canvas-tool-select.active-tool { color: var(--green); border-color: #9fbaab; background: var(--green-soft); }
 .canvas-mode-toggle { min-width: 62px; height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); color: var(--muted); font-size: 10px; cursor: pointer; }
 .canvas-mode-toggle span { display: inline; }
+.canvas-tool-select { width: 112px; height: 32px; display: inline-flex; align-items: center; gap: 5px; padding: 0 6px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); color: var(--muted); cursor: pointer; }
+.canvas-tool-select svg { flex: none; }
+.canvas-tool-select select { min-width: 0; width: 100%; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font-size: 10px; cursor: pointer; }
+.canvas-tool-select select option { color: var(--ink); background: var(--surface); }
 .canvas-toolbar .cutaway-status { min-height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: rgb(250 249 246 / 82%); color: var(--muted); font-size: 10px; white-space: nowrap; }
 .canvas-toolbar .cutaway-status.active { border-color: #9fbaab; background: var(--green-soft); color: var(--green); font-weight: 700; }
 .plan-canvas { display: block; width: calc(100% - 28px); height: calc(100% - 14px); margin: 0 14px 14px; border: 1px solid var(--line-strong); background: #faf9f6; box-shadow: var(--shadow-1); touch-action: none; }
@@ -207,6 +211,11 @@ p, h1, h2, figure { margin: 0; }
 .annotation-tools > button.active { border-color: var(--green); background: var(--green-soft); color: var(--green); }
 .annotation-tools > button:disabled { cursor: not-allowed; opacity: 0.42; }
 .annotation-opening-kind { flex: none; width: 66px; height: 32px; padding: 0 7px; border: 1px solid var(--line); border-radius: 0; background: #fff; color: var(--ink); font-size: 10px; }
+.annotation-line-select { flex: none; width: 112px; height: 32px; display: inline-flex; align-items: center; gap: 5px; padding: 0 6px; border: 1px solid var(--line); background: #f8f8f5; color: var(--muted); }
+.annotation-line-select.active { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+.annotation-line-select svg { flex: none; }
+.annotation-line-select select { min-width: 0; width: 100%; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font-size: 10px; cursor: pointer; }
+.annotation-line-select option { color: var(--ink); background: #fff; }
 .annotation-status { justify-content: flex-end; }
 .annotation-status > span { min-width: 0; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .annotation-status .button { flex: none; }
@@ -219,12 +228,15 @@ p, h1, h2, figure { margin: 0; }
 .annotation-dimensions .opening-dimension { border-color: #c99a42; background: #fff9e9; }
 .annotation-dimensions .opening-dimension > span { color: #7a5100; }
 .annotation-dimensions .opening-dimension input { border-left-color: #d8b66f; color: #704e0b; font-weight: 700; }
+.annotation-dimensions .plan-line-dimension { border-color: #8aa4b1; background: #f1f6f8; }
+.annotation-dimensions .plan-line-dimension > span { color: #294f63; }
+.annotation-dimensions .plan-line-dimension input { border-left-color: #b8cbd4; color: #294f63; font-weight: 700; }
 .annotation-dimensions label.selected { outline: 2px solid #9a6815; outline-offset: -2px; }
 .photo-annotation, .annotation-canvas { user-select: none; -webkit-user-select: none; }
 .photo-annotation img, .annotation-canvas image { -webkit-user-drag: none; user-select: none; }
 .annotation-canvas { display: block; width: 100%; height: 100%; background: #d8d8d3; touch-action: none; }
 .annotation-canvas image { pointer-events: none; }
-.annotation-canvas.tool-add, .annotation-canvas.tool-draw, .annotation-canvas.tool-opening { cursor: crosshair; }
+.annotation-canvas.tool-add, .annotation-canvas.tool-draw, .annotation-canvas.tool-opening, .annotation-canvas.tool-line { cursor: crosshair; }
 .annotation-canvas.tool-label, .annotation-canvas.tool-region { cursor: cell; }
 .annotation-background { fill: #d8d8d3; }
 .annotation-boundary { fill: rgb(194 54 45 / 8%); stroke: #c2362d; stroke-width: 4; stroke-linejoin: miter; vector-effect: non-scaling-stroke; pointer-events: none; }
@@ -262,6 +274,16 @@ p, h1, h2, figure { margin: 0; }
 .annotation-evidence.pending { fill: rgb(202 50 42 / 9%); stroke: #c2362d; stroke-width: 3; }
 .annotation-evidence:hover { fill: rgb(245 183 38 / 18%); stroke: #9a6815; }
 .annotation-selection { fill: rgb(245 183 38 / 12%); stroke: #9a6815; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.annotation-plan-line polyline { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.annotation-plan-line.pipe_chase polyline { stroke: #775093; stroke-dasharray: 13 6; }
+.annotation-plan-line.inner_wall polyline { stroke: #245a72; }
+.annotation-plan-line.door_line polyline { stroke: #a45b1c; stroke-dasharray: 4 5; }
+.annotation-plan-line circle { fill: #fff; stroke: #26332c; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.annotation-plan-line text { fill: #20231f; text-anchor: middle; font: 700 11px "Microsoft YaHei", sans-serif; paint-order: stroke; stroke: #fff; stroke-width: 4; }
+.annotation-plan-line.draft { opacity: 0.72; }
+.annotation-empty-state { position: absolute; inset: 188px 0 0; display: grid; place-content: center; justify-items: center; gap: 6px; color: var(--muted); background: rgb(236 236 231 / 90%); text-align: center; pointer-events: none; }
+.annotation-empty-state strong { color: var(--ink); font-size: 13px; }
+.annotation-empty-state span { font-size: 10px; }
 .wall-finish-layer .wall-ring { fill: rgb(97 102 95 / 18%); stroke: #777d75; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .dimension-label { pointer-events: none; }
 .dimension-label line { stroke: #545b53; stroke-width: 0.8; vector-effect: non-scaling-stroke; }
@@ -282,6 +304,16 @@ p, h1, h2, figure { margin: 0; }
 .opening-segment .opening-wall-part { stroke: #4d534c; stroke-width: 2.5; }
 .opening-segment .opening-gap-part { stroke: #b78022; stroke-width: 7; }
 .opening-segment .opening-jamb { fill: #faf9f6; stroke: #7e5010; stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+.opening-symbol { fill: none; stroke: #8e5d17; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.opening-symbol path, .opening-symbol polyline, .opening-symbol circle { vector-effect: non-scaling-stroke; }
+.opening-symbol.window { stroke: #356b78; stroke-width: 2.5; }
+.opening-symbol .door-swing { stroke-dasharray: 5 4; }
+.opening-symbol.sliding .door-rail { stroke: #356b78; stroke-width: 1.5; }
+.opening-symbol.sliding .door-panel { stroke: #356b78; }
+.opening-symbol.folding .fold-panels { stroke: #8e5d17; stroke-width: 2.5; }
+.opening-symbol.folding circle { fill: #faf9f6; stroke: #8e5d17; stroke-width: 1.5; }
+.opening-symbol.pocket .pocket-track { stroke: #8e5d17; stroke-dasharray: 4 4; stroke-width: 1.5; }
+.opening-symbol.revolving circle { stroke-width: 1.5; }
 .opening-segment.selected .opening-gap-part { stroke: #7e5010; stroke-width: 9; }
 .opening-segment.selected .opening-wall-part { stroke: #4d534c; stroke-width: 4; }
 .opening-segment.draft .opening-gap-part { stroke-dasharray: 8 5; stroke: #7e5010; }
@@ -388,6 +420,14 @@ p, h1, h2, figure { margin: 0; }
 .surface-dimension-summary { display: grid; gap: 5px; padding: 8px; border: 1px solid var(--line); background: var(--surface-2); }
 .surface-dimension-summary div { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 9px; }
 .surface-dimension-summary strong { color: var(--ink); font: 10px Consolas, monospace; }
+.plan-line-length-summary { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; padding: 8px; border: 1px solid #c8d6dd; background: #f1f6f8; color: var(--muted); font-size: 9px; }
+.plan-line-length-summary strong { color: var(--ink); font: 700 12px Consolas, monospace; text-align: right; }
+.plan-line-length-summary span:last-child { grid-column: 1 / -1; color: var(--muted); }
+.plan-line-segments { display: grid; gap: 7px; }
+.plan-line-segments .number-field { grid-template-columns: 118px minmax(0, 1fr); }
+.plan-line-coordinates { border-top: 1px solid var(--line); padding-top: 7px; }
+.plan-line-coordinates summary { color: var(--muted); cursor: pointer; font-size: 10px; }
+.plan-line-coordinates[open] summary { margin-bottom: 7px; color: var(--ink); font-weight: 700; }
 .property-note { padding: 8px; color: var(--muted); background: var(--surface-2); font-size: 9px; line-height: 1.6; }
 .boundary-editor { display: grid; gap: 6px; padding: 9px; border: 1px solid var(--line); background: var(--surface-2); }
 .boundary-editor-heading { display: flex; align-items: center; justify-content: space-between; color: var(--ink); font-size: 10px; }

@@ -419,6 +419,7 @@ def measurement_from_spec(
             sill_mm=item.sill_mm,
             label=item.label,
             swing_direction=item.swing_direction,
+            opening_form=item.opening_form,
             source=item.source,
             confidence=item.confidence,
             status=_measurement_status(item.source, item.confidence, spec.confirmed),
@@ -515,6 +516,7 @@ def room_spec_from_measurement(measurement: MeasurementModel) -> RoomSpec:
             source=item.source,
             confidence=item.confidence,
             swing_direction=item.swing_direction,
+            opening_form=item.opening_form,
             evidence_ids=item.evidence_ids,
         )
         for item in measurement.openings

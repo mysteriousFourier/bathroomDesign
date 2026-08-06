@@ -694,6 +694,30 @@ export function roomPointToImage(spec: RoomSpec, point: Point2D) {
   }
 }
 
+export function polylineSegmentLength(points: Point2D[], segmentIndex: number) {
+  const start = points[segmentIndex]
+  const end = points[segmentIndex + 1]
+  if (!start || !end) return 0
+  return Math.round(Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm))
+}
+
+export function polylineLength(points: Point2D[]) {
+  return points.slice(1).reduce((total, _point, index) => total + polylineSegmentLength(points, index), 0)
+}
+
+export function resizePolylineSegment(points: Point2D[], segmentIndex: number, lengthMm: number) {
+  const start = points[segmentIndex]
+  const end = points[segmentIndex + 1]
+  if (!start || !end || !Number.isFinite(lengthMm) || lengthMm <= 0) return points
+  const currentLength = Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm)
+  const unit = currentLength > 0
+    ? { x: (end.x_mm - start.x_mm) / currentLength, z: (end.z_mm - start.z_mm) / currentLength }
+    : { x: 1, z: 0 }
+  const nextEnd = { x_mm: Math.round(start.x_mm + unit.x * lengthMm), z_mm: Math.round(start.z_mm + unit.z * lengthMm) }
+  const delta = { x_mm: nextEnd.x_mm - end.x_mm, z_mm: nextEnd.z_mm - end.z_mm }
+  return points.map((point, index) => index > segmentIndex ? { x_mm: point.x_mm + delta.x_mm, z_mm: point.z_mm + delta.z_mm } : { ...point })
+}
+
 function rectZone(id: string, kind: DryWetZone['kind'], label: string, minX: number, minZ: number, maxX: number, maxZ: number): DryWetZone {
   return { id, kind, label, source: 'derived', confidence: 0.86, boundary: [
     { x_mm: Math.round(minX), z_mm: Math.round(minZ) }, { x_mm: Math.round(maxX), z_mm: Math.round(minZ) },

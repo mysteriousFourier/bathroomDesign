@@ -1,4 +1,4 @@
-import { CircleDot, DoorOpen, Droplet, Focus, Grid2X2, Move, Plug, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
+import { CircleDot, DoorOpen, Droplet, Focus, Grid2X2, Move, Plug, Spline, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, openingLine, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength, wetZoneBoundaryValid } from '../spec'
 import type { Asset, FixtureKind, FixturePointUsage, OpeningSpec, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
@@ -140,10 +140,10 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
     if (id) onSelect({ type: 'plan_line', id })
     return true
   }
-  const chooseLineTool = (kind: PlanLineKind) => {
+  const chooseLineTool = (kind: PlanLineKind | null) => {
     setAddFixture(null)
     setAddOpening(false)
-    setAddLine((value) => value === kind ? null : kind)
+    setAddLine(kind)
     setLineDraft({ id: null, points: [] })
   }
   const pointAtWallOffset = (start: Point2D, end: Point2D, offsetMm: number, lengthMm: number) => {
@@ -233,8 +233,15 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           <button className={`icon-button${addFixture?.kind === 'water' ? ' active-tool' : ''}`} title="添加给水点" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'water' ? null : { kind: 'water', pointUsage: 'general' }) }}><Waves size={17} /></button>
           <button className={`icon-button${addFixture?.kind === 'floor_drain' ? ' active-tool' : ''}`} title="添加淋浴地漏" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'floor_drain' ? null : { kind: 'floor_drain', pointUsage: 'shower' }) }}><Square size={17} /></button>
           <button className={`icon-button${addFixture?.kind === 'electric' ? ' active-tool' : ''}`} title="添加电点" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'electric' ? null : { kind: 'electric' }) }}><Plug size={17} /></button>
-          <button className={`icon-button${addLine === 'pipe_chase' ? ' active-tool' : ''}`} title="绘制包管线" onClick={() => chooseLineTool('pipe_chase')}><Square size={17} /></button>
-          <button className={`icon-button${addLine === 'inner_wall' ? ' active-tool' : ''}`} title="绘制内墙线" onClick={() => chooseLineTool('inner_wall')}><Move size={17} /></button>
+          <label className={`canvas-tool-select${addLine ? ' active-tool' : ''}`} title="选择线型后在图中逐点绘制">
+            <Spline size={16} />
+            <select value={addLine ?? ''} aria-label="添加平面线条" onChange={(event) => chooseLineTool(event.target.value ? event.target.value as PlanLineKind : null)}>
+              <option value="">添加线条…</option>
+              <option value="pipe_chase">包管线</option>
+              <option value="inner_wall">内墙线</option>
+              <option value="door_line">门线（辅助）</option>
+            </select>
+          </label>
           <button className={`icon-button${addOpening ? ' active-tool' : ''}`} title="拖拽绘制门窗线" onClick={() => { setAddFixture(null); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddOpening((value) => !value) }}><DoorOpen size={17} /></button>
           <button className={`canvas-mode-toggle${orthogonal ? ' active-tool' : ''}`} title="限制新增和编辑的线为水平或垂直" aria-pressed={orthogonal} onClick={() => setOrthogonal((value) => !value)}><Grid2X2 size={15} /><span>正交</span></button>
           <button className="icon-button danger" title="删除选中的门窗洞口" disabled={selection.type !== 'opening'} onClick={() => selection.type === 'opening' && onOpeningDelete?.(selection.id)}><Trash2 size={17} /></button>
@@ -454,9 +461,47 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           }
           const mid = { x: (x1 + x2) / 2, y: (y1 + y2) / 2 }
           const dx = x2 - x1, dy = y2 - y1, length = Math.max(1, Math.hypot(dx, dy))
-          const normal = { x: -dy / length, y: dx / length }
-          return <g key={opening.id} className={selected ? 'opening-segment selected' : 'opening-segment'} data-opening-id={opening.id} data-wall-index={opening.wall_index} data-offset-mm={opening.offset_mm} data-width-mm={opening.width_mm} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'opening', id: opening.id }) }}>
+          const tangent = { x: dx / length, y: dy / length }
+          const normal = { x: -tangent.y, y: tangent.x }
+          const centerPx = { x: sx(center.x), y: sz(center.z) }
+          const towardRoom = (centerPx.x - mid.x) * normal.x + (centerPx.y - mid.y) * normal.y >= 0 ? normal : { x: -normal.x, y: -normal.y }
+          const symbolNormal = opening.swing_direction === 'outward' ? { x: -towardRoom.x, y: -towardRoom.y } : towardRoom
+          const hingeAtEnd = opening.swing_direction === 'right'
+          const hinge = hingeAtEnd ? { x: x2, y: y2 } : { x: x1, y: y1 }
+          const closedTip = hingeAtEnd ? { x: x1, y: y1 } : { x: x2, y: y2 }
+          const hingeTangent = { x: (closedTip.x - hinge.x) / length, y: (closedTip.y - hinge.y) / length }
+          const leafEnd = { x: hinge.x + symbolNormal.x * length, y: hinge.y + symbolNormal.y * length }
+          const arcSweep = hingeTangent.x * symbolNormal.y - hingeTangent.y * symbolNormal.x > 0 ? 1 : 0
+          const form = opening.kind === 'door' && opening.opening_form && opening.opening_form !== 'unknown' ? opening.opening_form : opening.kind === 'door' ? 'hinged' : 'unknown'
+          const foldDepth = Math.min(28, Math.max(12, length * 0.22))
+          const foldPoints = Array.from({ length: 5 }, (_, index) => {
+            const ratio = index / 4
+            const depth = index === 0 || index === 4 ? 0 : index % 2 ? foldDepth : 4
+            return `${x1 + tangent.x * length * ratio + symbolNormal.x * depth},${y1 + tangent.y * length * ratio + symbolNormal.y * depth}`
+          }).join(' ')
+          return <g key={opening.id} className={`opening-segment form-${form}${selected ? ' selected' : ''}`} data-opening-id={opening.id} data-wall-index={opening.wall_index} data-offset-mm={opening.offset_mm} data-width-mm={opening.width_mm} data-opening-form={form} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'opening', id: opening.id }) }}>
             <line className="opening-gap-part" x1={x1} y1={y1} x2={x2} y2={y2} />
+            {opening.kind === 'window' ? <g className="opening-symbol window" pointerEvents="none">
+              <line x1={x1 + towardRoom.x * 5} y1={y1 + towardRoom.y * 5} x2={x2 + towardRoom.x * 5} y2={y2 + towardRoom.y * 5} />
+              <line x1={x1 + towardRoom.x * 11} y1={y1 + towardRoom.y * 11} x2={x2 + towardRoom.x * 11} y2={y2 + towardRoom.y * 11} />
+            </g> : form === 'hinged' ? <g className="opening-symbol hinged" pointerEvents="none">
+              <line className="door-leaf" x1={hinge.x} y1={hinge.y} x2={leafEnd.x} y2={leafEnd.y} />
+              <path className="door-swing" d={`M ${closedTip.x} ${closedTip.y} A ${length} ${length} 0 0 ${arcSweep} ${leafEnd.x} ${leafEnd.y}`} />
+            </g> : form === 'sliding' ? <g className="opening-symbol sliding" pointerEvents="none">
+              <line className="door-rail" x1={x1 + symbolNormal.x * 5} y1={y1 + symbolNormal.y * 5} x2={x2 + symbolNormal.x * 5} y2={y2 + symbolNormal.y * 5} />
+              <line className="door-panel" x1={x1 + symbolNormal.x * 11} y1={y1 + symbolNormal.y * 11} x2={mid.x + symbolNormal.x * 11} y2={mid.y + symbolNormal.y * 11} />
+              <line className="door-panel" x1={mid.x + symbolNormal.x * 18} y1={mid.y + symbolNormal.y * 18} x2={x2 + symbolNormal.x * 18} y2={y2 + symbolNormal.y * 18} />
+            </g> : form === 'folding' ? <g className="opening-symbol folding" pointerEvents="none">
+              <polyline className="fold-panels" points={foldPoints} />
+              {[1, 2, 3].map((index) => <circle key={`${opening.id}-fold-${index}`} cx={x1 + tangent.x * length * index / 4 + symbolNormal.x * (index % 2 ? foldDepth : 4)} cy={y1 + tangent.y * length * index / 4 + symbolNormal.y * (index % 2 ? foldDepth : 4)} r="2.2" />)}
+            </g> : form === 'pocket' ? <g className="opening-symbol pocket" pointerEvents="none">
+              <line className="pocket-track" x1={x1 + symbolNormal.x * 5} y1={y1 + symbolNormal.y * 5} x2={x2 + symbolNormal.x * 5} y2={y2 + symbolNormal.y * 5} />
+              <line className="door-panel" x1={x1 + tangent.x * length * 0.48 + symbolNormal.x * 13} y1={y1 + tangent.y * length * 0.48 + symbolNormal.y * 13} x2={x2 + symbolNormal.x * 13} y2={y2 + symbolNormal.y * 13} />
+            </g> : form === 'revolving' ? <g className="opening-symbol revolving" pointerEvents="none">
+              <circle cx={mid.x} cy={mid.y} r={length * 0.42} />
+              <line x1={mid.x - tangent.x * length * 0.42} y1={mid.y - tangent.y * length * 0.42} x2={mid.x + tangent.x * length * 0.42} y2={mid.y + tangent.y * length * 0.42} />
+              <line x1={mid.x - symbolNormal.x * length * 0.42} y1={mid.y - symbolNormal.y * length * 0.42} x2={mid.x + symbolNormal.x * length * 0.42} y2={mid.y + symbolNormal.y * length * 0.42} />
+            </g> : null}
             <line className="opening-drag-hit" x1={x1} y1={y1} x2={x2} y2={y2} onPointerDown={(event) => beginOpeningDrag(event, 'move')} />
             <circle className="opening-jamb" cx={x1} cy={y1} r={selected ? 5 : 2.5} onPointerDown={(event) => beginOpeningDrag(event, 'start')} />
             <circle className="opening-jamb" cx={x2} cy={y2} r={selected ? 5 : 2.5} onPointerDown={(event) => beginOpeningDrag(event, 'end')} />

@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="320" height="220" viewBox="0 0 320 220" role="img" aria-label="Washer GLB thumbnail">
-  <rect width="320" height="220" fill="#eef2f1"/>
-  <rect x="105" y="40" width="110" height="150" rx="7" fill="#d8ddda" stroke="#5e6965" stroke-width="6"/>
-  <circle cx="160" cy="118" r="38" fill="#c5d4d1" stroke="#50635f" stroke-width="8"/>
-  <circle cx="160" cy="118" r="21" fill="#eef5f4"/>
-  <rect x="122" y="56" width="34" height="14" rx="3" fill="#7e8a86"/>
-  <circle cx="195" cy="63" r="8" fill="#7e8a86"/>
-  <text x="160" y="28" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" fill="#4d5b57">GLB</text>
-</svg>

@@ -40,17 +40,16 @@ def valid_spec() -> RoomSpec:
     )
 
 
-def test_agen17_long_term_real_sample_is_persisted_and_orientable() -> None:
+def test_agen17_real_sample_metadata_uses_external_retention() -> None:
     sample_dir = Path(__file__).resolve().parents[2] / "evidence" / "samples" / "real" / "agen-17-long-term"
-    image_path = sample_dir / "source.jpg"
     manifest_path = sample_dir / "manifest.json"
 
-    assert image_path.exists()
     assert manifest_path.exists()
-
-    oriented = ai._oriented_image(image_path)
-    assert oriented.size == (3024, 4032)
-    assert oriented.mode == "RGB"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["repository_retention"] == "external_not_tracked"
+    assert "image_path" not in manifest
+    assert manifest["sha256"] == "ff42c622b61edf6ce3455a579e291ba989f68d36193040554cf243669fcdd602"
+    assert manifest["oriented_dimensions"] == {"width_px": 3024, "height_px": 4032}
 
 
 @pytest.mark.asyncio

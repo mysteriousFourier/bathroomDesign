@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
-    "convert:model-assets": "node scripts/convert-model-assets.mjs",
     "build:w1d5": "node scripts/generate-w1d5-artifacts.js",
     "preview": "vite preview --host 127.0.0.1",
     "smoke:w1d5": "node scripts/smoke-w1d5-viewer.js",

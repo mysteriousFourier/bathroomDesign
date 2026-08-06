@@ -20,7 +20,7 @@ Current mapping note: EV-007 and EV-008 describe implemented W1D3/W1D4 geometry-
 | `registry/threshold-registry.md` | Display summary of threshold rows |
 | `samples/synthetic/*.json` | 5 W1D1-schema-compliant synthetic measurement fixtures |
 | `samples/golden/*.json` | 5 expected geometry/topology golden JSON files |
-| `samples/real/agen-17-long-term/` | Persisted real floorplan image for AGEN-17 OCR annotation and visual-model regression checks |
+| `samples/real/agen-17-long-term/` | Metadata and replay JSON for AGEN-17; the source image is stored outside Git |
 | `samples/synthetic-fixtures.md` | Display summary of the synthetic fixture set |
 | `catalog/failure-examples.md` | 40 named failure examples (8 implemented in W1D1, 32 scoped for W1D3–W1D5) |
 | `real-sample-scope.md` | Fixed two-real-sample scope note |
@@ -37,12 +37,12 @@ Current mapping note: EV-007 and EV-008 describe implemented W1D3/W1D4 geometry-
 - [x] Five golden JSON files validate and match computed geometry/topology
 - [x] Failure examples are named and scoped (40 total, 32 pending)
 - [x] First-week real sample target is fixed at two
-- [x] No real customer cases, site media, addresses, or reference DWG files are used
+- [x] No real site media, addresses, or reference DWG files are stored in Git
 - [x] No business threshold value is fabricated
 - [x] All contract field references trace back to W1D1 schemas
 - [x] W1D3 evidence wording treats `openings`, `drainagePoints`, and `pipeEnclosures` as optional collections; malformed/out-of-bounds/reference-invalid data is failure scope
 - [x] W1D4 evidence wording includes `FixturePlacement`, product references, drain references, and rotated rectangular/circular/polygonal footprints
-- [x] W1D5 evidence wording requires scene JSON, annotation JSON, screenshot/report, stable IDs, source fields, evidence IDs, and status markers
+- [x] W1D5 evidence wording requires scene JSON, annotation JSON, report, stable IDs, source fields, evidence IDs, and status markers; screenshots are reproducible but untracked
 - [x] Week 1 roll-up JSON validates and mirrors all 13 evidence registry rows by day, owner, status, artifact, and contract fields
 
 ## Blocking Condition

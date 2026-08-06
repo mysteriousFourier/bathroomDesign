@@ -15,10 +15,7 @@ Status: unverified. Business thresholds and customer-facing vocabulary remain pe
 - Scene JSON: `contracts/3d/empty-room-scene.json`
 - Annotation JSON: `contracts/annotation/measurement-synthetic-005-annotation.json`
 - Three.js viewer: `viewer/w1d5-empty-room-viewer.html`
-- Desktop screenshot artifact: `reports/screenshots/w1d5-empty-room-desktop.svg`
-- Mobile screenshot artifact: `reports/screenshots/w1d5-empty-room-mobile.svg`
-- Desktop browser screenshot: `reports/screenshots/w1d5-empty-room-desktop.png`
-- Mobile browser screenshot: `reports/screenshots/w1d5-empty-room-mobile.png`
+- Visual screenshots can be regenerated with `npm run build:w1d5`; generated files under `reports/screenshots/` are intentionally excluded from Git.
 
 ## Height Fields
 

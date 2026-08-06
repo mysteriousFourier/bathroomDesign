@@ -5,7 +5,7 @@
   "source_attachment_id": "019fad23-a32c-7346-b013-cd3b28e80dc4",
   "source_comment_id": "446ebe91-e4f8-440c-a598-eb01c7b0a5eb",
   "source_filename": "test0.jpg",
-  "image_path": "source.jpg",
+  "repository_retention": "external_not_tracked",
   "content_type": "image/jpeg",
   "size_bytes": 346634,
   "sha256": "730063335afdc908ea91b569e1516a8df0f82c399d8fcaff4ebd9b03b24773b4",
@@ -19,6 +19,6 @@
   },
   "purpose": "Isolated real test image for AGEN-24 point-marker, non-rectangular boundary, dimension-chain closure, and manual correction regression checks.",
   "dedupe_policy": "Before adding this file, repository image SHA-256 hashes were checked and no existing image matched this sample.",
-  "annotation_policy": "Use source.jpg as the stable base image. Tests may derive OCR, wall, dimension, and point-marker evidence from the original pixels, but must not overwrite or redraw this source image.",
+  "annotation_policy": "Use the externally retained source image verified by sha256. Tests may derive OCR, wall, dimension, and point-marker evidence from the original pixels, but must not overwrite or redraw it.",
   "created_date": "2026-07-29"
 }

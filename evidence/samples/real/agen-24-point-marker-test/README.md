@@ -1,20 +1,19 @@
 # AGEN-24 Point Marker Test Image
 
-This directory stores the isolated real test image from AGEN-24.
+This directory stores only the metadata for the isolated real test image from AGEN-24. The image itself is retained outside Git.
 
 Files:
 
-- `source.jpg`: stable original copy of `test0.jpg` from the issue attachment.
-- `manifest.json`: attachment metadata, checksum, dimensions, dedupe result, and testing policy.
+- `manifest.json`: attachment metadata, checksum, dimensions, external-retention status, dedupe result, and testing policy.
 
 Purpose:
 
-- Keep the AGEN-24 test photo independent from screenshots, dependency images, and other real samples.
+- Keep the AGEN-24 test photo in authorized external test storage, independent from the repository.
 - Provide a stable input for point-marker recognition, manual point dragging, non-rectangular boundary recovery, and dimension-chain closure regression tests.
-- Preserve the original pixels so future OCR or vision output can be compared against the same source image.
+- Use the manifest hash to verify that future OCR or vision runs use the same original pixels.
 
 Validation entry point:
 
 ```bash
-python scripts/benchmark_floorplan_fast.py --image evidence/samples/real/agen-24-point-marker-test/source.jpg
+python scripts/benchmark_floorplan_fast.py --image <local-source.jpg>
 ```

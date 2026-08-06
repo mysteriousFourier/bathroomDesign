@@ -16,7 +16,6 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PHOTO = ROOT / "evidence" / "samples" / "real" / "agen-17-long-term" / "source.jpg"
 DEFAULT_OUT_DIR = ROOT / ".tmp" / "floorplan-recognition"
 
 # These substitutions document OCR failure modes observed on the persisted
@@ -315,7 +314,7 @@ def draw_plan(plan: dict, out_dir: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", type=Path, default=DEFAULT_PHOTO)
+    parser.add_argument("--image", type=Path, required=True, help="Path to an authorized local source image (not stored in Git)")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument(
         "--replay-json",

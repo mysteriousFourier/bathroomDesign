@@ -4,7 +4,7 @@
   "issue_identifier": "AGEN-17",
   "source_attachment_id": "redacted",
   "source_filename": "source.jpg",
-  "image_path": "source.jpg",
+  "repository_retention": "external_not_tracked",
   "content_type": "image/jpeg",
   "size_bytes": 4919290,
   "sha256": "ff42c622b61edf6ce3455a579e291ba989f68d36193040554cf243669fcdd602",
@@ -18,7 +18,7 @@
     "height_px": 4032
   },
   "purpose": "Long-term real hand-drawn floorplan sample for OCR text-position annotation and visual-model regression checks.",
-  "annotation_policy": "Use source.jpg as the stable base image. OCR or manual labels may cover only recognized handwritten text bounding boxes and must not redraw walls, dimension lines, or topology.",
+  "annotation_policy": "Use the externally retained source image verified by sha256. OCR or manual labels may cover only recognized handwritten text bounding boxes and must not redraw walls, dimension lines, or topology.",
   "created_from_comment_id": "redacted",
   "created_date": "2026-07-23"
 }

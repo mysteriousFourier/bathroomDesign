@@ -35,10 +35,7 @@ const THRESHOLD_REGISTRY_PATH = path.join(EVIDENCE_REGISTRY_DIR, 'threshold-regi
 const W1D5_SCENE_PATH = path.join(__dirname, '..', 'contracts', '3d', 'empty-room-scene.json');
 const W1D5_ANNOTATION_PATH = path.join(__dirname, '..', 'contracts', 'annotation', 'measurement-synthetic-005-annotation.json');
 const W1D5_REPORT_PATH = path.join(__dirname, '..', 'reports', 'w1d5-empty-room-report.md');
-const W1D5_DESKTOP_SCREENSHOT_PATH = path.join(__dirname, '..', 'reports', 'screenshots', 'w1d5-empty-room-desktop.svg');
-const W1D5_MOBILE_SCREENSHOT_PATH = path.join(__dirname, '..', 'reports', 'screenshots', 'w1d5-empty-room-mobile.svg');
-const W1D5_DESKTOP_BROWSER_SCREENSHOT_PATH = path.join(__dirname, '..', 'reports', 'screenshots', 'w1d5-empty-room-desktop.png');
-const W1D5_MOBILE_BROWSER_SCREENSHOT_PATH = path.join(__dirname, '..', 'reports', 'screenshots', 'w1d5-empty-room-mobile.png');
+const W1D5_VIEWER_PATH = path.join(__dirname, '..', 'viewer', 'w1d5-empty-room-viewer.html');
 const W1D5_ROLLUP_PATH = path.join(EVIDENCE_REGISTRY_DIR, 'week1-rollup.json');
 const EXECUTABLE_THRESHOLD_SPECS = Object.freeze({
   'THR-GEOM-001': { unit: 'mm', status: 'confirmed', thresholdType: 'calculation_tolerance' },
@@ -349,22 +346,12 @@ function validateW1D5Artifacts(evidenceRegistry) {
   const rollup = loadJSON(W1D5_ROLLUP_PATH);
   const textArtifacts = [
     ['w1d5 report', W1D5_REPORT_PATH],
-    ['desktop screenshot', W1D5_DESKTOP_SCREENSHOT_PATH],
-    ['mobile screenshot', W1D5_MOBILE_SCREENSHOT_PATH],
-  ];
-  const binaryArtifacts = [
-    ['desktop browser screenshot', W1D5_DESKTOP_BROWSER_SCREENSHOT_PATH],
-    ['mobile browser screenshot', W1D5_MOBILE_BROWSER_SCREENSHOT_PATH],
+    ['w1d5 viewer', W1D5_VIEWER_PATH],
   ];
 
   for (const [label, filepath] of textArtifacts) {
     const content = readText(filepath);
     if (content == null) errors.push(`${label} artifact is missing`);
-  }
-  for (const [label, filepath] of binaryArtifacts) {
-    if (!fs.existsSync(filepath) || fs.statSync(filepath).size === 0) {
-      errors.push(`${label} artifact is missing or empty`);
-    }
   }
 
   if (measurement._error) errors.push(`W1D5 source measurement cannot be loaded: ${measurement._error}`);
@@ -1354,7 +1341,7 @@ function main() {
     totalPassed++;
   }
 
-  // 7. Validate W1D5 empty-room 3D, annotation, screenshots, report, and roll-up artifacts.
+  // 7. Validate tracked W1D5 empty-room 3D, annotation, report, viewer, and roll-up artifacts.
   console.log('\n--- Validating W1D5 3D and Annotation Artifacts ---\n');
 
   const w1d5Errors = validateW1D5Artifacts(evidenceRegistry);
@@ -1363,7 +1350,7 @@ function main() {
     totalFailed++;
     failures.push({ file: 'W1D5 artifacts', type: 'w1d5-artifacts-failed', errors: w1d5Errors });
   } else {
-    log('PASS', 'W1D5 artifacts: Scene, annotations, screenshots, report, and roll-up pass traceability checks');
+    log('PASS', 'W1D5 artifacts: Scene, annotations, report, viewer, and roll-up pass traceability checks');
     totalPassed++;
   }
 

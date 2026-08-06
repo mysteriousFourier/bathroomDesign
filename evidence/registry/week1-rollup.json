@@ -170,7 +170,7 @@
       "day": "W1D5",
       "owner": "3D",
       "status": "unverified",
-      "artifact": "contracts/3d/empty-room-scene.json; reports/screenshots/w1d5-empty-room-desktop.svg; reports/screenshots/w1d5-empty-room-mobile.svg; reports/screenshots/w1d5-empty-room-desktop.png; reports/screenshots/w1d5-empty-room-mobile.png; reports/w1d5-empty-room-report.md; viewer/w1d5-empty-room-viewer.html",
+      "artifact": "contracts/3d/empty-room-scene.json; reports/w1d5-empty-room-report.md; viewer/w1d5-empty-room-viewer.html",
       "contractFields": [
         "heights.roomHeight",
         "heights.wallHeight",

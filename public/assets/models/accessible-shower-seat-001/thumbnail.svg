@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="320" height="220" viewBox="0 0 320 220" role="img" aria-label="Accessible shower seat thumbnail">
-  <rect width="320" height="220" fill="#f4f1ea"/>
-  <path d="M68 145h184v16H68z" fill="#8b8f84"/>
-  <path d="M95 84h130v54H95z" fill="#d7c79b" stroke="#776a42" stroke-width="6"/>
-  <path d="M105 138v42M215 138v42" stroke="#5f665e" stroke-width="10" stroke-linecap="round"/>
-  <path d="M95 84l22-28h116l-8 28" fill="#eee4c8" stroke="#776a42" stroke-width="6" stroke-linejoin="round"/>
-  <text x="160" y="36" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" fill="#4c514b">GLTF</text>
-</svg>

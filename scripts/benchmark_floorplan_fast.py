@@ -16,13 +16,12 @@ sys.path.insert(0, str(ROOT))
 from backend.app import ai
 
 
-DEFAULT_IMAGE = ROOT / "test0.jpg"
 EXPECTED_VALUES = {4105, 4110, 1590, 1640, 615, 1840, 2855, 800, 2090}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", type=Path, default=DEFAULT_IMAGE)
+    parser.add_argument("--image", type=Path, required=True, help="Path to an authorized local source image (not stored in Git)")
     parser.add_argument("--max-seconds", type=float, default=360)
     parser.add_argument("--min-value-recall", type=float, default=0.8)
     parser.add_argument("--output", type=Path)

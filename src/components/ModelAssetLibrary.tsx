@@ -1,25 +1,18 @@
 import { Box, BoxSelect, FileBox, FolderOpen, HardDriveUpload, Plus, Trash2, UploadCloud } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { studioApi } from '../api'
-import { modelAssetRegistry, type RoomModelAsset } from '../modelAssets'
+import type { RoomModelAsset } from '../modelAssets'
 import { droppedModelFiles, inputFiles, validateModelImport, type ModelImportFile } from '../modelImport'
 import type { ImportedModelAsset } from '../types'
 import { ModelAssetPreview } from './ModelAssetPreview'
 
 type Dimensions = { width: number; depth: number; height: number }
 type DisplayModelAsset = RoomModelAsset & {
-  origin: 'built-in' | 'uploaded'
   filename: string
   fileCount: number
 }
 
 const defaultDimensions: Dimensions = { width: 600, depth: 600, height: 600 }
-const builtInAssets: DisplayModelAsset[] = Object.values(modelAssetRegistry).map((asset) => ({
-  ...asset,
-  origin: 'built-in',
-  filename: asset.src.split('/').at(-1) ?? asset.id,
-  fileCount: asset.format === 'gltf' ? 2 : 1,
-}))
 
 function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
   return {
@@ -36,7 +29,6 @@ function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
     source_asset_id: asset.id,
     lifecycle: 'approved',
     dimensions_mm: defaultDimensions,
-    origin: 'uploaded',
     filename: asset.filename,
     fileCount: asset.file_count,
   }
@@ -59,7 +51,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const folderInputRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
   const [uploadedAssets, setUploadedAssets] = useState<ImportedModelAsset[]>([])
-  const [selectedId, setSelectedId] = useState(builtInAssets[0]?.id ?? '')
+  const [selectedId, setSelectedId] = useState('')
   const [dimensions, setDimensions] = useState<Record<string, Dimensions>>({})
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -79,17 +71,14 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
       .then((assets) => {
         if (!active) return
         setUploadedAssets(assets)
-        if (assets.length) setSelectedId(assets[0].id)
+        setSelectedId(assets[0]?.id ?? '')
       })
       .catch((requestError: Error) => { if (active) setError(requestError.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [projectId])
 
-  const assets = useMemo(() => [
-    ...uploadedAssets.map(uploadedDisplayAsset),
-    ...builtInAssets,
-  ], [uploadedAssets])
+  const assets = useMemo(() => uploadedAssets.map(uploadedDisplayAsset), [uploadedAssets])
   const selected = assets.find((asset) => asset.id === selectedId) ?? assets[0]
   const selectedDimensions = selected ? dimensions[selected.id] ?? selected.dimensions_mm : defaultDimensions
   const selectedForRoom = selected ? { ...selected, dimensions_mm: selectedDimensions } : null
@@ -140,14 +129,14 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }
 
   const removeSelected = async () => {
-    if (!selected || selected.origin !== 'uploaded' || selectedInUse) return
+    if (!selected || selectedInUse) return
     if (!window.confirm(`从项目模型库删除“${selected.label}”？`)) return
     try {
       setError('')
       await studioApi.deleteModelAsset(projectId, selected.id)
       const remaining = uploadedAssets.filter((asset) => asset.id !== selected.id)
       setUploadedAssets(remaining)
-      setSelectedId(remaining[0]?.id ?? builtInAssets[0]?.id ?? '')
+      setSelectedId(remaining[0]?.id ?? '')
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : '模型删除失败')
     }
@@ -158,7 +147,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
       <div className="library-toolbar">
         <div>
           <strong>模型库</strong>
-          <span>{assets.length} 个可用模型 · {uploadedAssets.length} 个项目上传</span>
+          <span>{assets.length} 个项目上传模型</span>
         </div>
         <button className="button secondary" onClick={onOpenRoom} disabled={!canAddToRoom}><Box size={16} />三维房间</button>
       </div>
@@ -198,7 +187,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <button className={`model-asset-row${selected?.id === asset.id ? ' active' : ''}`} key={asset.id} onClick={() => setSelectedId(asset.id)}>
                 <span className="model-asset-icon"><BoxSelect size={19} /></span>
                 <span className="model-asset-copy"><strong>{asset.label}</strong><span>{asset.format.toUpperCase()} · {fileSize(asset.bytes)}</span></span>
-                <span className={`model-origin ${asset.origin}`}>{asset.origin === 'uploaded' ? '项目' : '内置'}</span>
+                <span className="model-origin uploaded">项目</span>
               </button>
             ))}
           </div>
@@ -209,7 +198,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
             <header className="model-browser-header">
               <div><strong>{selected.label}</strong><span>{selected.filename}</span></div>
               <div>
-                {selected.origin === 'uploaded' && <button className="icon-button" type="button" title={selectedInUse ? '模型正在房间中使用，不能删除' : '删除上传模型'} disabled={selectedInUse} onClick={() => void removeSelected()}><Trash2 size={16} /></button>}
+                <button className="icon-button" type="button" title={selectedInUse ? '模型正在房间中使用，不能删除' : '删除上传模型'} disabled={selectedInUse} onClick={() => void removeSelected()}><Trash2 size={16} /></button>
                 <button className="button primary compact" type="button" disabled={!canAddToRoom} onClick={() => onAddToRoom(selectedForRoom)}><Plus size={15} />加入房间</button>
               </div>
             </header>
@@ -218,7 +207,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <div><span>格式</span><strong>{selected.format.toUpperCase()}</strong></div>
               <div><span>文件</span><strong>{selected.fileCount}</strong></div>
               <div><span>尺寸</span><strong>{selectedDimensions.width} × {selectedDimensions.depth} × {selectedDimensions.height} mm</strong></div>
-              <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '内置资源'}</code></div>
+              <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '暂无'}</code></div>
             </div>
           </> : <div className="model-browser-empty"><HardDriveUpload size={28} /><strong>尚无模型</strong></div>}
         </section>

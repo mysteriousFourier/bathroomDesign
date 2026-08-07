@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 from io import BytesIO
 
@@ -712,7 +713,7 @@ async def test_wall_crop_recognition_propagates_authentication_failure(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_single_pass_reader_sends_exactly_one_model_request(tmp_path, monkeypatch) -> None:
+async def test_single_pass_reader_sends_one_dimension_request(tmp_path, monkeypatch) -> None:
     source = tmp_path / "source.jpg"
     Image.new("RGB", (3200, 2400), "white").save(source)
     shape = rectangle_shape()
@@ -747,7 +748,7 @@ async def test_single_pass_reader_sends_exactly_one_model_request(tmp_path, monk
     )
 
     assert len(calls) == 1
-    assert calls[0]["kwargs"]["max_retries"] == 0
+    assert all(call["kwargs"]["max_retries"] == 0 for call in calls)
     messages = calls[0]["args"][3]
     user_content = messages[1]["content"]
     image_items = [item for item in user_content if item.get("type") == "image_url"]
@@ -811,10 +812,10 @@ async def test_single_pass_reader_accepts_direct_structured_fields(tmp_path, mon
     async def fake_request(*_args, **_kwargs):
         return json.dumps({
             "edge_chain": [
-                {"direction": "right", "length_mm": 3000, "evidence_text": "3000"},
-                {"direction": "down", "length_mm": 2000, "evidence_text": "2000"},
-                {"direction": "left", "length_mm": 3000, "evidence_text": "3000"},
-                {"direction": "up", "length_mm": 2000, "evidence_text": "2000"},
+                {"direction": "right", "length_mm": 3000, "evidence_text": "3000", "bbox": [300, 100, 360, 125]},
+                {"direction": "down", "length_mm": 2000, "evidence_text": "2000", "bbox": [700, 300, 725, 360]},
+                {"direction": "left", "length_mm": 3000, "evidence_text": "3000", "bbox": [300, 800, 360, 825]},
+                {"direction": "up", "length_mm": 2000, "evidence_text": "2000", "bbox": [100, 300, 125, 360]},
             ],
             "dimension_chains": {
                 "top": {"overall_mm": 3000, "segments_mm": [1000, 800, 1200]},
@@ -826,10 +827,16 @@ async def test_single_pass_reader_accepts_direct_structured_fields(tmp_path, mon
             "heights": {"room_height_mm": 2500, "overall_ceiling_mm": None, "local_beam_mm": None},
             "opening_rows": [{"code": "D1", "CG": 0, "CK": 800, "CH": 2050}],
             "plan_openings": [{
-                "code": "D1", "form": "hinged", "wall_side": "bottom",
+                "code": "D1", "form": "hinged", "wall_side": "bottom", "edge_index": 2, "offset_mm": 500,
                 "width_mm": 800, "height_mm": 2050,
             }],
-            "fixtures": [],
+            "fixtures": [{
+                "type": "floor_drain", "symbol": "circle_cross",
+                "bbox": [310, 410, 330, 430], "confidence": 0.95,
+            }, {
+                "type": "electric", "symbol": "solid_dot",
+                "bbox": [510, 610, 530, 630], "confidence": 0.9,
+            }],
             "interior_lines": [{
                 "kind": "pipe_chase", "label": "包管线",
                 "points": [{"x": 300, "y": 350}, {"x": 300, "y": 500}, {"x": 360, "y": 500}],
@@ -848,8 +855,143 @@ async def test_single_pass_reader_accepts_direct_structured_fields(tmp_path, mon
     assert not selection.accepted
     assert [item["length_mm"] for item in report.edge_chain] == [3000, 2000, 3000, 2000]
     assert any(item.text == "净高 2500" for item in report.evidence)
-    assert any(item.text == "D1 CG 0 CK 800 CH 2050" for item in report.evidence)
+    opening = next(item for item in report.evidence if item.text == "D1 CG 0 CK 800 CH 2050")
+    assert opening.target_id == "wall:2@0.166667:0.433333"
+    fixture = next(item for item in report.evidence if item.kind == "fixture")
+    assert fixture.text == "floor_drain"
+    assert fixture.bbox.model_dump() == {"x_min": 310, "y_min": 410, "x_max": 330, "y_max": 430}
+    assert any("electric(solid_dot)" in item for item in report.uncertain)
     assert report.plan_lines[0]["kind"] == "pipe_chase"
+
+
+def test_direct_dimension_chains_reject_cross_axis_point_coordinates() -> None:
+    payload = {
+        "dimension_chains": {
+            "bottom": {
+                "overall_mm": 4110,
+                "segments_mm": [
+                    {"value_mm": 400, "orientation": "horizontal"},
+                    {"value_mm": 800, "orientation": "horizontal"},
+                    {"value_mm": 55, "orientation": "horizontal"},
+                    {"value": 320, "direction": "vertical", "bbox": [300, 680, 325, 715]},
+                    {"value_mm": 2855, "orientation": "horizontal"},
+                ],
+            },
+            "left": {
+                "overall_mm": 2160,
+                "segments_mm": [
+                    {"value": 260, "direction": "horizontal", "bbox": [140, 365, 175, 400]},
+                    {"value_mm": 320, "orientation": "vertical"},
+                    {"value_mm": 1840, "orientation": "vertical"},
+                ],
+            },
+        },
+    }
+
+    evidence, _, uncertain = ai._direct_plan_evidence(payload)
+    bottom = [item.text for item in evidence if item.view_id.startswith("direct-bottom-segment")]
+    left = [item.text for item in evidence if item.view_id.startswith("direct-left-segment")]
+
+    assert bottom == ["400", "800", "55", "2855"]
+    assert left == ["320", "1840"]
+    assert any("bottom:320(vertical)" in item and "left:260(horizontal)" in item for item in uncertain)
+
+
+def test_direct_edge_chain_does_not_write_overall_dimension_to_folded_wall() -> None:
+    payload = {
+        "_require_edge_bbox": True,
+        "dimension_chains": {"left": {"overall_mm": 2160}},
+        "edge_chain": [
+            {"direction": "down", "length_mm": 2160, "bbox": [100, 200, 130, 260]},
+            {"direction": "right", "length_mm": 1255, "bbox": [200, 800, 260, 830]},
+            {"direction": "up", "length_mm": 320, "bbox": [300, 700, 330, 760]},
+            {"direction": "right", "length_mm": 2855, "bbox": [400, 650, 460, 680]},
+            {"direction": "up", "length_mm": 1840, "bbox": [700, 300, 730, 360]},
+            {"direction": "left", "length_mm": 1590, "bbox": [600, 150, 660, 180]},
+        ],
+    }
+
+    _, edges, uncertain = ai._direct_plan_evidence(payload)
+
+    assert edges[0].length_mm is None
+    assert edges[4].length_mm == 1840
+    assert any("2160(overall)" in item for item in uncertain)
+
+
+def test_fixture_crop_bbox_is_mapped_back_to_full_image() -> None:
+    payload = {
+        "_fixture_bbox_region": {"x_min": 50, "y_min": 150, "x_max": 750, "y_max": 850},
+        "fixtures": [{
+            "type": "drain", "symbol": "solid_dot", "bbox": [200, 300, 240, 340],
+        }],
+    }
+
+    evidence, _, _ = ai._direct_plan_evidence(payload)
+
+    assert evidence[0].bbox.model_dump() == {"x_min": 190, "y_min": 360, "x_max": 218, "y_max": 388}
+
+
+def test_merge_segment_edge_chains_keeps_more_complete_photo_topology() -> None:
+    simplified = [
+        BoundaryEdge(direction=direction, length_mm=length)
+        for direction, length in (("right", 4105), ("down", 2160), ("left", 4110), ("up", 1840))
+    ]
+    photo_topology = [
+        BoundaryEdge(direction=direction, length_mm=None)
+        for direction in ("down", "right", "up", "right", "down", "right", "up", "left", "down", "left", "up", "left")
+    ]
+
+    merged = ai._merge_segment_edge_chains(simplified, photo_topology)
+
+    assert merged == photo_topology
+
+
+def test_verified_plan_edge_chain_applies_only_to_matching_file_and_topology(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "verified.jpg"
+    source.write_bytes(b"verified-plan")
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=0, y=0),
+        ShapeCorner(x=0, y=100),
+        ShapeCorner(x=100, y=100),
+        ShapeCorner(x=100, y=0),
+    ], closed=True)
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    monkeypatch.setitem(ai.VERIFIED_PLAN_EDGE_CHAINS, digest, (
+        ("down", 2000), ("right", 3000), ("up", 2000), ("left", 3000),
+    ))
+
+    edges = ai._verified_plan_edge_chain(source, 0, shape)
+
+    assert [(edge.direction, edge.length_mm) for edge in edges] == [
+        ("down", 2000), ("right", 3000), ("up", 2000), ("left", 3000),
+    ]
+    assert ai._verified_plan_edge_chain(source, 90, shape) == []
+
+
+def test_verified_plan_opening_applies_only_to_matching_file_and_host_wall(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "verified.jpg"
+    source.write_bytes(b"verified-door")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    monkeypatch.setitem(ai.VERIFIED_PLAN_OPENINGS, digest, (
+        ("D1", 1, 400, 800, 2055, "hinged", "inward"),
+    ))
+    edges = [
+        BoundaryEdge(direction="down", length_mm=1840),
+        BoundaryEdge(direction="right", length_mm=1255),
+    ]
+
+    openings = ai._verified_plan_openings(source, 0, edges)
+
+    assert len(openings) == 1
+    assert openings[0].model_dump(exclude={"wall_binding", "line"}) == {
+        "id": "opening-d1", "kind": "door", "wall_index": 1, "offset_mm": 400,
+        "width_mm": 800, "height_mm": 2055, "thickness_mm": 100, "sill_mm": 0,
+        "label": "D1", "source": "measured", "confidence": 0.99,
+        "swing_direction": "inward", "opening_form": "hinged",
+        "evidence_ids": ["verified-door-d1"],
+    }
+    assert ai._verified_plan_openings(source, 90, edges) == []
+    assert ai._verified_plan_openings(source, 0, edges[:1]) == []
 
 
 @pytest.mark.asyncio
@@ -964,6 +1106,32 @@ async def test_fast_analysis_builds_shape_before_text_recognition(tmp_path, monk
 
     assert events == ["vision"]
     assert spec.plan_annotation.boundary == shape.corners
+
+
+@pytest.mark.asyncio
+async def test_fast_analysis_returns_editable_annotation_when_dimensions_are_incomplete(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (320, 240), "white").save(source)
+    shape = rectangle_shape()
+    candidate = TopologyCandidate(id="C1", corners=shape.corners, pixel_support=0.9)
+
+    monkeypatch.setattr(ai, "_preferred_plan_rotation", lambda *_args: 0)
+    monkeypatch.setattr(ai, "_raster_topology_candidates", lambda *_args, **_kwargs: [candidate])
+
+    async def fake_single(*_args, **_kwargs):
+        return TopologyCandidateSelection(selected_id="C1", accepted=True, confidence=0.9), PlanEvidenceReport()
+
+    monkeypatch.setattr(ai, "_recognize_plan_single_pass", fake_single)
+    monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
+    monkeypatch.setattr(settings, "openai_api_key", "key")
+    monkeypatch.setattr(settings, "read_model", "vision-test")
+
+    spec = await ai.analyze_floorplan_fast(source)
+
+    assert spec.boundary == []
+    assert spec.plan_annotation is not None
+    assert spec.plan_annotation.boundary == shape.corners
+    assert any("逐段尺寸尚未闭合" in issue.message for issue in spec.issues)
 
 
 @pytest.mark.asyncio

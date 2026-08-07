@@ -27,7 +27,7 @@ export function WorkflowStatus({ project, spec, busy, dirty }: {
     return <div className="workflow-status working"><LoaderCircle className="spin" size={16} /><span>正在识别原图墙线、文字归属、门洞和排水标注；完成后先进入照片校正。</span></div>
   }
   if (project.status === 'analysis_failed') {
-    return <div className="workflow-status error"><AlertTriangle size={16} /><span>{hasPlan ? '上次解析未完成；图片仍在项目中，可调整方向后重试。' : '解析未完成，请上传测量图或手动建立空间。'}</span></div>
+    return <div className="workflow-status error"><AlertTriangle size={16} /><span>{hasPlan ? '上次解析未完成；上一轮结果仍可使用，可调整方向后重试。' : '解析未完成，请上传测量图或手动建立空间。'}</span></div>
   }
   if (!spec) {
     return <div className="workflow-status empty"><Clock3 size={16} /><span>{hasPlan ? '测量图已上传，先生成照片标注草稿；确认标注后才生成二维图。' : '等待上传测量图或手动录入基础尺寸。'}</span></div>

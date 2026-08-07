@@ -210,11 +210,11 @@ async def test_project_upload_and_save_flow(tmp_path, monkeypatch) -> None:
         assert imported.status_code == 200
         assert imported.json()["status"] == "review"
         assert imported.json()["spec"]["name"] == "从量房文件重建"
-        assert imported.json()["measurement"]["revision"] == 3
+        assert imported.json()["measurement"]["revision"] == 2
 
 
 @pytest.mark.asyncio
-async def test_uploading_new_floorplan_invalidates_previous_spec_and_measurement(tmp_path) -> None:
+async def test_uploading_new_floorplan_preserves_previous_spec_and_measurement(tmp_path) -> None:
     configure_temp_database(tmp_path)
     db.initialize()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
@@ -239,9 +239,9 @@ async def test_uploading_new_floorplan_invalidates_previous_spec_and_measurement
         refreshed = await client.get(f"/api/projects/{project_id}")
 
     assert uploaded.status_code == 201
-    assert refreshed.json()["status"] == "draft"
-    assert refreshed.json()["spec"] is None
-    assert refreshed.json()["measurement"] is None
+    assert refreshed.json()["status"] == "model"
+    assert refreshed.json()["spec"]["height_mm"] == 2600
+    assert refreshed.json()["measurement"]["heights"]["room_height_mm"] == 2600
 
 
 @pytest.mark.asyncio
@@ -369,7 +369,7 @@ async def test_rejects_non_image_upload(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_new_floorplan_invalidates_old_geometry_but_site_photo_does_not(tmp_path) -> None:
+async def test_new_floorplan_and_site_photo_both_preserve_old_geometry(tmp_path) -> None:
     configure_temp_database(tmp_path)
     db.initialize()
     image_data = BytesIO()
@@ -393,9 +393,9 @@ async def test_new_floorplan_invalidates_old_geometry_but_site_photo_does_not(tm
         )
         assert floorplan.status_code == 201
         refreshed = (await client.get(f"/api/projects/{project_id}")).json()
-        assert refreshed["spec"] is None
-        assert refreshed["measurement"] is None
-        assert refreshed["status"] == "draft"
+        assert refreshed["spec"] is not None
+        assert refreshed["measurement"] is not None
+        assert refreshed["status"] == "review"
 
         assert (await client.put(f"/api/projects/{project_id}/spec", json=spec)).status_code == 200
         photo = await client.post(
@@ -410,7 +410,7 @@ async def test_new_floorplan_invalidates_old_geometry_but_site_photo_does_not(tm
 
 
 @pytest.mark.asyncio
-async def test_failed_reanalysis_marks_old_spec_stale_without_deleting_it(tmp_path, monkeypatch) -> None:
+async def test_failed_reanalysis_restores_status_and_preserves_old_result(tmp_path, monkeypatch) -> None:
     configure_temp_database(tmp_path)
     db.initialize()
     statuses_during_analysis: list[str] = []
@@ -438,10 +438,55 @@ async def test_failed_reanalysis_marks_old_spec_stale_without_deleting_it(tmp_pa
         assert failed.status_code >= 400
         assert statuses_during_analysis == ["analysis_running"]
         project = (await client.get(f"/api/projects/{project_id}")).json()
-        assert project["status"] == "analysis_failed"
+        assert project["status"] == "review"
         assert project["spec"]["height_mm"] == 2600
         assert project["measurement"]["heights"]["room_height_mm"] == 2600
         assert len(project["measurement"]["walls"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_successful_reanalysis_returns_draft_without_overwriting_old_result(tmp_path, monkeypatch) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+
+    async def replacement_analysis(*_args, **_kwargs):
+        return RoomSpec(
+            name="新一轮草稿",
+            boundary=[
+                Point2D(x_mm=0, z_mm=0), Point2D(x_mm=3000, z_mm=0),
+                Point2D(x_mm=3000, z_mm=2000), Point2D(x_mm=0, z_mm=2000),
+            ],
+            height_mm=2800,
+        )
+
+    monkeypatch.setattr(main_module, "analyze_floorplan", replacement_analysis)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "生成草稿隔离"})).json()["id"]
+        old_spec = RoomSpec(
+            name="上一轮结果",
+            boundary=[
+                Point2D(x_mm=0, z_mm=0), Point2D(x_mm=1800, z_mm=0),
+                Point2D(x_mm=1800, z_mm=2400), Point2D(x_mm=0, z_mm=2400),
+            ],
+            height_mm=2600,
+        )
+        await client.put(f"/api/projects/{project_id}/spec", json=old_spec.model_dump(mode="json"))
+        image_data = BytesIO()
+        Image.new("RGB", (320, 240), "white").save(image_data, "JPEG")
+        await client.post(
+            f"/api/projects/{project_id}/assets", data={"role": "floorplan"},
+            files={"file": ("new-plan.jpg", image_data.getvalue(), "image/jpeg")},
+        )
+
+        analyzed = await client.post(f"/api/projects/{project_id}/analyze-plan")
+        persisted = (await client.get(f"/api/projects/{project_id}")).json()
+
+    assert analyzed.status_code == 200
+    assert analyzed.json()["spec"]["name"] == "新一轮草稿"
+    assert analyzed.json()["measurement"]["heights"]["room_height_mm"] == 2800
+    assert persisted["status"] == "review"
+    assert persisted["spec"]["name"] == "上一轮结果"
+    assert persisted["measurement"]["heights"]["room_height_mm"] == 2600
 
 
 @pytest.mark.asyncio

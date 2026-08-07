@@ -28,7 +28,7 @@ const wetZonesOnly = (spec: RoomSpec) => {
 }
 
 const visibleSpec = (value: Project | null) => {
-  const spec = value?.status === 'analysis_failed' ? null : value?.spec ?? null
+  const spec = value?.spec ?? null
   if (!spec) return null
   const normalized = cloneSpec(spec)
   repairPendingOpeningImageBindings(normalized)
@@ -215,8 +215,7 @@ export default function App() {
     const next = cloneSpec(result.spec)
     syncOpeningBindings(next)
     const visible = wetZonesOnly(next)
-    setSpec(visible); setProject((current) => current ? { ...current, spec: visible, measurement: result.measurement, status: 'review' } : current)
-    setHistory([]); setFuture([]); setDirty(false); setMode(visible.plan_annotation?.confirmed ? 'review' : 'annotation'); setSelection({ type: 'room' })
+    setHistory(spec ? [cloneSpec(spec)] : []); setFuture([]); setSpec(visible); setDirty(true); setMode(visible.plan_annotation?.confirmed ? 'review' : 'annotation'); setSelection({ type: 'room' })
     setFocusEvidenceId(null); setActiveEvidenceId(null)
   }
 
@@ -245,14 +244,8 @@ export default function App() {
               : `二维数据已生成，请继续校正：${firstError?.message ?? '存在未完成项'}`,
       )
     } catch (error) {
-      try {
-        const failed = await studioApi.project(requestProjectId)
-        if (projectRef.current?.id === requestProjectId) {
-          setProject(failed); setSpec(visibleSpec(failed)); setHistory([]); setFuture([]); setDirty(false)
-        }
-      } catch { /* Keep the original API error as the actionable message. */ }
       const timedOut = error instanceof Error && error.name === 'TimeoutError'
-      showMessage(timedOut ? 'info' : 'error', timedOut ? error.message : `本次识别失败，旧模型已标记为不可用，原图片无需删除：${(error as Error).message}`)
+      showMessage(timedOut ? 'info' : 'error', timedOut ? error.message : `本次识别失败，上一轮结果已保留：${(error as Error).message}`)
     }
     finally { setBusy(null) }
   }
@@ -262,7 +255,7 @@ export default function App() {
     setBusy('photos')
     try {
       const result = await studioApi.analyzePhotos(project.id)
-      applyAnalysis(result); showMessage('success', '现场照片识别完成，请核对新增设施')
+      applyAnalysis(result); showMessage('success', '现场照片识别草稿已生成；保存后才会替换当前结果')
     } catch (error) { showMessage('error', (error as Error).message) }
     finally { setBusy(null) }
   }

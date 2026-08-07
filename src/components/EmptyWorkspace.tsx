@@ -15,7 +15,7 @@ export function EmptyWorkspace({ hasPlan, analysisFailed, canAnalyze, onAnalyze,
     <div className="empty-workspace">
       <div className="empty-symbol"><Ruler size={34} strokeWidth={1.25} /></div>
       <h1>{analysisFailed ? '上次拓扑识别未通过' : hasPlan ? '测量图已经就位' : '从测量图开始建立空间'}</h1>
-      <p>{analysisFailed ? '原图与旧数据均已保留，错误模型不会继续显示；可直接重新解析。' : hasPlan ? '解析后先核对尺寸和空间边界，再生成可编辑的三维模型。' : '上传带尺寸的平面图；图纸信息足够时，现场照片可以省略。'}</p>
+      <p>{analysisFailed ? '原图与上一轮结果均已保留，可直接重新解析。' : hasPlan ? '解析后先核对尺寸和空间边界；生成草稿只有保存后才会替换当前结果。' : '上传带尺寸的平面图；图纸信息足够时，现场照片可以省略。'}</p>
       {hasPlan && <button className="button primary" onClick={onAnalyze} disabled={!canAnalyze}><ScanLine size={17} />解析测量图</button>}
       <div className="manual-divider"><span>或手动建立矩形空间</span></div>
       <div className="manual-dimensions">

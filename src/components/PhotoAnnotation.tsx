@@ -821,6 +821,17 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
         const dx = openingEnd.x - openingStart.x, dy = openingEnd.y - openingStart.y
         const distance = Math.max(1, Math.hypot(dx, dy))
         const normal = { x: -dy / distance, y: dx / distance }
+        const mid = { x: (openingStart.x + openingEnd.x) / 2, y: (openingStart.y + openingEnd.y) / 2 }
+        const roomCenter = canvasPoints.reduce((center, point) => ({ x: center.x + point.x / canvasPoints.length, y: center.y + point.y / canvasPoints.length }), { x: 0, y: 0 })
+        const towardRoom = (roomCenter.x - mid.x) * normal.x + (roomCenter.y - mid.y) * normal.y >= 0 ? normal : { x: -normal.x, y: -normal.y }
+        const symbolNormal = rawOpening.swing_direction === 'outward' ? { x: -towardRoom.x, y: -towardRoom.y } : towardRoom
+        const hingeAtEnd = rawOpening.swing_direction === 'right'
+        const hinge = hingeAtEnd ? openingEnd : openingStart
+        const closedTip = hingeAtEnd ? openingStart : openingEnd
+        const hingeTangent = { x: (closedTip.x - hinge.x) / distance, y: (closedTip.y - hinge.y) / distance }
+        const leafEnd = { x: hinge.x + symbolNormal.x * distance, y: hinge.y + symbolNormal.y * distance }
+        const arcSweep = hingeTangent.x * symbolNormal.y - hingeTangent.y * symbolNormal.x > 0 ? 1 : 0
+        const showHingedDoor = rawOpening.kind === 'door' && (!rawOpening.opening_form || rawOpening.opening_form === 'unknown' || rawOpening.opening_form === 'hinged')
         const selected = selectedOpeningId === rawOpening.id
         const beginOpeningDrag = (event: ReactPointerEvent<SVGElement>, mode: OpeningDrag['mode']) => {
           if (tool !== 'edit' || event.button !== 0) return
@@ -836,12 +847,16 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
           event.stopPropagation(); setSelectedPoint(null); setSelectedOpeningId(rawOpening.id)
         }}>
           <line className="opening-part" x1={openingStart.x} y1={openingStart.y} x2={openingEnd.x} y2={openingEnd.y} />
+          {showHingedDoor && <g className="opening-symbol hinged" pointerEvents="none">
+            <line className="door-leaf" x1={hinge.x} y1={hinge.y} x2={leafEnd.x} y2={leafEnd.y} />
+            <path className="door-swing" d={`M ${closedTip.x} ${closedTip.y} A ${distance} ${distance} 0 0 ${arcSweep} ${leafEnd.x} ${leafEnd.y}`} />
+          </g>}
           <line className="opening-drag-hit" x1={openingStart.x} y1={openingStart.y} x2={openingEnd.x} y2={openingEnd.y} onPointerDown={(event) => beginOpeningDrag(event, 'move')} />
           <line className="opening-tick" x1={openingStart.x - normal.x * 10} y1={openingStart.y - normal.y * 10} x2={openingStart.x + normal.x * 10} y2={openingStart.y + normal.y * 10} />
           <line className="opening-tick" x1={openingEnd.x - normal.x * 10} y1={openingEnd.y - normal.y * 10} x2={openingEnd.x + normal.x * 10} y2={openingEnd.y + normal.y * 10} />
           <circle className="opening-handle" cx={openingStart.x} cy={openingStart.y} r="8" onPointerDown={(event) => beginOpeningDrag(event, 'start')} />
           <circle className="opening-handle" cx={openingEnd.x} cy={openingEnd.y} r="8" onPointerDown={(event) => beginOpeningDrag(event, 'end')} />
-          <text className="opening-label" x={(openingStart.x + openingEnd.x) / 2 + normal.x * 12} y={(openingStart.y + openingEnd.y) / 2 + normal.y * 12}>{part?.label ?? rawOpening.label} {Math.round((endRatio - startRatio) * hostLength)}</text>
+          <text className="opening-label" x={mid.x + normal.x * 12} y={mid.y + normal.y * 12}>{part?.label ?? rawOpening.label} {Math.round((endRatio - startRatio) * hostLength)}</text>
         </g>
       })}
       {(() => {

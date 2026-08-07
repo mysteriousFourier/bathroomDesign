@@ -32,10 +32,12 @@ def test_simple_bathroom_surface_area_comes_from_measurement():
     room={"boundary":[{"x_mm":0,"z_mm":0},{"x_mm":2000,"z_mm":0},{"x_mm":2000,"z_mm":2000},{"x_mm":0,"z_mm":2000}],"height_mm":2400,"openings":[{"width_mm":800,"height_mm":2000}]}
     result=surface_estimate(room)
     assert result["floor_area_sqm"]==4
+    assert result["ceiling_area_sqm"]==4
     assert result["wall_gross_area_sqm"]==19.2
     assert result["opening_area_sqm"]==1.6
     assert result["wall_net_area_sqm"]==17.6
     assert result["floor_purchase_sqm"]==4.4
+    assert result["ceiling_purchase_sqm"]==4.4
     assert result["wall_purchase_sqm"]==19.36
 
 def test_chat_area_is_never_read_from_user_text():
@@ -79,8 +81,18 @@ def test_empty_quote_context_blocks_model_invented_prices():
     assert "200" not in safe and "16853" not in safe
     assert "当前知识图谱没有可用报价" in safe
 
+def test_nonempty_quote_context_also_blocks_model_invented_prices():
+    unsafe="建议按清单单价 999 元，材料合计 8888 元。"
+    safe=_safe_model_message(unsafe,[{"材料编号":"QB1"}])
+    assert "999" not in safe and "8888" not in safe
+    assert "服务端报价工具" in safe
+
+def test_non_price_model_message_is_preserved():
+    message="需求已经完整，请确认是否提交这版需求。"
+    assert _safe_model_message(message,[{"材料编号":"QB1"}])==message
+
 def test_invalid_catalog_price_never_becomes_quote():
-    surfaces={"floor_purchase_sqm":4.4,"wall_purchase_sqm":10}
+    surfaces={"floor_purchase_sqm":4.4,"wall_purchase_sqm":10,"ceiling_purchase_sqm":4.4}
     products=[{"attributes":{"材料编号":"DB-X","材料名称":"地砖","单价":"约200元/㎡"}}]
     assert material_quotes(products,surfaces)==[]
 
@@ -94,6 +106,27 @@ def test_quote_tool_calculates_from_server_candidates_only():
     assert [line["材料编号"] for line in result["材料报价"]]==["QB1","DB1"]
     assert QUOTE_TOOL["function"]["parameters"]["properties"].keys()=={"product_ids"}
     assert "必须调用 calculate_design_quote" in PROMPT
+
+def test_material_quotes_use_wall_ceiling_and_floor_quantities():
+    surfaces={"wall_purchase_sqm":19.36,"ceiling_purchase_sqm":4.4,"floor_purchase_sqm":4.4}
+    products=[
+        {"id":"wall","attributes":{"材料编号":"QB1","材料名称":"墙板","单价":"80","数量单位":"平米"}},
+        {"id":"ceiling","attributes":{"材料编号":"DD1","材料名称":"吊顶","单价":"45","数量单位":"平米"}},
+        {"id":"floor","attributes":{"材料编号":"DB1","材料名称":"地砖","单价":"340","数量单位":"平米"}},
+    ]
+    result=material_quotes(products,surfaces)
+    assert [(x["材料名称"],x["采购量"],x["材料小计"]) for x in result]==[("墙板",19.36,1548.8),("吊顶",4.4,198.0),("地砖",4.4,1496.0)]
+
+def test_quote_tool_accepts_at_most_one_material_per_category():
+    candidates=[
+        {"product_id":"wall-a","材料名称":"墙板","材料小计":800},
+        {"product_id":"wall-b","材料名称":"墙板","材料小计":1200},
+        {"product_id":"ceiling-a","材料名称":"吊顶","材料小计":200},
+        {"product_id":"floor-a","材料名称":"地砖","材料小计":500},
+    ]
+    result=calculate_design_quote(candidates,[],["wall-a","wall-b","ceiling-a","floor-a"])
+    assert [x["product_id"] for x in result["材料报价"]]==["wall-a","ceiling-a","floor-a"]
+    assert result["材料合计"]==1500
 
 def test_constrained_graph_forbidden_category_wins(tmp_path: Path):
     graph=ProductKnowledgeGraph(tmp_path/"graph.json")
@@ -163,8 +196,8 @@ def test_furniture_combination_price_range_uses_each_required_category():
     assert furniture_price_range(groups)=={"min":970,"max":1990}
 
 def test_default_quote_never_preselects_furniture():
-    materials=[{"product_id":"wall","材料名称":"墙板"},{"product_id":"floor","材料名称":"地砖"}]
+    materials=[{"product_id":"wall","材料名称":"墙板"},{"product_id":"floor","材料名称":"地砖"},{"product_id":"ceiling","材料名称":"吊顶"}]
     furniture=[{"product_id":"toilet-1","家具名称":"马桶"}]
     rules={"必须设备":["马桶"],"不能有的设备":[]}
-    assert default_product_ids(materials,furniture,rules)==["wall","floor"]
+    assert default_product_ids(materials,furniture,rules)==["wall","floor","ceiling"]
     assert "不得传入家具 ID" in QUOTE_TOOL["function"]["parameters"]["properties"]["product_ids"]["description"]

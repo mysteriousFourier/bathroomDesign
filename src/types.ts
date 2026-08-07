@@ -359,13 +359,14 @@ export interface MeasurementImportResponse {
 export interface Health {
   ok: boolean
   ai_configured: boolean
+  chat_configured?: boolean
   model: string | null
   chat_model?: string | null
   fallback_model?: string | null
   ocr_configured?: boolean
 }
 export interface ChatMessage { role:'user'|'assistant'; content:string }
-export interface SurfaceEstimate { source:string; floor_area_sqm:number; wall_gross_area_sqm:number|null; opening_area_sqm:number; wall_net_area_sqm:number|null; waste_rate:number; floor_purchase_sqm:number; wall_purchase_sqm:number|null; floor_layout:string; wall_layout:string; warnings:string[] }
+export interface SurfaceEstimate { source:string; floor_area_sqm:number; ceiling_area_sqm:number; wall_gross_area_sqm:number|null; opening_area_sqm:number; wall_net_area_sqm:number|null; waste_rate:number; floor_purchase_sqm:number; ceiling_purchase_sqm:number; wall_purchase_sqm:number|null; floor_layout:string; ceiling_layout:string; wall_layout:string; warnings:string[] }
 export interface RequirementState { collected:Record<string,string|string[]|null>; missing_fields:string[]; complete:boolean }
 export interface QuoteLine { product_id:string; 材料编号:string; 单价:number; 单位:string; 来源:string; 材料名称?:string; 采购量?:number; 材料小计?:number; 家具名称?:string; 数量?:number; 家具小计?:number }
 export interface StyleMatch { user_terms:string[]; catalog_style:string|null; confidence:number; status:'matched'|'mapped'|'needs_clarification'; candidates:Array<{catalog_style:string;feeling:string}>; resolver_version:string }

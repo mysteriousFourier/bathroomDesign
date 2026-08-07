@@ -58,7 +58,11 @@ class Settings(BaseSettings):
 
     @property
     def ai_configured(self) -> bool:
-        return bool(self.openai_base_url and self.openai_api_key and self.read_model and self.chat_model)
+        return bool(self.openai_base_url and self.openai_api_key and self.read_model)
+
+    @property
+    def chat_configured(self) -> bool:
+        return bool(self.openai_base_url and self.openai_api_key and self.chat_model)
 
 
 settings = Settings()

@@ -270,9 +270,6 @@ function Invoke-Startup {
         return
     }
 
-    Write-Step "Building the frontend"
-    Invoke-Checked -FilePath $Npm -Arguments @("run", "build") -Description "Frontend build"
-
     $ExpectedSourceVersion = Get-BackendSourceVersion
     $ExpectedConfigVersion = Get-EnvironmentConfigVersion -Path $EnvPath
     $ExistingHealth = Get-AppHealth
@@ -299,6 +296,9 @@ function Invoke-Startup {
     if (Test-PortOpen -Port 8000) {
         throw "Port 8000 is already in use by another program. Stop it and run this launcher again."
     }
+
+    Write-Step "Building the frontend"
+    Invoke-Checked -FilePath $Npm -Arguments @("run", "build") -Description "Frontend build"
 
     Write-Step "Starting the system"
     $LogDir = Join-Path $ProjectRoot ".tmp\startup"

@@ -21,7 +21,7 @@ from .config import settings
 from .database import db
 from .design_chat import design_chat
 from .knowledge_graph import ProductKnowledgeGraph
-from .measurement import measurement_contract_export, validate_measurement
+from .measurement import measurement_contract_export, measurement_from_spec, validate_measurement
 from .measurement_import import MeasurementImportError, import_measurement_file, inspect_measurement_file
 from .model_assets import delete_model_asset, list_model_assets, resolve_model_asset_file, store_model_asset
 from .models import (
@@ -98,6 +98,7 @@ def health() -> dict:
         "source_version": backend_source_version,
         "config_version": backend_config_version,
         "ai_configured": settings.ai_configured,
+        "chat_configured": settings.chat_configured,
         "model": visual_model or None,
         "chat_model": settings.chat_model or None,
         "fallback_model": fallback_model,
@@ -263,23 +264,24 @@ async def analyze_plan_endpoint(project_id: str, rotation_degrees: int | None = 
     if not plans:
         raise HTTPException(status_code=422, detail="请先上传平面图")
     row = db.get_asset_row(plans[-1].id)
+    previous_status = project.status
     try:
         if rotation_degrees not in (None, 0, 90, 180, 270):
             raise HTTPException(status_code=422, detail="rotation_degrees 只能是 0、90、180 或 270")
-        # Persist progress so a browser refresh does not turn an in-flight analysis into an empty state.
         db.set_status(project_id, "analysis_running")
         spec = await analyze_floorplan(db.asset_path(row), asset_id=plans[-1].id, rotation_degrees=rotation_degrees)
     except AIConfigurationError as error:
-        db.set_status(project_id, "analysis_failed")
         raise ai_http_error(error) from error
     except AIResponseError as error:
-        db.set_status(project_id, "analysis_failed")
         raise ai_http_error(error) from error
+    finally:
+        db.restore_status(project_id, previous_status, "analysis_running")
     ai_issues = spec.issues
     issues, sufficient, missing = validate_spec(spec)
     spec.issues = [*ai_issues, *issues]
-    saved = db.save_spec(project_id, spec, "review")
-    return AnalysisResponse(spec=saved.spec or spec, measurement=saved.measurement, sufficient=sufficient, missing=missing)
+    revision = (project.measurement.revision + 1) if project.measurement else 1
+    measurement = measurement_from_spec(spec, project_id, revision=revision) if len(spec.boundary) >= 3 else None
+    return AnalysisResponse(spec=spec, measurement=measurement, sufficient=sufficient, missing=missing)
 
 
 @app.post("/api/projects/{project_id}/analyze-photos", response_model=AnalysisResponse)
@@ -297,8 +299,9 @@ async def analyze_photos_endpoint(project_id: str) -> AnalysisResponse:
         raise ai_http_error(error) from error
     issues, sufficient, missing = validate_spec(spec)
     spec.issues = issues
-    saved = db.save_spec(project_id, spec, "review")
-    return AnalysisResponse(spec=saved.spec or spec, measurement=saved.measurement, sufficient=sufficient, missing=missing)
+    revision = (project.measurement.revision + 1) if project.measurement else 1
+    measurement = measurement_from_spec(spec, project_id, revision=revision) if len(spec.boundary) >= 3 else None
+    return AnalysisResponse(spec=spec, measurement=measurement, sufficient=sufficient, missing=missing)
 
 
 @app.put("/api/projects/{project_id}/spec", response_model=ProjectResponse)

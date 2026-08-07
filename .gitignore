@@ -21,6 +21,8 @@ backend/data/
 !backend/data/
 backend/data/*
 !backend/data/product_catalog.csv
+*.sqlite3
+*.sqlite3-*
 
 # Python and tooling caches
 .venv/
@@ -35,6 +37,8 @@ __pycache__/
 .hypothesis/
 .tox/
 .nox/
+.python-version
+*.egg-info/
 *.pyc
 .coverage
 coverage.xml

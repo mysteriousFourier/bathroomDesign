@@ -162,6 +162,18 @@ class Database:
                 raise KeyError(project_id)
         return self.get_project(project_id)
 
+    def restore_status(self, project_id: str, status: str, expected_status: str) -> ProjectResponse:
+        with self.connect() as connection:
+            row = connection.execute("SELECT status FROM projects WHERE id = ?", (project_id,)).fetchone()
+            if row is None:
+                raise KeyError(project_id)
+            if row["status"] == expected_status:
+                connection.execute(
+                    "UPDATE projects SET status = ?, updated_at = ? WHERE id = ?",
+                    (status, now_iso(), project_id),
+                )
+        return self.get_project(project_id)
+
     def add_asset(self, project_id: str, role: str, filename: str, stored_name: str, mime_type: str, width: int, height: int) -> AssetResponse:
         self.get_project(project_id)
         asset_id = uuid.uuid4().hex
@@ -173,7 +185,7 @@ class Database:
             )
             if role == "floorplan":
                 connection.execute(
-                    "UPDATE projects SET spec_json = NULL, measurement_json = NULL, status = 'draft', updated_at = ? WHERE id = ?",
+                    "UPDATE projects SET updated_at = ? WHERE id = ?",
                     (created_at, project_id),
                 )
             else:

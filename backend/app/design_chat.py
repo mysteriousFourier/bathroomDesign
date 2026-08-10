@@ -1,4 +1,6 @@
 import json, math, re, httpx
+from functools import lru_cache
+from pathlib import Path
 from .config import settings
 from .knowledge_graph import equipment_rules
 from .provider import serialized_post
@@ -54,9 +56,17 @@ def _supports_style(attrs,style):
     values=[x for x in re.split(r"[、,，/；;\s]+",attrs.get("风格", "")) if x]
     return not style or "通用" in values or style in values
 
+@lru_cache(maxsize=1)
+def _model_library_assets():
+    path=Path(__file__).resolve().parents[1]/"data"/"model_library.json"
+    try:return json.loads(path.read_text(encoding="utf-8")).get("assets",[])
+    except (OSError,ValueError,TypeError):return []
+
 def _model_lookup(product,style_match):
     attrs=product["attributes"]
-    return {"product_id":product["id"],"catalog_code":attrs.get("材料编号",""),"category":attrs.get("材料名称",""),"catalog_style":attrs.get("风格","通用"),"normalized_requested_style":style_match.get("catalog_style"),"spec":attrs.get("规格型号",""),"model_asset_id":None,"layout_fixture_kind":attrs.get("材料名称",""),"binding_status":"awaiting_model_asset"}
+    code=attrs.get("材料编号","");category=attrs.get("材料名称","")
+    asset=next((item for item in _model_library_assets() if code in item.get("catalog_codes",[])),None)
+    return {"product_id":product["id"],"catalog_code":code,"category":category,"catalog_style":attrs.get("风格","通用"),"normalized_requested_style":style_match.get("catalog_style"),"spec":attrs.get("规格型号",""),"model_asset_id":asset.get("id") if asset else None,"model_asset_src":asset.get("src") if asset else None,"model_asset_format":asset.get("format") if asset else None,"model_asset_label":asset.get("label") if asset else None,"model_dimensions_mm":asset.get("dimensions_mm") if asset else None,"texture_src":asset.get("texture_src") if asset else None,"layout_fixture_kind":category,"binding_status":"bound" if asset else "awaiting_model_asset"}
 
 def material_quotes(products,surfaces):
     quotes=[]
@@ -66,7 +76,7 @@ def material_quotes(products,surfaces):
         quantity_key={"地砖":"floor_purchase_sqm","墙板":"wall_purchase_sqm","吊顶":"ceiling_purchase_sqm"}[category]
         price=_number(attrs.get("单价"));quantity=surfaces[quantity_key]
         if price is None or quantity is None:continue
-        quotes.append({"product_id":product["id"],"材料编号":attrs.get("材料编号",""),"材料名称":category,"规格型号":attrs.get("规格型号",""),"采购量":quantity,"单位":attrs.get("数量单位") or "平米","单价":price,"材料小计":round(quantity*price,2),"来源":product.get("retrieval",{}).get("source",f"product_catalog:{product['id']}")})
+        quotes.append({"product_id":product["id"],"材料编号":attrs.get("材料编号",""),"材料名称":category,"规格型号":attrs.get("规格型号",""),"采购量":quantity,"单位":attrs.get("数量单位") or "平米","单价":price,"材料小计":round(quantity*price,2),"model_lookup":_model_lookup(product,{}),"来源":product.get("retrieval",{}).get("source",f"product_catalog:{product['id']}")})
     return quotes
 
 MATERIAL_CATEGORIES={"地砖","墙板","吊顶"}

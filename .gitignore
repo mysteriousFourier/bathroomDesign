@@ -91,3 +91,13 @@ Desktop.ini
 /*.bmp
 /*.tif
 /*.tiff
+
+# Generated fixture binaries are rebuilt from the local source library.
+/public/model-library/models/
+/public/model-library/models/**
+
+# Keep the lightweight fixed wall/floor boards and lookup manifests.
+!/public/model-library/manifest.json
+!/public/model-library/surfaces/
+!/public/model-library/surfaces/**
+!backend/data/model_library.json

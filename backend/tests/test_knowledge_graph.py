@@ -182,6 +182,15 @@ def test_furniture_style_filter_and_model_lookup_contract():
     assert result[0]["风格匹配依据"]==["复古"]
     assert result[0]["model_lookup"]["binding_status"]=="awaiting_model_asset"
 
+def test_exact_catalog_code_binds_builtin_model_asset():
+    products=[{"id":"catalog-shower","attributes":{"材料编号":"HS1-1","材料名称":"花洒","风格":"素雅","规格型号":"基础花洒","单价":"500"}}]
+    result=furniture_quotes(products,{"catalog_style":"素雅","user_terms":["素雅"]})
+    lookup=result[0]["model_lookup"]
+    assert lookup["binding_status"]=="bound"
+    assert lookup["model_asset_id"]
+    assert lookup["model_asset_src"].startswith("/model-library/models/")
+    assert lookup["model_dimensions_mm"]["width"]>0
+
 def test_furniture_combination_price_range_uses_each_required_category():
     candidates=[
         {"product_id":"toilet-a","家具名称":"马桶","家具小计":800},

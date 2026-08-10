@@ -16,8 +16,9 @@ import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { fixtureModelAssetFromLibrary, type RoomModelAsset } from './modelAssets'
+import { applyLayoutSolution, type LayoutSolution } from './layoutEngine'
 import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, updateOpeningFromLine, wallLength, wetZoneBoundaryValid } from './spec'
-import type { BoundaryEdge, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
+import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
 
@@ -90,6 +91,8 @@ export default function App() {
   const [activeEvidenceId, setActiveEvidenceId] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [measurementImportOpen, setMeasurementImportOpen] = useState(false)
+  const [activeLayout, setActiveLayout] = useState<LayoutSolution | null>(null)
+  const [designQuote, setDesignQuote] = useState<DesignChatResponse | null>(null)
   const modelRef = useRef<ModelCanvasHandle>(null)
   const projectRef = useRef<Project | null>(null)
   projectRef.current = project
@@ -109,6 +112,7 @@ export default function App() {
     setMode(nextSpec?.plan_annotation && !nextSpec.plan_annotation.confirmed ? 'annotation' : 'review')
     setHistory([]); setFuture([]); setDirty(false); setSelection({ type: 'room' })
     setFocusEvidenceId(null); setActiveEvidenceId(null)
+    setActiveLayout(null); setDesignQuote(null)
   }, [])
 
   useEffect(() => {
@@ -162,6 +166,7 @@ export default function App() {
       setProject(next); setSpec(nextSpec); setHistory([]); setFuture([]); setDirty(false); setMode(nextSpec?.plan_annotation && !nextSpec.plan_annotation.confirmed ? 'annotation' : 'review'); setSelection({ type: 'room' })
       setFocusEvidenceId(null); setActiveEvidenceId(null)
       setPlanRotation(null)
+      setActiveLayout(null); setDesignQuote(null)
     } catch (error) { showMessage('error', (error as Error).message) }
     finally { setBusy(null) }
   }
@@ -460,6 +465,16 @@ export default function App() {
     showMessage('success', `${asset.label} 已加入房间`)
   }
 
+  const applyAutoLayout = (solution: LayoutSolution) => {
+    if (!spec) return
+    const next = applyLayoutSolution(cloneSpec(spec), solution)
+    commitSpec(next)
+    setActiveLayout(solution)
+    setSelection({ type: 'room' })
+    setMode('model')
+    showMessage('success', `已在三维房间显示“${solution.title}”，${solution.fixtures.length} 个实体按量房坐标和真实高度落地`)
+  }
+
   useEffect(() => {
     if (!pendingExport || mode !== 'model') return
     const timer = window.setTimeout(() => {
@@ -480,7 +495,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <Header projectName={project?.name} dirty={dirty} canUndo={history.length > 0} canRedo={future.length > 0} canConfirm={canConfirm} canModel={canModel} canExportMeasurement={canExportMeasurement} saving={busy === 'save'} onUndo={undo} onRedo={redo} onSave={() => void save()} onConfirm={() => void confirm()} onExportMeasurement={exportMeasurement} onExport={exportModel} onOpenLibrary={() => setMode('library')} onOpenChat={() => setChatOpen(true)} />
-      <DesignChat open={chatOpen} room={spec} onClose={() => setChatOpen(false)} />
+      <DesignChat open={chatOpen} room={spec} onClose={() => setChatOpen(false)} onQuote={setDesignQuote} />
       <MeasurementImportDialog open={measurementImportOpen} projectId={project?.id ?? null} hasMeasurement={!!project?.measurement} onClose={() => setMeasurementImportOpen(false)} onImported={applyMeasurementImport} />
       <ProjectRail projects={projects} project={project} health={health} busy={busy} planRotation={planRotation} onPlanRotationChange={setPlanRotation} onSelectProject={(id) => void selectProject(id)} onCreateProject={createProject} onDeleteProject={() => void deleteProject()} onUpload={upload} onOpenMeasurementImport={() => setMeasurementImportOpen(true)} onAnalyzePlan={() => void analyzePlan()} onAnalyzePhotos={() => void analyzePhotos()} />
       <main className="workspace">
@@ -497,7 +512,7 @@ export default function App() {
               <button className={mode === 'library' ? 'active' : ''} onClick={() => setMode('library')}><Box size={16} />模型库</button>
               <button className={mode === 'model' ? 'active' : ''} onClick={() => canPreview && setMode('model')} disabled={!canPreview}><BoxSelect size={16} />三维预览</button>
             </div>
-            {mode !== 'annotation' && mode !== 'library' && <SolutionList spec={spec} active={mode === 'model'} onOpenModel={() => canPreview && setMode('model')} />}
+            {mode === 'review' && <SolutionList spec={spec} active={false} onOpenModel={() => canPreview && setMode('model')} onApplyLayout={applyAutoLayout} preference={{ style: designQuote?.style_match.catalog_style }} />}
             {mode === 'annotation'
               ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
               : mode === 'library'
@@ -580,7 +595,7 @@ export default function App() {
                     if (zone && wetZoneBoundaryValid(next, id, boundary)) { zone.boundary = boundary; zone.source = 'user'; zone.confidence = 1; commitSpec(next) }
                   }}
                 />
-                : <ModelCanvas ref={modelRef} spec={spec} selection={selection} onSelect={setSelection} />}
+                : <ModelCanvas ref={modelRef} spec={spec} selection={selection} onSelect={setSelection} layoutInfo={activeLayout ? { title: activeLayout.title, summary: activeLayout.layout_summary, totalPrice: activeLayout.total_price, products: [...activeLayout.product_lines.map((line) => `${line.code} ¥${line.price}`), ...activeLayout.material_lines.map((line) => `${line.code} ${line.quantity}㎡ ¥${line.subtotal}`)].join(' · ') } : null} surfaceMaterials={activeLayout ? { wall: activeLayout.surface_materials.wall?.texture_src ? { textureSrc: activeLayout.surface_materials.wall.texture_src, widthMm: activeLayout.surface_materials.wall.dimensions_mm.width, heightMm: activeLayout.surface_materials.wall.dimensions_mm.height } : undefined, floor: activeLayout.surface_materials.floor?.texture_src ? { textureSrc: activeLayout.surface_materials.floor.texture_src, widthMm: activeLayout.surface_materials.floor.dimensions_mm.width, depthMm: activeLayout.surface_materials.floor.dimensions_mm.depth } : undefined } : undefined} />}
           </>
         )}
       </main>

@@ -1,0 +1,1113 @@
+{
+  "source": "ProductKnowledgeGraph.search_constrained",
+  "scenarios": {
+    "standard_shower": {
+      "rules": {
+        "必须设备": [
+          "花洒",
+          "热水器",
+          "马桶",
+          "浴室柜"
+        ],
+        "可有可无设备": [
+          "淋浴隔断"
+        ],
+        "不能有的设备": []
+      },
+      "products": [
+        {
+          "graph_id": "b673c93e083d6b03d8d6",
+          "code": "RSQ1-2",
+          "category": "热水器",
+          "spec": "RSQ1-2 60L 二级能效 搪瓷内胆 玫瑰金",
+          "price": 1500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.030622,
+            "source": "product_catalog:b673c93e083d6b03d8d6"
+          }
+        },
+        {
+          "graph_id": "7bb1c5b35d14a2fe49d1",
+          "code": "MT2",
+          "category": "马桶",
+          "spec": "MT2 轻智能马桶（加热、感应冲水）",
+          "price": 800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.030622,
+            "source": "product_catalog:7bb1c5b35d14a2fe49d1"
+          }
+        },
+        {
+          "graph_id": "577f0c0a8ff3700559e6",
+          "code": "MT1",
+          "category": "马桶",
+          "spec": "MT1 陶瓷白",
+          "price": 550.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.030478,
+            "source": "product_catalog:577f0c0a8ff3700559e6"
+          }
+        },
+        {
+          "graph_id": "8d29797a7862c52c3e74",
+          "code": "MT3",
+          "category": "马桶",
+          "spec": "MT3 智能马桶（加热、感应冲水、臀洗、杀菌）",
+          "price": 1200.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.030159,
+            "source": "product_catalog:8d29797a7862c52c3e74"
+          }
+        },
+        {
+          "graph_id": "0df41befcc061ead5d17",
+          "code": "RSQ1-1",
+          "category": "热水器",
+          "spec": "RSQ1-1 60L 二级能效 搪瓷内胆 米白色",
+          "price": 1500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.03009,
+            "source": "product_catalog:0df41befcc061ead5d17"
+          }
+        },
+        {
+          "graph_id": "0a673cc77b248872e0cd",
+          "code": "RSQ2-2",
+          "category": "热水器",
+          "spec": "RSQ2-2 60L 一级能效 钛金内胆 玫瑰金",
+          "price": 2800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029958,
+            "source": "product_catalog:0a673cc77b248872e0cd"
+          }
+        },
+        {
+          "graph_id": "40759fe4c31032db2d7f",
+          "code": "RSQ2-1",
+          "category": "热水器",
+          "spec": "RSQ2-1 60L 一级能效 钛金内胆 米白色",
+          "price": 2800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029911,
+            "source": "product_catalog:40759fe4c31032db2d7f"
+          }
+        },
+        {
+          "graph_id": "6afa3d46b2d72b7e50c9",
+          "code": "XYJ2-2",
+          "category": "浴室柜",
+          "spec": "XYJ2-1 实木 深砂灰",
+          "price": 2500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029727,
+            "source": "product_catalog:6afa3d46b2d72b7e50c9"
+          }
+        },
+        {
+          "graph_id": "ce1057aeba2dd5a13d09",
+          "code": "HS1-1",
+          "category": "花洒",
+          "spec": "HS1-1 枪灰色",
+          "price": 700.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029514,
+            "source": "product_catalog:ce1057aeba2dd5a13d09"
+          }
+        },
+        {
+          "graph_id": "59b095172f7d112b94f0",
+          "code": "HS1-2",
+          "category": "花洒",
+          "spec": "HS1-2 银白色",
+          "price": 700.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029083,
+            "source": "product_catalog:59b095172f7d112b94f0"
+          }
+        },
+        {
+          "graph_id": "1dad86e0180bcf1dfd22",
+          "code": "XYJ2-1",
+          "category": "浴室柜",
+          "spec": "XYJ2-1 实木 银灰色",
+          "price": 2500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028665,
+            "source": "product_catalog:1dad86e0180bcf1dfd22"
+          }
+        },
+        {
+          "graph_id": "023e2afc7f30e7cd0191",
+          "code": "HS2-1",
+          "category": "花洒",
+          "spec": "HS2-1 枪灰色 恒温",
+          "price": 1000.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028665,
+            "source": "product_catalog:023e2afc7f30e7cd0191"
+          }
+        },
+        {
+          "graph_id": "1264ae54e3400eaa09d6",
+          "code": "XYJ1-2",
+          "category": "浴室柜",
+          "spec": "XYJ1-1 三聚氰胺板 深砂灰",
+          "price": 1200.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028624,
+            "source": "product_catalog:1264ae54e3400eaa09d6"
+          }
+        },
+        {
+          "graph_id": "af80672fd0027d732238",
+          "code": "XYJ1-1",
+          "category": "浴室柜",
+          "spec": "XYJ1-1 三聚氰胺板 米白色",
+          "price": 1200.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028595,
+            "source": "product_catalog:af80672fd0027d732238"
+          }
+        },
+        {
+          "graph_id": "a6fc582fe934bcd5cb4c",
+          "code": "HS2-2",
+          "category": "花洒",
+          "spec": "HS2-2 银白色 恒温",
+          "price": 1000.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028259,
+            "source": "product_catalog:a6fc582fe934bcd5cb4c"
+          }
+        }
+      ]
+    },
+    "laundry": {
+      "rules": {
+        "必须设备": [
+          "花洒",
+          "热水器",
+          "马桶",
+          "洗衣机",
+          "浴室柜"
+        ],
+        "可有可无设备": [
+          "淋浴隔断"
+        ],
+        "不能有的设备": []
+      },
+      "products": [
+        {
+          "graph_id": "402f9a89bfcb3e7fd062",
+          "code": "XYJ1-1",
+          "category": "洗衣机",
+          "spec": "XYJ1-1 涡轮洗衣机 10L 白色",
+          "price": 1500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.030282,
+            "source": "product_catalog:402f9a89bfcb3e7fd062"
+          }
+        },
+        {
+          "graph_id": "7bb1c5b35d14a2fe49d1",
+          "code": "MT2",
+          "category": "马桶",
+          "spec": "MT2 轻智能马桶（加热、感应冲水）",
+          "price": 800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.030214,
+            "source": "product_catalog:7bb1c5b35d14a2fe49d1"
+          }
+        },
+        {
+          "graph_id": "b673c93e083d6b03d8d6",
+          "code": "RSQ1-2",
+          "category": "热水器",
+          "spec": "RSQ1-2 60L 二级能效 搪瓷内胆 玫瑰金",
+          "price": 1500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.030118,
+            "source": "product_catalog:b673c93e083d6b03d8d6"
+          }
+        },
+        {
+          "graph_id": "577f0c0a8ff3700559e6",
+          "code": "MT1",
+          "category": "马桶",
+          "spec": "MT1 陶瓷白",
+          "price": 550.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.030092,
+            "source": "product_catalog:577f0c0a8ff3700559e6"
+          }
+        },
+        {
+          "graph_id": "238feb9ecdfb341939f0",
+          "code": "XYJ2-1",
+          "category": "洗衣机",
+          "spec": "XYJ2-1 滚筒洗衣机 8L 超静音 银灰色",
+          "price": 2300.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029828,
+            "source": "product_catalog:238feb9ecdfb341939f0"
+          }
+        },
+        {
+          "graph_id": "8d29797a7862c52c3e74",
+          "code": "MT3",
+          "category": "马桶",
+          "spec": "MT3 智能马桶（加热、感应冲水、臀洗、杀菌）",
+          "price": 1200.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029762,
+            "source": "product_catalog:8d29797a7862c52c3e74"
+          }
+        },
+        {
+          "graph_id": "0df41befcc061ead5d17",
+          "code": "RSQ1-1",
+          "category": "热水器",
+          "spec": "RSQ1-1 60L 二级能效 搪瓷内胆 米白色",
+          "price": 1500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029631,
+            "source": "product_catalog:0df41befcc061ead5d17"
+          }
+        },
+        {
+          "graph_id": "0a673cc77b248872e0cd",
+          "code": "RSQ2-2",
+          "category": "热水器",
+          "spec": "RSQ2-2 60L 一级能效 钛金内胆 玫瑰金",
+          "price": 2800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029469,
+            "source": "product_catalog:0a673cc77b248872e0cd"
+          }
+        },
+        {
+          "graph_id": "40759fe4c31032db2d7f",
+          "code": "RSQ2-1",
+          "category": "热水器",
+          "spec": "RSQ2-1 60L 一级能效 钛金内胆 米白色",
+          "price": 2800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029437,
+            "source": "product_catalog:40759fe4c31032db2d7f"
+          }
+        },
+        {
+          "graph_id": "ce1057aeba2dd5a13d09",
+          "code": "HS1-1",
+          "category": "花洒",
+          "spec": "HS1-1 枪灰色",
+          "price": 700.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029139,
+            "source": "product_catalog:ce1057aeba2dd5a13d09"
+          }
+        },
+        {
+          "graph_id": "6afa3d46b2d72b7e50c9",
+          "code": "XYJ2-2",
+          "category": "浴室柜",
+          "spec": "XYJ2-1 实木 深砂灰",
+          "price": 2500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.02886,
+            "source": "product_catalog:6afa3d46b2d72b7e50c9"
+          }
+        },
+        {
+          "graph_id": "59b095172f7d112b94f0",
+          "code": "HS1-2",
+          "category": "花洒",
+          "spec": "HS1-2 银白色",
+          "price": 700.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028718,
+            "source": "product_catalog:59b095172f7d112b94f0"
+          }
+        },
+        {
+          "graph_id": "023e2afc7f30e7cd0191",
+          "code": "HS2-1",
+          "category": "花洒",
+          "spec": "HS2-1 枪灰色 恒温",
+          "price": 1000.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028309,
+            "source": "product_catalog:023e2afc7f30e7cd0191"
+          }
+        },
+        {
+          "graph_id": "a6fc582fe934bcd5cb4c",
+          "code": "HS2-2",
+          "category": "花洒",
+          "spec": "HS2-2 银白色 恒温",
+          "price": 1000.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.027912,
+            "source": "product_catalog:a6fc582fe934bcd5cb4c"
+          }
+        },
+        {
+          "graph_id": "1dad86e0180bcf1dfd22",
+          "code": "XYJ2-1",
+          "category": "浴室柜",
+          "spec": "XYJ2-1 实木 银灰色",
+          "price": 2500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.027864,
+            "source": "product_catalog:1dad86e0180bcf1dfd22"
+          }
+        },
+        {
+          "graph_id": "1264ae54e3400eaa09d6",
+          "code": "XYJ1-2",
+          "category": "浴室柜",
+          "spec": "XYJ1-1 三聚氰胺板 深砂灰",
+          "price": 1200.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.027826,
+            "source": "product_catalog:1264ae54e3400eaa09d6"
+          }
+        },
+        {
+          "graph_id": "af80672fd0027d732238",
+          "code": "XYJ1-1",
+          "category": "浴室柜",
+          "spec": "XYJ1-1 三聚氰胺板 米白色",
+          "price": 1200.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.027799,
+            "source": "product_catalog:af80672fd0027d732238"
+          }
+        }
+      ]
+    },
+    "elderly_safe": {
+      "rules": {
+        "必须设备": [
+          "花洒",
+          "热水器",
+          "马桶",
+          "淋浴椅",
+          "花洒扶手",
+          "马桶扶手",
+          "适老浴室柜"
+        ],
+        "可有可无设备": [],
+        "不能有的设备": [
+          "淋浴隔断"
+        ]
+      },
+      "products": [
+        {
+          "graph_id": "7bb1c5b35d14a2fe49d1",
+          "code": "MT2",
+          "category": "马桶",
+          "spec": "MT2 轻智能马桶（加热、感应冲水）",
+          "price": 800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.030415,
+            "source": "product_catalog:7bb1c5b35d14a2fe49d1"
+          }
+        },
+        {
+          "graph_id": "577f0c0a8ff3700559e6",
+          "code": "MT1",
+          "category": "马桶",
+          "spec": "MT1 陶瓷白",
+          "price": 550.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.030282,
+            "source": "product_catalog:577f0c0a8ff3700559e6"
+          }
+        },
+        {
+          "graph_id": "8d29797a7862c52c3e74",
+          "code": "MT3",
+          "category": "马桶",
+          "spec": "MT3 智能马桶（加热、感应冲水、臀洗、杀菌）",
+          "price": 1200.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029958,
+            "source": "product_catalog:8d29797a7862c52c3e74"
+          }
+        },
+        {
+          "graph_id": "b673c93e083d6b03d8d6",
+          "code": "RSQ1-2",
+          "category": "热水器",
+          "spec": "RSQ1-2 60L 二级能效 搪瓷内胆 玫瑰金",
+          "price": 1500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029644,
+            "source": "product_catalog:b673c93e083d6b03d8d6"
+          }
+        },
+        {
+          "graph_id": "ce1057aeba2dd5a13d09",
+          "code": "HS1-1",
+          "category": "花洒",
+          "spec": "HS1-1 枪灰色",
+          "price": 700.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029324,
+            "source": "product_catalog:ce1057aeba2dd5a13d09"
+          }
+        },
+        {
+          "graph_id": "0df41befcc061ead5d17",
+          "code": "RSQ1-1",
+          "category": "热水器",
+          "spec": "RSQ1-1 60L 二级能效 搪瓷内胆 米白色",
+          "price": 1500.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.029199,
+            "source": "product_catalog:0df41befcc061ead5d17"
+          }
+        },
+        {
+          "graph_id": "0a673cc77b248872e0cd",
+          "code": "RSQ2-2",
+          "category": "热水器",
+          "spec": "RSQ2-2 60L 一级能效 钛金内胆 玫瑰金",
+          "price": 2800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.02901,
+            "source": "product_catalog:0a673cc77b248872e0cd"
+          }
+        },
+        {
+          "graph_id": "40759fe4c31032db2d7f",
+          "code": "RSQ2-1",
+          "category": "热水器",
+          "spec": "RSQ2-1 60L 一级能效 钛金内胆 米白色",
+          "price": 2800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028992,
+            "source": "product_catalog:40759fe4c31032db2d7f"
+          }
+        },
+        {
+          "graph_id": "59b095172f7d112b94f0",
+          "code": "HS1-2",
+          "category": "花洒",
+          "spec": "HS1-2 银白色",
+          "price": 700.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028898,
+            "source": "product_catalog:59b095172f7d112b94f0"
+          }
+        },
+        {
+          "graph_id": "d160efd598ee6410271b",
+          "code": "XYJ3-3",
+          "category": "适老浴室柜",
+          "spec": "XYJ3-1 实木 适老 深砂灰",
+          "price": 2800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.02886,
+            "source": "product_catalog:d160efd598ee6410271b"
+          }
+        },
+        {
+          "graph_id": "f1f81a351457a7151dd9",
+          "code": "XYJ3-1",
+          "category": "适老浴室柜",
+          "spec": "XYJ3-1 实木 适老 米白色",
+          "price": 2800.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028783,
+            "source": "product_catalog:f1f81a351457a7151dd9"
+          }
+        },
+        {
+          "graph_id": "023e2afc7f30e7cd0191",
+          "code": "HS2-1",
+          "category": "花洒",
+          "spec": "HS2-1 枪灰色 恒温",
+          "price": 1000.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028485,
+            "source": "product_catalog:023e2afc7f30e7cd0191"
+          }
+        },
+        {
+          "graph_id": "b39b8b3c6a1b5976816f",
+          "code": "FSM-1",
+          "category": "马桶扶手",
+          "spec": "FSM-1",
+          "price": 80.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028442,
+            "source": "product_catalog:b39b8b3c6a1b5976816f"
+          }
+        },
+        {
+          "graph_id": "112ced6ae129fc9116a3",
+          "code": "FSH-1",
+          "category": "花洒扶手",
+          "spec": "FSH-1",
+          "price": 150.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028324,
+            "source": "product_catalog:112ced6ae129fc9116a3"
+          }
+        },
+        {
+          "graph_id": "a6fc582fe934bcd5cb4c",
+          "code": "HS2-2",
+          "category": "花洒",
+          "spec": "HS2-2 银白色 恒温",
+          "price": 1000.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.028083,
+            "source": "product_catalog:a6fc582fe934bcd5cb4c"
+          }
+        },
+        {
+          "graph_id": "ac2e776afc5e032d9d42",
+          "code": "LYY-1",
+          "category": "淋浴椅",
+          "spec": "LYY-1",
+          "price": 170.0,
+          "retrieval": {
+            "method": "hybrid_rrf",
+            "branches": [
+              "bm25",
+              "graph"
+            ],
+            "rrf_k": 60,
+            "weights": {
+              "bm25": 1.0,
+              "vector": 1.0,
+              "graph": 1.0
+            },
+            "score": 0.027289,
+            "source": "product_catalog:ac2e776afc5e032d9d42"
+          }
+        }
+      ]
+    }
+  }
+}

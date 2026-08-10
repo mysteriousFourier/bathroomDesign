@@ -1,0 +1,1702 @@
+{
+  "schema_version": "1.0.0",
+  "generated_from": [
+    "D:\\documents\\xwechat_files\\wxid_2fydyq34lhbz12_d9e9\\msg\\file\\2026-08\\卫生间通用部品2026-08-04",
+    "D:\\opc\\富邦花园2-4-701\\产品数据\\墙板"
+  ],
+  "asset_count": 64,
+  "assets": [
+    {
+      "id": "builtin-cfae087909ac",
+      "label": "地漏01",
+      "category": "地漏",
+      "source_category": "地漏",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-cfae087909ac/%E5%9C%B0%E6%BC%8F01.fbx",
+      "filename": "地漏01.fbx",
+      "bytes": 822490,
+      "sha256": "d5b2a53083f011b190ed71127e313cbb07801ff59bdf4dcb76708bff730117fb",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 100.0,
+        "depth": 100.0,
+        "height": 44.3
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-00c10ec0a5d5",
+      "label": "地漏02",
+      "category": "地漏",
+      "source_category": "地漏",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-00c10ec0a5d5/%E5%9C%B0%E6%BC%8F02.fbx",
+      "filename": "地漏02.fbx",
+      "bytes": 4778862,
+      "sha256": "72fcbef2c36cabc38e9a01d71ca734f9fc4b0901bc348ada7be2edbcaf8c12ca",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 135.2,
+        "depth": 55.3,
+        "height": 135.2
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-60357f00b37a",
+      "label": "散热器01",
+      "category": "散热器",
+      "source_category": "散热器",
+      "asset_type": "fixture",
+      "format": "glb",
+      "src": "/model-library/models/builtin-60357f00b37a/%E6%95%A3%E7%83%AD%E5%99%A801.glb",
+      "filename": "散热器01.glb",
+      "bytes": 382492,
+      "sha256": "1962e50fa4e176dc57ee46e973f062af3ff52818e16dab0fb193ddc1954c294f",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 460.0,
+        "depth": 140.0,
+        "height": 590.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-2d40738ea020",
+      "label": "散热器02",
+      "category": "散热器",
+      "source_category": "散热器",
+      "asset_type": "fixture",
+      "format": "glb",
+      "src": "/model-library/models/builtin-2d40738ea020/%E6%95%A3%E7%83%AD%E5%99%A802.glb",
+      "filename": "散热器02.glb",
+      "bytes": 365956,
+      "sha256": "7419ec5022e20f593c65f7efad34558c954a96177928a821e9aff5ef9ad33929",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 460.0,
+        "depth": 140.0,
+        "height": 830.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-d91ab4dee8e1",
+      "label": "散热器03",
+      "category": "散热器",
+      "source_category": "散热器",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-d91ab4dee8e1/%E6%95%A3%E7%83%AD%E5%99%A803.fbx",
+      "filename": "散热器03.fbx",
+      "bytes": 3302398,
+      "sha256": "6a18145162c1994ce82e2b0b81a32f5791de28c8fd876b57f875c097569fbc2a",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 319.4,
+        "depth": 108.8,
+        "height": 1856.1
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-7d8b79a2a774",
+      "label": "散热器04",
+      "category": "散热器",
+      "source_category": "散热器",
+      "asset_type": "fixture",
+      "format": "glb",
+      "src": "/model-library/models/builtin-7d8b79a2a774/%E6%95%A3%E7%83%AD%E5%99%A804.glb",
+      "filename": "散热器04.glb",
+      "bytes": 582104,
+      "sha256": "850b03a9d4b9df009300ff2faec3a469af0b487a8b8fba7e6b92adc9e64c6317",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 480.0,
+        "depth": 80.0,
+        "height": 350.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-bea325289d1a",
+      "label": "柱盆01",
+      "category": "柱盆",
+      "source_category": "柱盆",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-bea325289d1a/%E6%9F%B1%E7%9B%8601.fbx",
+      "filename": "柱盆01.fbx",
+      "bytes": 9355779,
+      "sha256": "f34902356b08ebb8c2fd989b9def7659a7156f3a3b2a3b0326d00b74520ab65f",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 757.2,
+        "depth": 617.7,
+        "height": 1096.4
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-1b459a3f9c36",
+      "label": "柱盆03",
+      "category": "柱盆",
+      "source_category": "柱盆",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-1b459a3f9c36/%E6%9F%B1%E7%9B%8603.fbx",
+      "filename": "柱盆03.fbx",
+      "bytes": 7675870,
+      "sha256": "880885df450d4217a6457addc2b4430d43ca43b2c8e45ce58a3fb42b5b900bd7",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 692.5,
+        "depth": 561.3,
+        "height": 1118.3
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-26bdd583b076",
+      "label": "洗衣机龙头02",
+      "category": "水龙头",
+      "source_category": "水龙头",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-26bdd583b076/%E6%B4%97%E8%A1%A3%E6%9C%BA%E9%BE%99%E5%A4%B402.fbx",
+      "filename": "洗衣机龙头02.fbx",
+      "bytes": 1893932,
+      "sha256": "d5f1d564b4efcc33104e52f9e95da160558003c27d76d550d0c8717acc2f50f6",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 30.0,
+        "depth": 156.1,
+        "height": 101.6
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-a8fe8ab0d6b7",
+      "label": "洗面盆龙头01",
+      "category": "水龙头",
+      "source_category": "水龙头",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-a8fe8ab0d6b7/%E6%B4%97%E9%9D%A2%E7%9B%86%E9%BE%99%E5%A4%B401.fbx",
+      "filename": "洗面盆龙头01.fbx",
+      "bytes": 171211,
+      "sha256": "d20e78abbed22052f701cdb57ae293aba50f7906a66e7f6aa05252023a5a3c41",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 51.2,
+        "depth": 145.5,
+        "height": 146.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-5a9db8743985",
+      "label": "洗面盆龙头02",
+      "category": "水龙头",
+      "source_category": "水龙头",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-5a9db8743985/%E6%B4%97%E9%9D%A2%E7%9B%86%E9%BE%99%E5%A4%B402.fbx",
+      "filename": "洗面盆龙头02.fbx",
+      "bytes": 851943,
+      "sha256": "3224bd3ae5b43db8303b8953ce3204e2a7d689303a444632b6b277d913dae0ab",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 40.4,
+        "depth": 143.0,
+        "height": 142.3
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-a2ad72bf80f9",
+      "label": "洗衣机",
+      "category": "洗衣机",
+      "source_category": "洗衣机",
+      "asset_type": "fixture",
+      "format": "glb",
+      "src": "/model-library/models/builtin-a2ad72bf80f9/%E6%B4%97%E8%A1%A3%E6%9C%BA.glb",
+      "filename": "洗衣机.glb",
+      "bytes": 7884792,
+      "sha256": "a964c235c8b24f3ecfc3bcb45bda7590aabb5902edaefc0c94747312a6b4e501",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 608.0,
+        "depth": 653.0,
+        "height": 860.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "XYJ1-1",
+        "XYJ2-1"
+      ],
+      "styles": [
+        "中古",
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-d6131b95f1ad",
+      "label": "洗面盆04",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-d6131b95f1ad/%E6%B4%97%E9%9D%A2%E7%9B%8604.fbx",
+      "filename": "洗面盆04.fbx",
+      "bytes": 135026,
+      "sha256": "2693ee1c3a52786ca8632fb7812d870d7cdd9a635591189202991df33f36fd92",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 800.0,
+        "depth": 500.0,
+        "height": 560.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "XYG1-1",
+        "XYG1-2"
+      ],
+      "styles": [
+        "中古",
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-9c410dc5b0c2",
+      "label": "镜柜04",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-9c410dc5b0c2/%E9%95%9C%E6%9F%9C04.fbx",
+      "filename": "镜柜04.fbx",
+      "bytes": 28973,
+      "sha256": "b5b95cb56275010758aeca1cad6609b61748c1b80492bf1764fe2c353dee35f3",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 800.0,
+        "depth": 200.0,
+        "height": 800.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [
+        "XYG2-1",
+        "XYG2-2"
+      ],
+      "styles": [
+        "中古",
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-940298e887d4",
+      "label": "浴帘_杆01",
+      "category": "浴帘_杆",
+      "source_category": "浴帘_杆",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-940298e887d4/%E6%B5%B4%E5%B8%98_%E6%9D%8601.fbx",
+      "filename": "浴帘_杆01.fbx",
+      "bytes": 28176086,
+      "sha256": "c948cd54f49de167bf0fafc3d78a07271b9eb5a7aa830ee795e2922fe34a0db9",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 1443.8,
+        "depth": 168.8,
+        "height": 1981.1
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-85957d4cb314",
+      "label": "浴帘_杆03",
+      "category": "浴帘_杆",
+      "source_category": "浴帘_杆",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-85957d4cb314/%E6%B5%B4%E5%B8%98_%E6%9D%8603.fbx",
+      "filename": "浴帘_杆03.fbx",
+      "bytes": 290071,
+      "sha256": "14af80f4d5fde5e177353a21430c37c110dc96b73f2503600cdfc531fe399dea",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 880.0,
+        "depth": 791.2,
+        "height": 2154.4
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-93366015fa3e",
+      "label": "浴帘杆01",
+      "category": "浴帘_杆",
+      "source_category": "浴帘_杆",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-93366015fa3e/%E6%B5%B4%E5%B8%98%E6%9D%8601.fbx",
+      "filename": "浴帘杆01.fbx",
+      "bytes": 153853,
+      "sha256": "7ab92ff1285dd88b22fc33d3da9032825ce354edb2c715b396a956e6661a5f59",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 906.5,
+        "depth": 800.0,
+        "height": 60.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-6f0332977297",
+      "label": "浴霸01",
+      "category": "浴霸",
+      "source_category": "浴霸",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-6f0332977297/%E6%B5%B4%E9%9C%B801.fbx",
+      "filename": "浴霸01.fbx",
+      "bytes": 1335997,
+      "sha256": "8908691d8f15617c6b87776b757ddfcc6054bc518b4cd0f99903b498058fea2c",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 300.0,
+        "height": 28.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-882a2e5926ed",
+      "label": "浴霸02",
+      "category": "浴霸",
+      "source_category": "浴霸",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-882a2e5926ed/%E6%B5%B4%E9%9C%B802.fbx",
+      "filename": "浴霸02.fbx",
+      "bytes": 1012486,
+      "sha256": "6560316058a0e1aaa18748820a078fb0b02cfeae4109dced95850642650589ff",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 300.0,
+        "depth": 600.0,
+        "height": 42.2
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-04af31ed4ab8",
+      "label": "无障碍淋浴室坐凳001",
+      "category": "淋浴椅",
+      "source_category": "无障碍淋浴室坐凳001",
+      "asset_type": "fixture",
+      "format": "gltf",
+      "src": "/model-library/models/builtin-04af31ed4ab8/%E6%97%A0%E9%9A%9C%E7%A2%8D%E6%B7%8B%E6%B5%B4%E5%AE%A4%E5%9D%90%E5%87%B3001.gltf",
+      "filename": "无障碍淋浴室坐凳001.gltf",
+      "bytes": 2979,
+      "sha256": "db788597a8120b9d41e6662eac1be3a890366bd5676571842cbec81de659a037",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 500.0,
+        "height": 100.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "LYY-1"
+      ],
+      "styles": [
+        "通用"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-417fff574c2d",
+      "label": "淋浴隔断01",
+      "category": "淋浴隔断",
+      "source_category": "淋浴隔断",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-417fff574c2d/%E6%B7%8B%E6%B5%B4%E9%9A%94%E6%96%AD01.fbx",
+      "filename": "淋浴隔断01.fbx",
+      "bytes": 22820,
+      "sha256": "ca59c467250869e25f7bd34b5f33ccb9b116ed4753aa6931427d649da14a60c6",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 900.0,
+        "depth": 40.0,
+        "height": 2184.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "GD1-1"
+      ],
+      "styles": [
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-c13a8a96eee4",
+      "label": "淋浴隔断02",
+      "category": "淋浴隔断",
+      "source_category": "淋浴隔断",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-c13a8a96eee4/%E6%B7%8B%E6%B5%B4%E9%9A%94%E6%96%AD02.fbx",
+      "filename": "淋浴隔断02.fbx",
+      "bytes": 20170,
+      "sha256": "bbb6c6024af616457d77e367b50badcafd3a000e24c989f80d5a86ed4d2cf232",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 500.3,
+        "depth": 27.9,
+        "height": 2042.5
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "GD1-2"
+      ],
+      "styles": [
+        "中古",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-29811cae872f",
+      "label": "淋浴隔断04",
+      "category": "淋浴隔断",
+      "source_category": "淋浴隔断",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-29811cae872f/%E6%B7%8B%E6%B5%B4%E9%9A%94%E6%96%AD04.fbx",
+      "filename": "淋浴隔断04.fbx",
+      "bytes": 2489184,
+      "sha256": "77e61dbf0ddb0c26977959b0064cd5fce752e505a7cd37cb3c65e54b49e1eb09",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 2145.0,
+        "depth": 158.4,
+        "height": 2000.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "GD2-1"
+      ],
+      "styles": [
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-04d0e87ffb23",
+      "label": "淋浴隔断_钻石形",
+      "category": "淋浴隔断",
+      "source_category": "淋浴隔断",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-04d0e87ffb23/%E6%B7%8B%E6%B5%B4%E9%9A%94%E6%96%AD_%E9%92%BB%E7%9F%B3%E5%BD%A2.fbx",
+      "filename": "淋浴隔断_钻石形.fbx",
+      "bytes": 4012066,
+      "sha256": "ee53503d0d370366cc845abad84ef067ca0a3b6ff90ef3741a32f44c8711137c",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 977.0,
+        "depth": 1913.7,
+        "height": 972.2
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [
+        "GD2-2"
+      ],
+      "styles": [
+        "中古",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-c75e03bf4c39",
+      "label": "热水器01",
+      "category": "热水器",
+      "source_category": "热水器",
+      "asset_type": "fixture",
+      "format": "glb",
+      "src": "/model-library/models/builtin-c75e03bf4c39/%E7%83%AD%E6%B0%B4%E5%99%A801.glb",
+      "filename": "热水器01.glb",
+      "bytes": 25370516,
+      "sha256": "d87b046454d8054c13d6940c257d664e9ec426c104c252806352b91de71ccea3",
+      "file_count": 3,
+      "dimensions_mm": {
+        "width": 780.0,
+        "depth": 450.0,
+        "height": 520.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "RSQ1-1",
+        "RSQ1-2",
+        "RSQ2-1",
+        "RSQ2-2"
+      ],
+      "styles": [
+        "中古",
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-e996a415ef91",
+      "label": "厨房平板灯01",
+      "category": "照明",
+      "source_category": "照明",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-e996a415ef91/%E5%8E%A8%E6%88%BF%E5%B9%B3%E6%9D%BF%E7%81%AF01.fbx",
+      "filename": "厨房平板灯01.fbx",
+      "bytes": 87066,
+      "sha256": "459549c253c82f3adb1ac67b0d7feec698ca599a28d680599c012721b0c43d96",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 299.9,
+        "depth": 599.9,
+        "height": 31.8
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-204775d8cb79",
+      "label": "三孔16A插座",
+      "category": "电气面板",
+      "source_category": "电气面板",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-204775d8cb79/%E4%B8%89%E5%AD%9416A%E6%8F%92%E5%BA%A7.fbx",
+      "filename": "三孔16A插座.fbx",
+      "bytes": 1020761,
+      "sha256": "5737d8a020465580a92c7cf742d63a5199cd8008673f1d94fa2dd66558a965cb",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 56.3,
+        "depth": 3.8,
+        "height": 56.3
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-a4a54da2052c",
+      "label": "双开面板",
+      "category": "电气面板",
+      "source_category": "电气面板",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-a4a54da2052c/%E5%8F%8C%E5%BC%80%E9%9D%A2%E6%9D%BF.fbx",
+      "filename": "双开面板.fbx",
+      "bytes": 540770,
+      "sha256": "b082cef5bb79bc236b208dd94ec63304e7d0259df3cc548b3bcc53ad2e580f0e",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 55.8,
+        "depth": 6.5,
+        "height": 55.9
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-5686dbf3da32",
+      "label": "夜灯面板",
+      "category": "电气面板",
+      "source_category": "电气面板",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-5686dbf3da32/%E5%A4%9C%E7%81%AF%E9%9D%A2%E6%9D%BF.fbx",
+      "filename": "夜灯面板.fbx",
+      "bytes": 346685,
+      "sha256": "ca5bc249f784f18278b719159193b338d50ff485b31a8491e3d754d59b080668",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 86.0,
+        "depth": 31.4,
+        "height": 86.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-be1c212652cd",
+      "label": "正五孔插座",
+      "category": "电气面板",
+      "source_category": "电气面板",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-be1c212652cd/%E6%AD%A3%E4%BA%94%E5%AD%94%E6%8F%92%E5%BA%A7.fbx",
+      "filename": "正五孔插座.fbx",
+      "bytes": 1163156,
+      "sha256": "a22b3e67237a2abf22169f323e74501c11f0861c2056ab430a758dca53f0832d",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 56.3,
+        "depth": 4.5,
+        "height": 56.3
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-38bfc62b0826",
+      "label": "浴霸面板",
+      "category": "电气面板",
+      "source_category": "电气面板",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-38bfc62b0826/%E6%B5%B4%E9%9C%B8%E9%9D%A2%E6%9D%BF.fbx",
+      "filename": "浴霸面板.fbx",
+      "bytes": 705667,
+      "sha256": "933337a082c88dd65f3529988a808a0fb2f56f2597e535ee6f1df42e4e019fb3",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 47.4,
+        "depth": 4.0,
+        "height": 47.3
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-4ef92cf68913",
+      "label": "防溅盒",
+      "category": "电气面板",
+      "source_category": "电气面板",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-4ef92cf68913/%E9%98%B2%E6%BA%85%E7%9B%92.fbx",
+      "filename": "防溅盒.fbx",
+      "bytes": 7147373,
+      "sha256": "706286e4c4504b377a5038d7014cd290580594c696386bc72d2846a94f2a52d0",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 106.7,
+        "depth": 40.4,
+        "height": 123.4
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-c90a1b7bccc8",
+      "label": "置物架01",
+      "category": "置物架",
+      "source_category": "置物架",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-c90a1b7bccc8/%E7%BD%AE%E7%89%A9%E6%9E%B601.fbx",
+      "filename": "置物架01.fbx",
+      "bytes": 8193663,
+      "sha256": "ca8a9f26f87c36a6047b8db597ab08193bc9a9a95d72994dca768a30610fc4e1",
+      "file_count": 6,
+      "dimensions_mm": {
+        "width": 607.9,
+        "depth": 198.9,
+        "height": 618.3
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-79be9e62cd0c",
+      "label": "双头花洒_03",
+      "category": "花洒",
+      "source_category": "花洒",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-79be9e62cd0c/%E5%8F%8C%E5%A4%B4%E8%8A%B1%E6%B4%92_03.fbx",
+      "filename": "双头花洒_03.fbx",
+      "bytes": 8629154,
+      "sha256": "96c272b2ea8973253a4ed17c60cd3998266be6ab18f87c314aa24a600cc3cb60",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 284.7,
+        "depth": 484.9,
+        "height": 1327.1
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "HS1-1",
+        "HS1-2"
+      ],
+      "styles": [
+        "中古",
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-8450a5d05d27",
+      "label": "双头花洒_2",
+      "category": "花洒",
+      "source_category": "花洒",
+      "asset_type": "fixture",
+      "format": "glb",
+      "src": "/model-library/models/builtin-8450a5d05d27/%E5%8F%8C%E5%A4%B4%E8%8A%B1%E6%B4%92_2.glb",
+      "filename": "双头花洒_2.glb",
+      "bytes": 2522232,
+      "sha256": "749a3a669e5271f175d9286d19d4de719f6310f995ce682279fb3b72dc655140",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 376.5,
+        "depth": 660.1,
+        "height": 1360.4
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [
+        "HS2-1",
+        "HS2-2"
+      ],
+      "styles": [
+        "中古",
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-0fb3144ea850",
+      "label": "扶手B",
+      "category": "花洒扶手",
+      "source_category": "扶手",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-0fb3144ea850/%E6%89%B6%E6%89%8BB.fbx",
+      "filename": "扶手B.fbx",
+      "bytes": 104736,
+      "sha256": "99cd78895fcafc7865fdfe44d0f0d4873534e1b806df1ce0271a1d1b9dd39f83",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 2500.0,
+        "depth": 2500.0,
+        "height": 400.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "FSH-1"
+      ],
+      "styles": [
+        "通用"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-372ed799bc6b",
+      "label": "角篮01",
+      "category": "角篮",
+      "source_category": "角篮",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-372ed799bc6b/%E8%A7%92%E7%AF%AE01.fbx",
+      "filename": "角篮01.fbx",
+      "bytes": 1673348,
+      "sha256": "d4acca567fb83fb65b7b986cd021eb07907779eca3ced9e51ae4663a1fda13f1",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 200.1,
+        "depth": 200.0,
+        "height": 406.3
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-0bf77262382f",
+      "label": "垭口套02",
+      "category": "门窗",
+      "source_category": "门窗",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-0bf77262382f/%E5%9E%AD%E5%8F%A3%E5%A5%9702.fbx",
+      "filename": "垭口套02.fbx",
+      "bytes": 26262,
+      "sha256": "6283b1cf0fe8b560b547853d457b1dc7412537f91c0dbd8ce5a9aee46cdcdc00",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 1038.0,
+        "depth": 270.0,
+        "height": 2219.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-08ecbf28d6b7",
+      "label": "垭口套03",
+      "category": "门窗",
+      "source_category": "门窗",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-08ecbf28d6b7/%E5%9E%AD%E5%8F%A3%E5%A5%9703.fbx",
+      "filename": "垭口套03.fbx",
+      "bytes": 814550,
+      "sha256": "b113202ea6fe164e5ec7ac9604b30845cf0a0af961ed322ab3e9299e96af80b5",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 845.1,
+        "depth": 270.2,
+        "height": 2006.2
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-91ea66afc0c0",
+      "label": "窗01",
+      "category": "门窗",
+      "source_category": "门窗",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-91ea66afc0c0/%E7%AA%9701.fbx",
+      "filename": "窗01.fbx",
+      "bytes": 44658,
+      "sha256": "c93ed6477a0cf325d97a79bdef95fa7620ebe230d9c177592768db62d72c3180",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 835.0,
+        "depth": 200.0,
+        "height": 1305.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-d8aaeb1ab683",
+      "label": "窗03",
+      "category": "门窗",
+      "source_category": "门窗",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-d8aaeb1ab683/%E7%AA%9703.fbx",
+      "filename": "窗03.fbx",
+      "bytes": 36509,
+      "sha256": "2d9bb3a46236063aa18f3978e5fcb03ec3cbc3dd14ce3cb86e2f4e961f2df60d",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 950.6,
+        "depth": 50.0,
+        "height": 1300.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-7249610c9423",
+      "label": "窗套01",
+      "category": "门窗",
+      "source_category": "门窗",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-7249610c9423/%E7%AA%97%E5%A5%9701.fbx",
+      "filename": "窗套01.fbx",
+      "bytes": 13893,
+      "sha256": "a8ce43c4db951ae73f4c6ccea1da058d1f362dd6917fcd105d6645ed1c85ed13",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 1430.0,
+        "depth": 120.0,
+        "height": 1420.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-d3f6021b2873",
+      "label": "窗套02",
+      "category": "门窗",
+      "source_category": "门窗",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-d3f6021b2873/%E7%AA%97%E5%A5%9702.fbx",
+      "filename": "窗套02.fbx",
+      "bytes": 13889,
+      "sha256": "911426c7bd6e050cb13397a7c0724c0b9b44e6264401b45d9ee1de2c3d29dd06",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 1430.0,
+        "depth": 120.0,
+        "height": 1420.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-58f19c2b8fcf",
+      "label": "门03",
+      "category": "门窗",
+      "source_category": "门窗",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-58f19c2b8fcf/%E9%97%A803.fbx",
+      "filename": "门03.fbx",
+      "bytes": 7122028,
+      "sha256": "271fd0d8198ee7eb676f905bdafc8ffa9c93a007c358e466d39711a0d983a8bb",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 750.0,
+        "depth": 200.0,
+        "height": 2000.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-ec0d064ea979",
+      "label": "门04",
+      "category": "门窗",
+      "source_category": "门窗",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-ec0d064ea979/%E9%97%A804.fbx",
+      "filename": "门04.fbx",
+      "bytes": 818724,
+      "sha256": "c779d891311f1dc4b3b2cd506acfc4fd8433205d8db282a681bbf4229f969543",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 270.2,
+        "depth": 845.1,
+        "height": 2006.2
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-d91bb5e76cd2",
+      "label": "扶手B1",
+      "category": "马桶扶手",
+      "source_category": "扶手",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-d91bb5e76cd2/%E6%89%B6%E6%89%8BB1.fbx",
+      "filename": "扶手B1.fbx",
+      "bytes": 104896,
+      "sha256": "16ef39f9cb3834af169e7b15db6bdfd40bc95ed1a9e6240899bfabcb420c05b4",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 2500.0,
+        "depth": 2500.0,
+        "height": 400.0
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "FSM-1"
+      ],
+      "styles": [
+        "通用"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "surface-db1-qs",
+      "label": "DB1-QS T-金丝白玉 3000x1200x10",
+      "category": "地砖",
+      "source_category": "地砖",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/DB1-QS/panel.gltf",
+      "texture_src": "/model-library/surfaces/DB1-QS/texture.jpg",
+      "thumbnail": "/model-library/surfaces/DB1-QS/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 21711,
+      "sha256": "2c7351aed6f16a3e71de94ed5d60d1b16ed1baed5c97ce39c92ed6c6ee397751",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 3000,
+        "depth": 1200,
+        "height": 10
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "DB1-QS"
+      ],
+      "styles": [
+        "轻法"
+      ],
+      "unit_price": 340.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-db1-sy",
+      "label": "DB1-SY T-埃及米白 3000x1200x10",
+      "category": "地砖",
+      "source_category": "地砖",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/DB1-SY/panel.gltf",
+      "texture_src": "/model-library/surfaces/DB1-SY/texture.jpg",
+      "thumbnail": "/model-library/surfaces/DB1-SY/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 28598,
+      "sha256": "374aec64de982ff2dca506e4ae18f7ac3eca8b823ce45bd34e77726cd7489f02",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 3000,
+        "depth": 1200,
+        "height": 10
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "DB1-SY"
+      ],
+      "styles": [
+        "素雅"
+      ],
+      "unit_price": 340.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-db1-zg",
+      "label": "DB1-ZG T-灰橡木 3000x1200x10",
+      "category": "地砖",
+      "source_category": "地砖",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/DB1-ZG/panel.gltf",
+      "texture_src": "/model-library/surfaces/DB1-ZG/texture.jpg",
+      "thumbnail": "/model-library/surfaces/DB1-ZG/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 75288,
+      "sha256": "145fa5d1e3db6dc43a98c71b2f37bd448b30f3ec9eb8bbe1a26c462fdc6720d6",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 3000,
+        "depth": 1200,
+        "height": 10
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "DB1-ZG"
+      ],
+      "styles": [
+        "中古"
+      ],
+      "unit_price": 340.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-db2-qs",
+      "label": "DB2-QS T-微泥如烟 3000x1200x10",
+      "category": "地砖",
+      "source_category": "地砖",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/DB2-QS/panel.gltf",
+      "texture_src": "/model-library/surfaces/DB2-QS/texture.jpg",
+      "thumbnail": "/model-library/surfaces/DB2-QS/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 21377,
+      "sha256": "a57a1af32940de900b1484ceb48381c51416512febb17beff5f52746e3ab5488",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 3000,
+        "depth": 1200,
+        "height": 10
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "DB2-QS"
+      ],
+      "styles": [
+        "轻法"
+      ],
+      "unit_price": 480.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-db2-sy",
+      "label": "DB2-SY T-威尔斯白 3000x1200x10",
+      "category": "地砖",
+      "source_category": "地砖",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/DB2-SY/panel.gltf",
+      "texture_src": "/model-library/surfaces/DB2-SY/texture.jpg",
+      "thumbnail": "/model-library/surfaces/DB2-SY/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 28443,
+      "sha256": "abdf8136195f74df660e01ae8ac299fc91396e17ebb91aadea3e344cd30a2dd9",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 3000,
+        "depth": 1200,
+        "height": 10
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "DB2-SY"
+      ],
+      "styles": [
+        "素雅"
+      ],
+      "unit_price": 480.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-db2-zg",
+      "label": "DB2-ZG T-北极灰 3000x1200x10",
+      "category": "地砖",
+      "source_category": "地砖",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/DB2-ZG/panel.gltf",
+      "texture_src": "/model-library/surfaces/DB2-ZG/texture.jpg",
+      "thumbnail": "/model-library/surfaces/DB2-ZG/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 67307,
+      "sha256": "d027853ddf6db30468cf67cb863aa02363333cb31c740258225b70dd9ad4aa3f",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 3000,
+        "depth": 1200,
+        "height": 10
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "DB2-ZG"
+      ],
+      "styles": [
+        "中古"
+      ],
+      "unit_price": 480.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-db3-qs",
+      "label": "DB3-QS T-雪花白 3000x1200x10",
+      "category": "地砖",
+      "source_category": "地砖",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/DB3-QS/panel.gltf",
+      "texture_src": "/model-library/surfaces/DB3-QS/texture.jpg",
+      "thumbnail": "/model-library/surfaces/DB3-QS/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 32039,
+      "sha256": "b239022f8ee034b7894ed4f6058f079751ec62a0bd0b6882d2795542f0b74da8",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 3000,
+        "depth": 1200,
+        "height": 10
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [
+        "DB3-QS"
+      ],
+      "styles": [
+        "轻法"
+      ],
+      "unit_price": 560.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-db3-sy",
+      "label": "DB3-SY T-波希米亚 3000x1200x10",
+      "category": "地砖",
+      "source_category": "地砖",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/DB3-SY/panel.gltf",
+      "texture_src": "/model-library/surfaces/DB3-SY/texture.jpg",
+      "thumbnail": "/model-library/surfaces/DB3-SY/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 80890,
+      "sha256": "56b5089d0ad6f811167b4a5748b4545b6024f64531351158c2251b9f61c4a9d7",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 3000,
+        "depth": 1200,
+        "height": 10
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [
+        "DB3-SY"
+      ],
+      "styles": [
+        "素雅"
+      ],
+      "unit_price": 560.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-db3-zg",
+      "label": "DB3-ZG T-帕斯高灰 3000x1200x10",
+      "category": "地砖",
+      "source_category": "地砖",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/DB3-ZG/panel.gltf",
+      "texture_src": "/model-library/surfaces/DB3-ZG/texture.jpg",
+      "thumbnail": "/model-library/surfaces/DB3-ZG/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 45291,
+      "sha256": "33fc0ddd0c18fa9fbe80524bcded30193600fb81d08fe42bc6c221841cccdf51",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 3000,
+        "depth": 1200,
+        "height": 10
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [
+        "DB3-ZG"
+      ],
+      "styles": [
+        "中古"
+      ],
+      "unit_price": 560.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-qb1-qs",
+      "label": "QB1-QS T-威尔斯白 600x3000x10",
+      "category": "墙板",
+      "source_category": "墙板",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/QB1-QS/panel.gltf",
+      "texture_src": "/model-library/surfaces/QB1-QS/texture.jpg",
+      "thumbnail": "/model-library/surfaces/QB1-QS/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 15404,
+      "sha256": "d5027076aa649e43954eb81ecd533e2f8d736fb91461df14b63535eb169d9063",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600,
+        "depth": 10,
+        "height": 3000
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "QB1-QS"
+      ],
+      "styles": [
+        "轻法"
+      ],
+      "unit_price": 80.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-qb1-sy",
+      "label": "QB1-SY T-冰雪白 600x3000x10",
+      "category": "墙板",
+      "source_category": "墙板",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/QB1-SY/panel.gltf",
+      "texture_src": "/model-library/surfaces/QB1-SY/texture.jpg",
+      "thumbnail": "/model-library/surfaces/QB1-SY/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 12551,
+      "sha256": "3d053067db21e99a3791920a9ca395f90cf0a271b11e9e09cc6f84d3d6798515",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600,
+        "depth": 10,
+        "height": 3000
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "QB1-SY"
+      ],
+      "styles": [
+        "素雅"
+      ],
+      "unit_price": 80.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-qb1-zg",
+      "label": "QB1-ZG T-索菲亚灰 600x3000x10",
+      "category": "墙板",
+      "source_category": "墙板",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/QB1-ZG/panel.gltf",
+      "texture_src": "/model-library/surfaces/QB1-ZG/texture.jpg",
+      "thumbnail": "/model-library/surfaces/QB1-ZG/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 41891,
+      "sha256": "c892dc97b89828e0f85a635e0e455781ac8625b1a7a73e22803dd7a1c5b61cb6",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600,
+        "depth": 10,
+        "height": 3000
+      },
+      "dimension_status": "verified",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "QB1-ZG"
+      ],
+      "styles": [
+        "中古"
+      ],
+      "unit_price": 80.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-qb2-qs",
+      "label": "QB2-QS T-罗马白洞 600x3000x10",
+      "category": "墙板",
+      "source_category": "墙板",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/QB2-QS/panel.gltf",
+      "texture_src": "/model-library/surfaces/QB2-QS/texture.jpg",
+      "thumbnail": "/model-library/surfaces/QB2-QS/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 19493,
+      "sha256": "47765f75361bd0e07088cdc769c9a045b405a58cf8b6d6d67b38940de066dee7",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600,
+        "depth": 10,
+        "height": 3000
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "QB2-QS"
+      ],
+      "styles": [
+        "轻法"
+      ],
+      "unit_price": 142.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-qb2-sy",
+      "label": "QB2-SY T-金丝白玉 600x3000x10",
+      "category": "墙板",
+      "source_category": "墙板",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/QB2-SY/panel.gltf",
+      "texture_src": "/model-library/surfaces/QB2-SY/texture.jpg",
+      "thumbnail": "/model-library/surfaces/QB2-SY/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 12154,
+      "sha256": "c9a593091c9dd6e171a6b84fcb5363e5df7a23db8c7cc983a54c0ce0b69fd3a2",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600,
+        "depth": 10,
+        "height": 3000
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "QB2-SY"
+      ],
+      "styles": [
+        "素雅"
+      ],
+      "unit_price": 142.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-qb2-zg",
+      "label": "QB2-ZG T-帕斯高灰 600x3000x10",
+      "category": "墙板",
+      "source_category": "墙板",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/QB2-ZG/panel.gltf",
+      "texture_src": "/model-library/surfaces/QB2-ZG/texture.jpg",
+      "thumbnail": "/model-library/surfaces/QB2-ZG/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 21866,
+      "sha256": "c3413e0c29e575de071d2b2e9242067d5574f46dfbc13651513749b94b592f0d",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600,
+        "depth": 10,
+        "height": 3000
+      },
+      "dimension_status": "verified",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "QB2-ZG"
+      ],
+      "styles": [
+        "中古"
+      ],
+      "unit_price": 142.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-qb3-qs",
+      "label": "QB3-QS T-罗曼蒂克 600x3000x10",
+      "category": "墙板",
+      "source_category": "墙板",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/QB3-QS/panel.gltf",
+      "texture_src": "/model-library/surfaces/QB3-QS/texture.jpg",
+      "thumbnail": "/model-library/surfaces/QB3-QS/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 31353,
+      "sha256": "6ca6e941192134dbd0e31610ac57f38605e18679eb9e243e5fa1915d6e9094d9",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600,
+        "depth": 10,
+        "height": 3000
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [
+        "QB3-QS"
+      ],
+      "styles": [
+        "轻法"
+      ],
+      "unit_price": 188.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-qb3-sy",
+      "label": "QB3-SY T-微泥如烟 600x3000x10",
+      "category": "墙板",
+      "source_category": "墙板",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/QB3-SY/panel.gltf",
+      "texture_src": "/model-library/surfaces/QB3-SY/texture.jpg",
+      "thumbnail": "/model-library/surfaces/QB3-SY/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 21377,
+      "sha256": "a57a1af32940de900b1484ceb48381c51416512febb17beff5f52746e3ab5488",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600,
+        "depth": 10,
+        "height": 3000
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [
+        "QB3-SY"
+      ],
+      "styles": [
+        "素雅"
+      ],
+      "unit_price": 188.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    },
+    {
+      "id": "surface-qb3-zg",
+      "label": "QB3-ZG 冰岛灰 600x3000x10",
+      "category": "墙板",
+      "source_category": "墙板",
+      "asset_type": "surface",
+      "format": "gltf",
+      "src": "/model-library/surfaces/QB3-ZG/panel.gltf",
+      "texture_src": "/model-library/surfaces/QB3-ZG/texture.jpg",
+      "thumbnail": "/model-library/surfaces/QB3-ZG/texture.jpg",
+      "filename": "panel.gltf",
+      "bytes": 41629,
+      "sha256": "85faf09213d5df025dcca6438488f64a6106de8e43a8cc84277349ca1e341ca9",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600,
+        "depth": 10,
+        "height": 3000
+      },
+      "dimension_status": "verified",
+      "price_tier": "premium",
+      "catalog_codes": [
+        "QB3-ZG"
+      ],
+      "styles": [
+        "中古"
+      ],
+      "unit_price": 188.0,
+      "price_unit": "平米",
+      "source": "产品数据/墙板"
+    }
+  ]
+}

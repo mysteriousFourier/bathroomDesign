@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { studioApi } from '../api'
 import type { RoomModelAsset } from '../modelAssets'
 import { droppedModelFiles, inputFiles, validateModelImport, type ModelImportFile } from '../modelImport'
+import { builtInRoomAssets } from '../modelLibrary'
 import type { ImportedModelAsset } from '../types'
 import { ModelAssetPreview } from './ModelAssetPreview'
 
@@ -10,6 +11,7 @@ type Dimensions = { width: number; depth: number; height: number }
 type DisplayModelAsset = RoomModelAsset & {
   filename: string
   fileCount: number
+  builtIn?: boolean
 }
 
 const defaultDimensions: Dimensions = { width: 600, depth: 600, height: 600 }
@@ -31,6 +33,7 @@ function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
     dimensions_mm: defaultDimensions,
     filename: asset.filename,
     fileCount: asset.file_count,
+    builtIn: false,
   }
 }
 
@@ -78,10 +81,13 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
     return () => { active = false }
   }, [projectId])
 
-  const assets = useMemo(() => uploadedAssets.map(uploadedDisplayAsset), [uploadedAssets])
+  const assets = useMemo(() => [
+    ...builtInRoomAssets.map((asset) => ({ ...asset, filename: asset.label, fileCount: 1, builtIn: true })),
+    ...uploadedAssets.map(uploadedDisplayAsset),
+  ], [uploadedAssets])
   const selected = assets.find((asset) => asset.id === selectedId) ?? assets[0]
   const selectedDimensions = selected ? dimensions[selected.id] ?? selected.dimensions_mm : defaultDimensions
-  const selectedForRoom = selected ? { ...selected, dimensions_mm: selectedDimensions } : null
+  const selectedForRoom = selected && selected.asset_type !== 'surface' ? { ...selected, dimensions_mm: selectedDimensions } : null
   const selectedInUse = !!selected && usedAssetIds.includes(selected.id)
 
   const updateSelectedDimensions = useCallback((next: Dimensions) => {
@@ -129,7 +135,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }
 
   const removeSelected = async () => {
-    if (!selected || selectedInUse) return
+    if (!selected || selected.builtIn || selectedInUse) return
     if (!window.confirm(`从项目模型库删除“${selected.label}”？`)) return
     try {
       setError('')
@@ -147,7 +153,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
       <div className="library-toolbar">
         <div>
           <strong>模型库</strong>
-          <span>{assets.length} 个项目上传模型</span>
+          <span>{assets.filter((asset) => asset.asset_type === 'fixture').length} 个设备模型 · {assets.filter((asset) => asset.asset_type === 'surface').length} 个板块材质</span>
         </div>
         <button className="button secondary" onClick={onOpenRoom} disabled={!canAddToRoom}><Box size={16} />三维房间</button>
       </div>
@@ -187,7 +193,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <button className={`model-asset-row${selected?.id === asset.id ? ' active' : ''}`} key={asset.id} onClick={() => setSelectedId(asset.id)}>
                 <span className="model-asset-icon"><BoxSelect size={19} /></span>
                 <span className="model-asset-copy"><strong>{asset.label}</strong><span>{asset.format.toUpperCase()} · {fileSize(asset.bytes)}</span></span>
-                <span className="model-origin uploaded">项目</span>
+                <span className={`model-origin ${asset.builtIn ? 'builtin' : 'uploaded'}`}>{asset.builtIn ? asset.asset_type === 'surface' ? '板块' : '内置' : '项目'}</span>
               </button>
             ))}
           </div>
@@ -198,7 +204,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
             <header className="model-browser-header">
               <div><strong>{selected.label}</strong><span>{selected.filename}</span></div>
               <div>
-                <button className="icon-button" type="button" title={selectedInUse ? '模型正在房间中使用，不能删除' : '删除上传模型'} disabled={selectedInUse} onClick={() => void removeSelected()}><Trash2 size={16} /></button>
+                {!selected.builtIn && <button className="icon-button" type="button" title={selectedInUse ? '模型正在房间中使用，不能删除' : '删除上传模型'} disabled={selectedInUse} onClick={() => void removeSelected()}><Trash2 size={16} /></button>}
                 <button className="button primary compact" type="button" disabled={!canAddToRoom} onClick={() => onAddToRoom(selectedForRoom)}><Plus size={15} />加入房间</button>
               </div>
             </header>
@@ -209,6 +215,10 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <div><span>尺寸</span><strong>{selectedDimensions.width} × {selectedDimensions.depth} × {selectedDimensions.height} mm</strong></div>
               <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '暂无'}</code></div>
             </div>
+          </> : selected ? <>
+            <header className="model-browser-header"><div><strong>{selected.label}</strong><span>{selected.filename} · 固定板块材质</span></div></header>
+            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} />
+            <div className="model-browser-meta"><div><span>类别</span><strong>{selected.category}</strong></div><div><span>规格</span><strong>{selectedDimensions.width} × {selectedDimensions.depth} × {selectedDimensions.height} mm</strong></div><div><span>价位</span><strong>{selected.price_tier ?? '按报价表'}</strong></div></div>
           </> : <div className="model-browser-empty"><HardDriveUpload size={28} /><strong>尚无模型</strong></div>}
         </section>
       </div>

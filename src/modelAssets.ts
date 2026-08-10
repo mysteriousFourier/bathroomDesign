@@ -3,6 +3,11 @@ import type { FixtureModelAsset, ModelAssetFormat } from './types'
 export interface RoomModelAsset extends FixtureModelAsset {
   format: ModelAssetFormat
   dimensions_mm: { width: number; depth: number; height: number }
+  category?: string
+  asset_type?: 'fixture' | 'surface'
+  price_tier?: 'basic' | 'comfort' | 'premium'
+  catalog_codes?: string[]
+  styles?: string[]
   tags?: string[]
 }
 

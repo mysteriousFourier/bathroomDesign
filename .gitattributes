@@ -1,1 +1,2 @@
 *.gltf text eol=lf
+outputs/bathroom-model-dimensions/*.tsv whitespace=-blank-at-eol

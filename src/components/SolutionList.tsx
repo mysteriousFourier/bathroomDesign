@@ -1,4 +1,4 @@
-import { BoxSelect, CheckCircle2, FileWarning, Ruler, ShieldAlert, Wand2 } from 'lucide-react'
+import { BoxSelect, CheckCircle2, ChevronDown, ChevronUp, FileWarning, Ruler, ShieldAlert, Wand2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { generateLayoutSolutions, type LayoutPreference, type LayoutSolution } from '../layoutEngine'
 import { roomBounds, structuralInnerBoundary } from '../spec'
@@ -29,19 +29,28 @@ export function SolutionList({ spec, active, onOpenModel, onApplyLayout, prefere
   const errorCount = spec.issues.filter((x) => x.severity === 'error').length
   const solutions = useMemo(() => generateLayoutSolutions(spec, preference), [spec.boundary, spec.openings, spec.height_mm, preference?.style])
   const [selectedId, setSelectedId] = useState(solutions[0]?.id ?? '')
+  const [expanded, setExpanded] = useState(false)
   const selected = solutions.find((x) => x.id === selectedId) ?? solutions[0]
   useEffect(() => { if (selected && !solutions.some((x) => x.id === selectedId)) setSelectedId(selected.id) }, [selected, selectedId, solutions])
   const blockingCount = selected.checks.filter((x) => !x.passed && x.severity === 'error').length
   if (errorCount) return <section className="solution-list no-solution"><div className="solution-title"><span>智能布局</span><strong>三维暂不可用</strong></div><p><FileWarning size={15} />请先修正量房阻断错误。</p></section>
   return <section className="solution-list auto-layout" aria-label="三类需求九种独立布局">
-    <div className="solution-title"><span>规则引擎布局 · 3 类需求 × 3 种空间拓扑</span><strong>{formatFootprint(spec)}</strong></div>
-    <div className="layout-grid">{solutions.map((solution) => <button key={solution.id} data-blocking-count={solution.checks.filter((x) => !x.passed && x.severity === 'error').length} className={solution.id === selected.id ? 'layout-card selected' : 'layout-card'} onClick={() => { setSelectedId(solution.id); if (!solution.checks.some((x) => !x.passed && x.severity === 'error')) onApplyLayout(solution) }}><LayoutPlan spec={spec} solution={solution} /><span>{solution.title}</span><strong>方案价 ¥{solution.total_price.toLocaleString('zh-CN')}</strong><small>{solution.layout_summary}</small><small>{solution.budget_label}选品 · {solution.score} 分</small></button>)}</div>
+    <div className="layout-header">
+      <div className="solution-title"><span>自动布局方案 · 3 类需求 × 3 种空间拓扑</span><strong>{formatFootprint(spec)}</strong></div>
+      <div className="layout-entry-actions">
+        {!expanded && <button className="button primary" onClick={() => setExpanded(true)}><Wand2 size={14} />开始自动布局</button>}
+        <button className="button layout-toggle" aria-expanded={expanded} aria-controls="auto-layout-options" onClick={() => setExpanded((value) => !value)}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}{expanded ? '收起方案' : '展开方案'}</button>
+      </div>
+    </div>
+    {expanded && <div id="auto-layout-options" className="layout-options">
+    <div className="layout-grid">{solutions.map((solution) => <button key={solution.id} data-blocking-count={solution.checks.filter((x) => !x.passed && x.severity === 'error').length} className={solution.id === selected.id ? 'layout-card selected' : 'layout-card'} onClick={() => setSelectedId(solution.id)}><LayoutPlan spec={spec} solution={solution} /><span>{solution.title}</span><strong>方案价 ¥{solution.total_price.toLocaleString('zh-CN')}</strong><small>{solution.layout_summary}</small><small>{solution.budget_label}选品 · {solution.score} 分</small></button>)}</div>
     <div className="layout-detail">
       <div><strong>{selected.title}</strong><span><Ruler size={13} />坐标单位 mm · 原点沿用量房数据</span><b>方案合计 ¥{selected.total_price.toLocaleString('zh-CN')}</b><small>设备 ¥{selected.equipment_price.toLocaleString('zh-CN')} · 材料 ¥{selected.material_price.toLocaleString('zh-CN')}</small><small>{selected.product_lines.map((line) => `${line.code} ${line.category} ¥${line.price}`).join(' · ')}</small><small>{selected.material_lines.map((line) => `${line.code} ${line.quantity}㎡ ¥${line.subtotal}`).join(' · ')}</small></div>
       <div className="layout-anchors">{selected.anchors.map((a) => <code key={a.id}>{a.label}: ({a.x_mm}, {a.z_mm})</code>)}</div>
       <div className="layout-checks">{selected.checks.map((c) => <span className={c.passed ? 'pass' : c.severity === 'error' ? 'fail' : 'warn'} key={c.code}>{c.passed ? <CheckCircle2 size={12} /> : <ShieldAlert size={12} />}<b>{c.code}</b> [{c.severity}/{c.source}] {c.message}</span>)}</div>
-      <div className="layout-actions"><button className="button" onClick={onOpenModel}><BoxSelect size={14} />查看当前 3D</button><button className="button primary" disabled={blockingCount > 0} title={blockingCount ? `存在 ${blockingCount} 个硬错误` : undefined} onClick={() => onApplyLayout(selected)}><Wand2 size={14} />{blockingCount ? '硬错误未通过' : '应用方案并打开 3D'}</button></div>
+      <div className="layout-actions"><button className="button" onClick={onOpenModel}><BoxSelect size={14} />查看当前 3D</button><button className="button primary" disabled={blockingCount > 0} title={blockingCount ? `存在 ${blockingCount} 个硬错误` : undefined} onClick={() => onApplyLayout(selected)}><Wand2 size={14} />{blockingCount ? '硬错误未通过' : '执行自动布局并打开 3D'}</button></div>
     </div>
     <span className="layout-method">需求指令 → 语义锚点 → 设备包围盒 → 边界/碰撞/通道/门区校验 → 精确坐标场景</span>
+    </div>}
   </section>
 }

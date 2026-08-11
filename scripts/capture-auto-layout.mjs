@@ -17,6 +17,7 @@ await page.route('**/api/**', async route => {
 })
 await page.goto('http://127.0.0.1:5173', {waitUntil:'networkidle'})
 await page.getByRole('button',{name:'二维审图'}).click()
+await page.getByRole('button',{name:'开始自动布局'}).click()
 await page.locator('.layout-grid').waitFor()
 const thumbnails = await page.locator('.layout-plan').count()
 const cards = await page.locator('.layout-card').evaluateAll((items) => items.map((item) => ({ text:item.textContent, blocking:item.getAttribute('data-blocking-count') })))
@@ -35,6 +36,7 @@ for (const label of scenarios) {
   for (const layout of layouts) {
     captureIndex += 1
     await page.getByRole('button',{name:new RegExp(`${label} · ${layout}`)}).click()
+    await page.getByRole('button',{name:'执行自动布局并打开 3D'}).click()
     await page.locator('.model-canvas-wrap canvas').waitFor()
     await page.getByTestId('scene-fixture-summary').waitFor()
     await page.waitForTimeout(500)
@@ -42,6 +44,7 @@ for (const label of scenarios) {
     const filename = `${String(captureIndex).padStart(2, '0')}-${label}-${layout}.png`
     await page.screenshot({path:`evidence/agen42-measurement-layout/${filename}`,fullPage:true})
     await page.getByRole('button',{name:'二维审图'}).click()
+    await page.getByRole('button',{name:'开始自动布局'}).click()
   }
 }
 const mobile = await browser.newPage({ viewport:{ width:390, height:844 }, deviceScaleFactor:1 })
@@ -51,8 +54,10 @@ await mobile.route('**/api/**', async route => {
 })
 await mobile.goto('http://127.0.0.1:5173', {waitUntil:'networkidle'})
 await mobile.getByRole('button',{name:'二维审图'}).click()
+await mobile.getByRole('button',{name:'开始自动布局'}).click()
 await mobile.locator('.layout-grid').waitFor()
 await mobile.getByRole('button',{name:/标准淋浴 · 沿墙通道型/}).click()
+await mobile.getByRole('button',{name:'执行自动布局并打开 3D'}).click()
 await mobile.locator('.model-canvas-wrap canvas').waitFor()
 await mobile.waitForTimeout(700)
 await mobile.screenshot({path:'evidence/agen42-measurement-layout/mobile-standard-shower.png',fullPage:true})

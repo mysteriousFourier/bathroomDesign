@@ -17,6 +17,7 @@ import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { fixtureModelAssetFromLibrary, type RoomModelAsset } from './modelAssets'
 import { applyLayoutSolution, type LayoutSolution } from './layoutEngine'
+import { surfaceMaterialsForDesignQuote } from './modelLibrary'
 import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, updateOpeningFromLine, wallLength, wetZoneBoundaryValid } from './spec'
 import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
@@ -96,6 +97,11 @@ export default function App() {
   const modelRef = useRef<ModelCanvasHandle>(null)
   const projectRef = useRef<Project | null>(null)
   projectRef.current = project
+  const quotedSurfaces = surfaceMaterialsForDesignQuote(designQuote)
+  const layoutSurfaces = activeLayout?.surface_materials
+  const appliedSurfaces = (quotedSurfaces.wall || quotedSurfaces.floor)
+    ? { wall: quotedSurfaces.wall ?? layoutSurfaces?.wall, floor: quotedSurfaces.floor ?? layoutSurfaces?.floor }
+    : layoutSurfaces
 
   const showMessage = useCallback((kind: 'error' | 'success' | 'info', text: string) => {
     setMessage({ kind, text })
@@ -495,7 +501,13 @@ export default function App() {
   return (
     <div className="app-shell">
       <Header projectName={project?.name} dirty={dirty} canUndo={history.length > 0} canRedo={future.length > 0} canConfirm={canConfirm} canModel={canModel} canExportMeasurement={canExportMeasurement} saving={busy === 'save'} onUndo={undo} onRedo={redo} onSave={() => void save()} onConfirm={() => void confirm()} onExportMeasurement={exportMeasurement} onExport={exportModel} onOpenLibrary={() => setMode('library')} onOpenChat={() => setChatOpen(true)} />
-      <DesignChat open={chatOpen} room={spec} onClose={() => setChatOpen(false)} onQuote={setDesignQuote} />
+      <DesignChat open={chatOpen} room={spec} onClose={() => setChatOpen(false)} onQuote={(quote) => {
+        setDesignQuote(quote)
+        const surfaces = surfaceMaterialsForDesignQuote(quote)
+        if (quote.requirements.complete && (surfaces.wall || surfaces.floor)) {
+          showMessage('success', `需求方案材质已自动填充：${surfaces.wall?.label ?? '墙板待匹配'} · ${surfaces.floor?.label ?? '地砖待匹配'}`)
+        }
+      }} />
       <MeasurementImportDialog open={measurementImportOpen} projectId={project?.id ?? null} hasMeasurement={!!project?.measurement} onClose={() => setMeasurementImportOpen(false)} onImported={applyMeasurementImport} />
       <ProjectRail projects={projects} project={project} health={health} busy={busy} planRotation={planRotation} onPlanRotationChange={setPlanRotation} onSelectProject={(id) => void selectProject(id)} onCreateProject={createProject} onDeleteProject={() => void deleteProject()} onUpload={upload} onOpenMeasurementImport={() => setMeasurementImportOpen(true)} onAnalyzePlan={() => void analyzePlan()} onAnalyzePhotos={() => void analyzePhotos()} />
       <main className="workspace">
@@ -595,7 +607,7 @@ export default function App() {
                     if (zone && wetZoneBoundaryValid(next, id, boundary)) { zone.boundary = boundary; zone.source = 'user'; zone.confidence = 1; commitSpec(next) }
                   }}
                 />
-                : <ModelCanvas ref={modelRef} spec={spec} selection={selection} onSelect={setSelection} layoutInfo={activeLayout ? { title: activeLayout.title, summary: activeLayout.layout_summary, totalPrice: activeLayout.total_price, products: [...activeLayout.product_lines.map((line) => `${line.code} ¥${line.price}`), ...activeLayout.material_lines.map((line) => `${line.code} ${line.quantity}㎡ ¥${line.subtotal}`)].join(' · ') } : null} surfaceMaterials={activeLayout ? { wall: activeLayout.surface_materials.wall?.texture_src ? { textureSrc: activeLayout.surface_materials.wall.texture_src, widthMm: activeLayout.surface_materials.wall.dimensions_mm.width, heightMm: activeLayout.surface_materials.wall.dimensions_mm.height } : undefined, floor: activeLayout.surface_materials.floor?.texture_src ? { textureSrc: activeLayout.surface_materials.floor.texture_src, widthMm: activeLayout.surface_materials.floor.dimensions_mm.width, depthMm: activeLayout.surface_materials.floor.dimensions_mm.depth } : undefined } : undefined} />}
+                : <ModelCanvas ref={modelRef} spec={spec} selection={selection} onSelect={setSelection} layoutInfo={activeLayout ? { title: activeLayout.title, summary: activeLayout.layout_summary, totalPrice: activeLayout.total_price, products: [...activeLayout.product_lines.map((line) => `${line.code} ¥${line.price}`), ...activeLayout.material_lines.map((line) => `${line.code} ${line.quantity}㎡ ¥${line.subtotal}`)].join(' · ') } : null} surfaceMaterials={appliedSurfaces ? { wall: appliedSurfaces.wall?.texture_src ? { textureSrc: appliedSurfaces.wall.texture_src, widthMm: appliedSurfaces.wall.dimensions_mm.width, heightMm: appliedSurfaces.wall.dimensions_mm.height } : undefined, floor: appliedSurfaces.floor?.texture_src ? { textureSrc: appliedSurfaces.floor.texture_src, widthMm: appliedSurfaces.floor.dimensions_mm.width, depthMm: appliedSurfaces.floor.dimensions_mm.depth } : undefined } : undefined} />}
           </>
         )}
       </main>

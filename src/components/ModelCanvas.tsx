@@ -1,13 +1,14 @@
 import { ContactShadows, Edges, Grid, OrbitControls, PerspectiveCamera, useGLTF, useTexture } from '@react-three/drei'
 import { Canvas, type ThreeEvent, useFrame, useLoader, useThree } from '@react-three/fiber'
-import { Eye, EyeOff, Focus, Layers, Move3d } from 'lucide-react'
+import { Eye, EyeOff, Focus, Layers, Move3d, SquareDashed } from 'lucide-react'
 import { Suspense, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Box3, BufferGeometry, DoubleSide, Float32BufferAttribute, Group, RepeatWrapping, Shape, SRGBColorSpace, Vector3 } from 'three'
+import { Box3, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, Group, RepeatWrapping, Shape, SRGBColorSpace, Vector3 } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerQuads, wallLength } from '../spec'
+import { physicalTextureTransform, physicalWorldTextureTransform } from '../surfaceTexture'
 import type { FixtureModelAsset, FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
 
 export interface ModelCanvasHandle {
@@ -32,31 +33,49 @@ function wallPrismGeometry(quad: Point2D[], minY: number, maxY: number) {
   return geometry
 }
 
-function TexturedMaterial({ src, repeatX, repeatY, color = '#ffffff', opacity = 1 }: { src: string; repeatX: number; repeatY: number; color?: string; opacity?: number }) {
+function TexturedMaterial({ src, repeatX, repeatY, offsetX = 0, offsetY = 0, color = '#ffffff', opacity = 1, emphasizeJoints = false }: { src: string; repeatX: number; repeatY: number; offsetX?: number; offsetY?: number; color?: string; opacity?: number; emphasizeJoints?: boolean }) {
   const source = useTexture(src)
   const texture = useMemo(() => {
-    const next = source.clone()
+    let next = source.clone()
+    if (emphasizeJoints && source.image) {
+      const image = source.image as CanvasImageSource & { width: number; height: number }
+      const canvas = document.createElement('canvas')
+      canvas.width = image.width
+      canvas.height = image.height
+      const context = canvas.getContext('2d')
+      if (context) {
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        const jointWidth = Math.max(6, Math.round(Math.min(canvas.width, canvas.height) * 0.012))
+        context.strokeStyle = 'rgba(45, 39, 31, 0.92)'
+        context.lineWidth = jointWidth
+        context.strokeRect(jointWidth / 2, jointWidth / 2, canvas.width - jointWidth, canvas.height - jointWidth)
+        next.dispose()
+        next = new CanvasTexture(canvas)
+      }
+    }
     next.wrapS = RepeatWrapping
     next.wrapT = RepeatWrapping
-    next.repeat.set(Math.max(1, repeatX), Math.max(1, repeatY))
+    next.repeat.set(repeatX, repeatY)
+    next.offset.set(offsetX, offsetY)
     next.colorSpace = SRGBColorSpace
     next.needsUpdate = true
     return next
-  }, [repeatX, repeatY, source])
+  }, [emphasizeJoints, offsetX, offsetY, repeatX, repeatY, source])
   useEffect(() => () => texture.dispose(), [texture])
   return <meshStandardMaterial color={color} map={texture} roughness={0.82} side={DoubleSide} transparent={opacity < 1} opacity={opacity} />
 }
 
-function WallPrism({ quad, part, color, edge, onSelect, surface }: { quad: Point2D[]; part: WallPart; color: string; edge: string; onSelect: () => void; surface?: SurfaceMaterials['wall'] }) {
+function WallPrism({ quad, part, color, edge, onSelect, surface, emphasizeJoints }: { quad: Point2D[]; part: WallPart; color: string; edge: string; onSelect: () => void; surface?: SurfaceMaterials['wall']; emphasizeJoints?: boolean }) {
   const geometry = useMemo(() => wallPrismGeometry(quad, part.y - part.height / 2, part.y + part.height / 2), [quad, part])
   const lengthMm = Math.hypot(quad[1].x_mm - quad[0].x_mm, quad[1].z_mm - quad[0].z_mm)
+  const textureTransform = surface ? physicalTextureTransform(lengthMm, part.height, surface.widthMm, surface.heightMm, part.start, part.y - part.height / 2) : null
   return <mesh geometry={geometry} castShadow receiveShadow onClick={(event) => { event.stopPropagation(); onSelect() }}>
-    {surface ? <TexturedMaterial src={surface.textureSrc} repeatX={lengthMm / surface.widthMm} repeatY={part.height / surface.heightMm} color={color} /> : <meshStandardMaterial color={color} roughness={0.84} side={DoubleSide} />}
+    {surface && textureTransform ? <TexturedMaterial src={surface.textureSrc} {...textureTransform} color={color} emphasizeJoints={emphasizeJoints} /> : <meshStandardMaterial color={color} roughness={0.84} side={DoubleSide} />}
     <Edges color={edge} threshold={20} />
   </mesh>
 }
 
-function Wall({ spec, index, layers, selected, onSelect, surface }: { spec: RoomSpec; index: number; layers: WallLayers; selected: boolean; onSelect: () => void; surface?: SurfaceMaterials['wall'] }) {
+function Wall({ spec, index, layers, selected, onSelect, surface, emphasizeJoints }: { spec: RoomSpec; index: number; layers: WallLayers; selected: boolean; onSelect: () => void; surface?: SurfaceMaterials['wall']; emphasizeJoints?: boolean }) {
   const lengthMm = wallLength(spec.boundary, index)
   const wallStart = spec.boundary[index]
   const wallEnd = spec.boundary[(index + 1) % spec.boundary.length]
@@ -81,7 +100,7 @@ function Wall({ spec, index, layers, selected, onSelect, surface }: { spec: Room
         <WallPrism key={partIndex} quad={sliceWallQuadByDistance(layers.wall, wallStart, wallEnd, part.start, part.end)} part={part} color={selected ? '#d8c8a5' : '#e7e5df'} edge={selected ? '#8a6725' : '#b9bcb4'} onSelect={onSelect} />
       ))}
       {parts.map((part, partIndex) => (
-        <WallPrism key={`finish-${partIndex}`} quad={sliceWallQuadByDistance(layers.finish, wallStart, wallEnd, part.start, part.end)} part={part} color={selected ? '#eee2c5' : '#ffffff'} edge={selected ? '#8a6725' : '#c8c1b2'} onSelect={onSelect} surface={surface} />
+        <WallPrism key={`finish-${partIndex}`} quad={sliceWallQuadByDistance(layers.finish, wallStart, wallEnd, part.start, part.end)} part={part} color={selected ? '#eee2c5' : '#ffffff'} edge={selected ? '#8a6725' : '#c8c1b2'} onSelect={onSelect} surface={surface} emphasizeJoints={emphasizeJoints} />
       ))}
     </group>
   )
@@ -212,7 +231,7 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
   )
 }
 
-function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, onSelect, groupRef, surfaceMaterials }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; cutaway: boolean; hiddenWallIndexes: number[]; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials }) {
+function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; cutaway: boolean; hiddenWallIndexes: number[]; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
   const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
   const floorShape = useMemo(() => {
     const shape = new Shape()
@@ -226,12 +245,13 @@ function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, o
     return shape
   }, [roomBoundary])
   const wallLayers = useMemo(() => wallLayerQuads(spec), [spec])
+  const bounds = useMemo(() => roomBounds(roomBoundary), [roomBoundary])
   const height = (spec.height_mm ?? 2600) / 1000
   return (
     <group ref={groupRef} userData={{ schema_version: spec.schema_version, unit: 'meter', room_name: spec.name }} onClick={() => onSelect({ type: 'room' })}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <shapeGeometry args={[floorShape]} />
-        {surfaceMaterials?.floor ? <TexturedMaterial src={surfaceMaterials.floor.textureSrc} repeatX={(roomBounds(roomBoundary).width || surfaceMaterials.floor.widthMm) / surfaceMaterials.floor.widthMm} repeatY={(roomBounds(roomBoundary).depth || surfaceMaterials.floor.depthMm) / surfaceMaterials.floor.depthMm} /> : <meshStandardMaterial color="#c8c6bd" roughness={0.84} side={DoubleSide} />}
+        {surfaceMaterials?.floor ? <TexturedMaterial src={surfaceMaterials.floor.textureSrc} {...physicalWorldTextureTransform(surfaceMaterials.floor.widthMm, surfaceMaterials.floor.depthMm, bounds.minX, -bounds.minZ)} emphasizeJoints={emphasizeJoints} /> : <meshStandardMaterial color="#c8c6bd" roughness={0.84} side={DoubleSide} />}
       </mesh>
       {showCeiling && <mesh position={[0, height, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <shapeGeometry args={[floorShape]} /><meshStandardMaterial color="#dedfd9" roughness={0.9} side={DoubleSide} transparent opacity={0.72} />
@@ -239,14 +259,14 @@ function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, o
       {showCeiling && (spec.ceiling_zones ?? []).map((zone) => <CeilingZoneMesh key={zone.id} boundary={zone.boundary} heightMm={zone.height_mm} />)}
       {spec.boundary.map((start, index) => {
         if (cutaway && hiddenWallIndexes.includes(index)) return null
-        return <Wall key={index} spec={spec} index={index} layers={wallLayers[index]} selected={selection.type === 'room'} onSelect={() => onSelect({ type: 'room' })} surface={surfaceMaterials?.wall} />
+        return <Wall key={index} spec={spec} index={index} layers={wallLayers[index]} selected={selection.type === 'room'} onSelect={() => onSelect({ type: 'room' })} surface={surfaceMaterials?.wall} emphasizeJoints={emphasizeJoints} />
       })}
       {spec.fixtures.map((fixture) => <Fixture key={fixture.id} fixture={fixture} selected={selection.type === 'fixture' && selection.id === fixture.id} onSelect={() => onSelect({ type: 'fixture', id: fixture.id })} />)}
     </group>
   )
 }
 
-function CameraAwareRoom({ spec, selection, showCeiling, cutaway, onHiddenWallsChange, onSelect, groupRef, surfaceMaterials }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; cutaway: boolean; onHiddenWallsChange: (indexes: number[]) => void; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials }) {
+function CameraAwareRoom({ spec, selection, showCeiling, cutaway, onHiddenWallsChange, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; cutaway: boolean; onHiddenWallsChange: (indexes: number[]) => void; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
   const { camera } = useThree()
   const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
   const [hiddenWallIndexes, setHiddenWallIndexes] = useState<number[]>([])
@@ -269,7 +289,7 @@ function CameraAwareRoom({ spec, selection, showCeiling, cutaway, onHiddenWallsC
     onHiddenWallsChange(next)
   })
 
-  return <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} hiddenWallIndexes={hiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} />
+  return <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} hiddenWallIndexes={hiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
 }
 
 export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selection: Selection; onSelect: (selection: Selection) => void; layoutInfo?: { title: string; summary: string; totalPrice: number; products: string } | null; surfaceMaterials?: SurfaceMaterials }>(function ModelCanvas({ spec, selection, onSelect, layoutInfo, surfaceMaterials }, ref) {
@@ -277,6 +297,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
   const [cutaway, setCutaway] = useState(true)
   const [hiddenWallIndexes, setHiddenWallIndexes] = useState<number[]>([])
   const [cameraKey, setCameraKey] = useState(0)
+  const [emphasizeJoints, setEmphasizeJoints] = useState(true)
   const groupRef = useRef<Group>(null)
   const roomBoundary = finishedRoomBoundary(spec)
   const bounds = roomBounds(roomBoundary)
@@ -304,6 +325,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
           <span className={cutaway ? 'cutaway-status active' : 'cutaway-status'}>{cutaway ? `剖切隐藏 ${hiddenWallIndexes.length ? hiddenWallIndexes.map((index) => `W${index + 1}`).join('、') : '自动判定中'}` : '完整墙体'}</span>
           <button className="icon-button" onClick={() => setShowCeiling((value) => !value)} title={showCeiling ? '隐藏顶板' : '显示顶板'}>{showCeiling ? <EyeOff size={17} /> : <Eye size={17} />}</button>
           <button className={cutaway ? 'icon-button active-tool' : 'icon-button'} onClick={() => setCutaway((value) => !value)} title={cutaway ? '显示完整墙体' : '开启剖切视图'}><Layers size={17} /></button>
+          {surfaceMaterials && <button className={emphasizeJoints ? 'icon-button active-tool' : 'icon-button'} onClick={() => setEmphasizeJoints((value) => !value)} title={emphasizeJoints ? '关闭板缝加粗' : '开启板缝加粗'} aria-pressed={emphasizeJoints}><SquareDashed size={17} /></button>}
           <button className="icon-button" onClick={() => setCameraKey((value) => value + 1)} title="重置视角"><Focus size={17} /></button>
         </div>
       </div>
@@ -311,6 +333,11 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
         <strong>{layoutInfo?.title ?? '3D 实体布局'} · 全部落地</strong>
         {layoutInfo && <><span>{layoutInfo.summary}</span><strong>方案合计 ¥{layoutInfo.totalPrice.toLocaleString('zh-CN')}</strong><span>{layoutInfo.products}</span></>}
         <span>房间层高 {spec.height_mm ?? 2600} mm · 实体尺寸按 W×D×H</span>
+        {surfaceMaterials && <>
+          <strong>材质原尺寸排布（不缩放）· 板缝{emphasizeJoints ? '已加粗' : '标准显示'}</strong>
+          {surfaceMaterials.wall && <code>墙板 {surfaceMaterials.wall.widthMm}×{surfaceMaterials.wall.heightMm} mm · 各墙面左下起铺 · 门窗处连续裁切</code>}
+          {surfaceMaterials.floor && <code>地砖 {surfaceMaterials.floor.widthMm}×{surfaceMaterials.floor.depthMm} mm · 房间轮廓原点起铺 · 边缘裁切</code>}
+        </>}
         <div>{spec.fixtures.filter((fixture) => fixture.kind !== 'floor_drain').map((fixture) => (
           <code key={fixture.id} data-fixture-kind={fixture.kind}>{fixture.label} {fixture.width_mm}×{fixture.depth_mm}×{fixture.height_mm} mm</code>
         ))}</div>
@@ -321,7 +348,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
         <ambientLight intensity={1.3} />
         <directionalLight position={[4, 7, 3]} intensity={2.2} castShadow shadow-mapSize={[2048, 2048]} />
         <Suspense fallback={null}>
-          <CameraAwareRoom spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} onHiddenWallsChange={setHiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} />
+          <CameraAwareRoom spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} onHiddenWallsChange={setHiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
         </Suspense>
         <Grid position={[center.x / 1000, -0.006, center.z / 1000]} args={[12, 12]} cellSize={0.1} cellThickness={0.45} cellColor="#c4c7bf" sectionSize={1} sectionThickness={0.8} sectionColor="#aeb2aa" fadeDistance={12} fadeStrength={1.2} infiniteGrid />
         <ContactShadows position={[0, -0.002, 0]} opacity={0.3} scale={12} blur={2.3} far={5} />

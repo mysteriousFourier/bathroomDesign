@@ -1,5 +1,5 @@
 import manifest from './generated-model-library.json'
-import type { ModelAssetFormat, ModelAssetLifecycle } from './types'
+import type { DesignChatResponse, ModelAssetFormat, ModelAssetLifecycle } from './types'
 import type { RoomModelAsset } from './modelAssets'
 
 export type BuiltInModelRecord = {
@@ -62,6 +62,18 @@ export function modelAssetForProduct(category: string, code?: string, tier?: Bui
 
 export function surfaceAssetForProduct(code: string) {
   return records.find((asset) => asset.asset_type === 'surface' && asset.catalog_codes.includes(code))
+}
+
+export type AppliedSurfaceMaterials = { wall?: BuiltInModelRecord; floor?: BuiltInModelRecord }
+
+/** Resolve the exact wall/floor products selected by the demand assistant. */
+export function surfaceMaterialsForDesignQuote(quote: DesignChatResponse | null): AppliedSurfaceMaterials {
+  if (!quote?.requirements.complete) return {}
+  const material = (category: '墙板' | '地砖') => {
+    const line = quote.material_quotes.find((item) => item.材料名称 === category)
+    return line ? surfaceAssetForProduct(line.材料编号) : undefined
+  }
+  return { wall: material('墙板'), floor: material('地砖') }
 }
 
 export function builtInAssetAsRoomAsset(record: BuiltInModelRecord): RoomModelAsset {

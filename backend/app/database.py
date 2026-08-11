@@ -293,6 +293,15 @@ class Database:
             created_at=row["created_at"], updated_at=row["updated_at"], messages=messages,
         )
 
+    def delete_chat_session(self, project_id: str, session_id: str) -> None:
+        with self.connect() as connection:
+            deleted = connection.execute(
+                "DELETE FROM chat_sessions WHERE id = ? AND project_id = ?",
+                (session_id, project_id),
+            ).rowcount
+            if deleted == 0:
+                raise KeyError(session_id)
+
     def append_chat_turn(self, project_id: str, session_id: str, user_content: str, assistant_content: str, quote: dict[str, object]) -> ChatSessionResponse:
         timestamp = now_iso()
         with self.connect() as connection:

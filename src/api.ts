@@ -86,6 +86,7 @@ export const studioApi = {
   chatSessions: (projectId: string) => request<ChatSessionSummary[]>(`/api/projects/${projectId}/chat-sessions`),
   createChatSession: (projectId: string) => request<ChatSession>(`/api/projects/${projectId}/chat-sessions`, { method:'POST', headers:jsonHeaders, body:JSON.stringify({ title:'新对话' }) }),
   chatSession: (projectId: string, sessionId: string) => request<ChatSession>(`/api/projects/${projectId}/chat-sessions/${sessionId}`),
+  deleteChatSession: (projectId: string, sessionId: string) => request<void>(`/api/projects/${projectId}/chat-sessions/${sessionId}`, { method:'DELETE' }),
   sendChatMessage: (projectId: string, sessionId: string, content: string, room: RoomSpec | null) => request<ChatSession>(`/api/projects/${projectId}/chat-sessions/${sessionId}/messages`, { method:'POST', headers:jsonHeaders, body:JSON.stringify({ content, room }), timeoutMs:150_000 }),
   measurementDownloadUrl: (id: string) => `/api/projects/${id}/measurement/download`,
 }

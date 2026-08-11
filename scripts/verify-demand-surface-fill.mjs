@@ -65,6 +65,10 @@ await page.route(/\/api\/projects\/surface-demo\/chat-sessions\/[^/]+(?:\/messag
   const id = segments.at(-1) === 'messages' ? segments.at(-2) : segments.at(-1)
   const session = sessions.get(id)
   if (!session) return route.fulfill({ status: 404, json: { detail: '对话不存在' } })
+  if (route.request().method() === 'DELETE') {
+    sessions.delete(id)
+    return route.fulfill({ status: 204, body: '' })
+  }
   if (segments.at(-1) !== 'messages') return route.fulfill({ json: session })
   const payload = route.request().postDataJSON()
   const userMessage = { id: 'user-1', role: 'user', content: payload.content, quote: null, created_at: createdAt }
@@ -87,7 +91,12 @@ const firstSessionTitle = '成人使用，要淋浴，喜欢清爽素雅，两�
 await page.getByRole('button', { name: '新建对话' }).click()
 await page.locator('.chat-header-session').getByText('新对话', { exact: true }).waitFor()
 if (await page.getByTestId('quote-summary').count() !== 0) throw new Error('新建对话错误继承了旧报价')
-await page.locator('.chat-history-item').filter({ hasText: firstSessionTitle }).click()
+await page.locator('.chat-history-item').filter({ hasText: firstSessionTitle }).locator('.chat-history-open').click()
+await page.getByTestId('quote-summary').getByText(/报价合计 ¥6,784.40/).waitFor()
+await page.getByRole('button', { name: '删除对话：新对话' }).click()
+await page.screenshot({ path: 'reports/screenshots/agen-45-step-2b-delete-confirm.png', fullPage: true })
+await page.getByRole('button', { name: '确认删除' }).click()
+await page.getByRole('button', { name: '删除对话：新对话' }).waitFor({ state: 'detached' })
 await page.getByTestId('quote-summary').getByText(/报价合计 ¥6,784.40/).waitFor()
 await page.locator('.design-chat header').getByRole('button', { name: '关闭' }).click()
 await page.getByRole('button', { name: /三维预览/ }).click({ force: true })
@@ -99,21 +108,28 @@ await page.screenshot({ path: 'reports/screenshots/agen-45-step-3-textured-room.
 const textureRequests = await page.evaluate(() => performance.getEntriesByType('resource').map(entry => entry.name).filter(name => /surfaces\/(QB2-SY|DB3-SY)\/texture\.jpg/.test(name)))
 await page.setViewportSize({ width: 390, height: 844 })
 await page.getByRole('button', { name: 'Chat' }).click()
-await page.locator('.chat-history-item').filter({ hasText: firstSessionTitle }).click()
+await page.locator('.chat-history-item').filter({ hasText: firstSessionTitle }).locator('.chat-history-open').click()
 await page.getByTestId('quote-summary').waitFor()
 const mobileLayout = await page.evaluate(() => {
   const chat = document.querySelector('.design-chat').getBoundingClientRect()
   const history = document.querySelector('.chat-history').getBoundingClientRect()
   const thread = document.querySelector('.chat-thread').getBoundingClientRect()
+  const deleteButton = document.querySelector('.chat-history-delete').getBoundingClientRect()
   return {
     chatWithinViewport: chat.left >= 0 && chat.right <= innerWidth + 1 && chat.bottom <= innerHeight + 1,
     historyAboveThread: history.bottom <= thread.top + 1,
     quoteWithinThread: [...document.querySelectorAll('.quote-detail')].every(node => node.getBoundingClientRect().right <= thread.right + 1),
+    deleteWithinHistory: deleteButton.left >= history.left && deleteButton.right <= history.right && deleteButton.bottom <= history.bottom,
   }
 })
 if (Object.values(mobileLayout).some(value => !value)) throw new Error(`手机布局越界：${JSON.stringify(mobileLayout)}`)
 await page.screenshot({ path: 'reports/screenshots/agen-45-step-4-mobile-chat-history.png', fullPage: true })
+await page.getByRole('button', { name: `删除对话：${firstSessionTitle}` }).click()
+await page.getByRole('button', { name: '确认删除' }).click()
+await page.locator('.chat-history-item.active').getByText('新对话', { exact: true }).waitFor()
+if (await page.getByTestId('quote-summary').count() !== 0) throw new Error('删除当前会话后仍显示旧报价')
+if (sessions.size !== 1 || [...sessions.values()][0].title !== '新对话') throw new Error('删除最后会话后未创建新的空白会话')
 await browser.close()
 if (textureRequests.length !== 2) throw new Error(`期望加载 2 个需求材质纹理，实际为 ${JSON.stringify(textureRequests)}`)
 if (consoleIssues.length) throw new Error(`浏览器控制台存在问题：${JSON.stringify(consoleIssues)}`)
-console.log(JSON.stringify({ screenshots: ['agen-45-step-1-demand-input.png', 'agen-45-step-2-auto-filled.png', 'agen-45-step-3-textured-room.png', 'agen-45-step-4-mobile-chat-history.png'], textureRequests, mobileLayout }, null, 2))
+console.log(JSON.stringify({ screenshots: ['agen-45-step-1-demand-input.png', 'agen-45-step-2-auto-filled.png', 'agen-45-step-2b-delete-confirm.png', 'agen-45-step-3-textured-room.png', 'agen-45-step-4-mobile-chat-history.png'], textureRequests, mobileLayout }, null, 2))

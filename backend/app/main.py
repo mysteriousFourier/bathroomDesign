@@ -147,6 +147,15 @@ def get_project_chat_session(project_id: str, session_id: str) -> ChatSessionRes
         raise HTTPException(status_code=404, detail="对话不存在") from error
 
 
+@app.delete("/api/projects/{project_id}/chat-sessions/{session_id}", status_code=204)
+def delete_project_chat_session(project_id: str, session_id: str) -> Response:
+    try:
+        db.delete_chat_session(project_id, session_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="对话不存在") from error
+    return Response(status_code=204)
+
+
 @app.post("/api/projects/{project_id}/chat-sessions/{session_id}/messages", response_model=ChatSessionResponse)
 async def append_project_chat_message(project_id: str, session_id: str, payload: ChatTurnCreate) -> ChatSessionResponse:
     try:

@@ -543,6 +543,14 @@ async def test_project_chat_sessions_persist_messages_quotes_and_history(tmp_pat
         assert (await client.get(f"/api/projects/{second_project}/chat-sessions")).json() == []
         assert (await client.get(f"/api/projects/{second_project}/chat-sessions/{session_id}")).status_code == 404
 
+        deleted = await client.delete(f"/api/projects/{first_project}/chat-sessions/{session_id}")
+        assert deleted.status_code == 204
+        assert (await client.get(f"/api/projects/{first_project}/chat-sessions")).json() == []
+        assert (await client.get(f"/api/projects/{first_project}/chat-sessions/{session_id}")).status_code == 404
+        assert (await client.delete(f"/api/projects/{first_project}/chat-sessions/{session_id}")).status_code == 404
+        with db.connect() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM chat_messages WHERE session_id = ?", (session_id,)).fetchone()[0] == 0
+
 
 @pytest.mark.asyncio
 async def test_model_folder_upload_list_read_and_delete(tmp_path) -> None:

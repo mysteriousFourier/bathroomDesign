@@ -1,4 +1,4 @@
-import { CheckCircle2, MessageCircle, Plus, ReceiptText, Send, X } from 'lucide-react'
+import { CheckCircle2, MessageCircle, Plus, ReceiptText, Send, Trash2, X } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { studioApi } from '../api'
 import { polygonSignedArea } from '../spec'
@@ -49,6 +49,8 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
   const roomArea = useMemo(() => room && room.boundary.length > 2 ? Math.abs(polygonSignedArea(room.boundary)) / 1_000_000 : null, [room])
@@ -58,6 +60,7 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
     let cancelled = false
     setLoading(true)
     setError(null)
+    setConfirmDeleteId(null)
     setActiveSession(null)
     void studioApi.chatSessions(projectId).then(async (items) => {
       if (cancelled) return
@@ -89,12 +92,13 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
   if (!open) return null
 
   async function createSession() {
-    if (!projectId || loading || sending) return
+    if (!projectId || loading || sending || deletingId) return
     setLoading(true); setError(null)
     try {
       const session = await studioApi.createChatSession(projectId)
       setSessions((current) => [{ id: session.id, project_id: session.project_id, title: session.title, message_count: session.message_count, last_message: session.last_message, created_at: session.created_at, updated_at: session.updated_at }, ...current])
       setActiveSession(session)
+      setConfirmDeleteId(null)
       onQuote?.(null, false)
     } catch (reason) {
       setError((reason as Error).message)
@@ -102,11 +106,12 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
   }
 
   async function selectSession(sessionId: string) {
-    if (!projectId || loading || sending || sessionId === activeSession?.id) return
+    if (!projectId || loading || sending || deletingId || sessionId === activeSession?.id) return
     setLoading(true); setError(null)
     try {
       const session = await studioApi.chatSession(projectId, sessionId)
       setActiveSession(session)
+      setConfirmDeleteId(null)
       const latestQuote = [...session.messages].reverse().find((message) => message.quote)?.quote ?? null
       onQuote?.(latestQuote, false)
     } catch (reason) {
@@ -114,10 +119,37 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
     } finally { setLoading(false) }
   }
 
+  async function deleteSession(sessionId: string) {
+    if (!projectId || loading || sending || deletingId) return
+    setDeletingId(sessionId); setError(null)
+    try {
+      await studioApi.deleteChatSession(projectId, sessionId)
+      const remaining = sessions.filter((session) => session.id !== sessionId)
+      setSessions(remaining)
+      setConfirmDeleteId(null)
+      if (activeSession?.id !== sessionId) return
+      setActiveSession(null)
+      onQuote?.(null, false)
+      if (remaining.length) {
+        const session = await studioApi.chatSession(projectId, remaining[0].id)
+        setActiveSession(session)
+        const latestQuote = [...session.messages].reverse().find((message) => message.quote)?.quote ?? null
+        onQuote?.(latestQuote, false)
+      } else {
+        const session = await studioApi.createChatSession(projectId)
+        setSessions([{ id: session.id, project_id: session.project_id, title: session.title, message_count: session.message_count, last_message: session.last_message, created_at: session.created_at, updated_at: session.updated_at }])
+        setActiveSession(session)
+        onQuote?.(null, false)
+      }
+    } catch (reason) {
+      setError((reason as Error).message)
+    } finally { setDeletingId(null) }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault()
     const content = input.trim()
-    if (!content || !projectId || !activeSession || sending || !room) return
+    if (!content || !projectId || !activeSession || sending || deletingId || !room) return
     setInput(''); setSending(true); setError(null)
     try {
       const session = await studioApi.sendChatMessage(projectId, activeSession.id, content, room)
@@ -136,9 +168,14 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
     <header><span><MessageCircle size={17} />小和需求助手</span><div className="chat-header-session">{activeSession?.title ?? '项目对话'}</div><button className="icon-button" onClick={onClose} aria-label="关闭"><X size={17} /></button></header>
     <div className="chat-workspace">
       <nav className="chat-history" aria-label="历史对话">
-        <button className="button primary chat-new" onClick={() => void createSession()} disabled={loading || sending || !projectId}><Plus size={14} />新建对话</button>
+        <button className="button primary chat-new" onClick={() => void createSession()} disabled={loading || sending || !!deletingId || !projectId}><Plus size={14} />新建对话</button>
         <div className="chat-history-list">
-          {sessions.map((session) => <button key={session.id} className={session.id === activeSession?.id ? 'chat-history-item active' : 'chat-history-item'} onClick={() => void selectSession(session.id)} disabled={loading || sending} aria-current={session.id === activeSession?.id ? 'page' : undefined}><strong>{session.title}</strong><small>{session.last_message || '尚未开始'}</small><time>{shortTime(session.updated_at)}</time></button>)}
+          {sessions.map((session) => <div key={session.id} className={session.id === activeSession?.id ? 'chat-history-item active' : 'chat-history-item'}>
+            {confirmDeleteId === session.id ? <div className="chat-history-confirm" role="group" aria-label={`确认删除对话：${session.title}`}><strong>删除此对话？</strong><div><button className="chat-confirm-delete" onClick={() => void deleteSession(session.id)} disabled={!!deletingId}>确认删除</button><button onClick={() => setConfirmDeleteId(null)} disabled={!!deletingId}>取消</button></div></div> : <>
+              <button className="chat-history-open" onClick={() => void selectSession(session.id)} disabled={loading || sending || !!deletingId} aria-current={session.id === activeSession?.id ? 'page' : undefined}><strong>{session.title}</strong><small>{session.last_message || '尚未开始'}</small><time>{shortTime(session.updated_at)}</time></button>
+              <button className="icon-button danger chat-history-delete" onClick={() => setConfirmDeleteId(session.id)} disabled={loading || sending || !!deletingId} aria-label={`删除对话：${session.title}`} title={`删除对话：${session.title}`}><Trash2 size={14} /></button>
+            </>}
+          </div>)}
           {!sessions.length && !loading && <span className="chat-history-empty">还没有历史对话</span>}
         </div>
       </nav>
@@ -157,7 +194,7 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
           {loading && !activeSession && <div className="chat-message assistant">正在打开项目对话…</div>}
           {sending && <div className="chat-message assistant">正在核对需求与知识图谱约束…</div>}
         </div>
-        <form onSubmit={submit}><textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="描述家庭成员、功能、风格和预算…" rows={3} disabled={loading || sending || !activeSession} /><button className="button primary" disabled={sending || loading || !input.trim() || !room || !activeSession}><Send size={15} />发送</button></form>
+        <form onSubmit={submit}><textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="描述家庭成员、功能、风格和预算…" rows={3} disabled={loading || sending || !!deletingId || !activeSession} /><button className="button primary" disabled={sending || loading || !!deletingId || !input.trim() || !room || !activeSession}><Send size={15} />发送</button></form>
         <small className="chat-footnote">完整需求会生成服务端确定的材料与家具结构化报价；后续布局可继续调整空间方案。</small>
       </section>
     </div>

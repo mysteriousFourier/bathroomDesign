@@ -1,6 +1,11 @@
+import json
 from pathlib import Path
+
+import pytest
+
+import backend.app.design_chat as design_chat_module
 from backend.app.knowledge_graph import ProductKnowledgeGraph, equipment_rules
-from backend.app.design_chat import PROMPT, QUOTE_TOOL, _safe_model_message, calculate_design_quote, default_product_ids, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, requirement_state, resolve_style, select_furniture_quotes, surface_estimate
+from backend.app.design_chat import PROMPT, QUOTE_TOOL, REQUIREMENT_TOOL, _safe_model_message, calculate_design_quote, default_product_ids, design_chat, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, requirement_state, requirement_state_from_model, resolve_style, select_furniture_quotes, surface_estimate
 
 def test_incremental_catalog(tmp_path: Path):
     graph=ProductKnowledgeGraph(tmp_path/"graph.json")
@@ -50,8 +55,8 @@ def test_chat_area_is_never_read_from_user_text():
 def test_prompt_brings_diverted_conversation_back_without_scolding():
     assert "无法获得可靠实时信息" in PROMPT
     assert "missing_fields" in PROMPT
-    assert "家具组合的最低价" in PROMPT
-    assert "总价区间为材料合计分别加家具最低价、最高价" in PROMPT
+    assert "capture_design_requirements" in PROMPT
+    assert "服务端负责知识图谱检索、选品" in PROMPT
 
 def test_prompt_collects_requirements_like_a_human_designer():
     assert "用户自己的词" in PROMPT
@@ -92,6 +97,64 @@ def test_requirement_state_accepts_delegated_functions_and_short_budget_range():
     assert state["collected"]["功能需求"]==["淋浴","坐便","洗漱"]
     assert state["collected"]["预期价格区间"]=="2-4万"
 
+def test_requirement_state_accepts_the_suggested_standard_bathroom_answer():
+    state=requirement_state([
+        {"role":"user","content":"有老人，设计尽量好看一点暖色调，预算2-4万"},
+        {"role":"assistant","content":"如果只是日常使用，也可以说“常规卫浴”，我按适老安全配置来设计。"},
+        {"role":"user","content":"中古"},
+        {"role":"assistant","content":"请确认主要功能需求。"},
+        {"role":"user","content":"常规卫浴"},
+    ])
+    assert state["complete"] is True
+    assert state["collected"]["功能需求"]==["淋浴","坐便","洗漱"]
+    assert state["collected"]["喜好风格"]==["中古"]
+
+def test_model_requirement_state_handles_semantics_outside_keyword_fallback():
+    messages=[
+        {"role":"user","content":"给家里的长辈用，做得有老电影质感，控制在两到四万"},
+        {"role":"assistant","content":"日常功能怎么安排？"},
+        {"role":"user","content":"都交给你，按日常需要安排"},
+    ]
+    assert requirement_state(messages)["complete"] is False
+    state=requirement_state_from_model({"audience":["老人"],"functions":[],"catalog_style":"中古","style_terms":["老电影质感"],"budget_text":"两到四万","delegated_standard_functions":True},messages)
+    assert state["complete"] is True
+    assert state["collected"]=={"使用人群":["老人"],"功能需求":["淋浴","坐便","洗漱"],"喜好风格":["中古"],"预期价格区间":"两到四万"}
+
+@pytest.mark.asyncio
+async def test_design_chat_uses_model_understanding_before_server_quote(tmp_path,monkeypatch):
+    graph=ProductKnowledgeGraph(tmp_path/"graph.json")
+    catalog=Path(__file__).parents[1]/"data"/"product_catalog.csv"
+    graph.import_catalog(catalog.name,catalog.read_bytes())
+    messages=[
+        {"role":"user","content":"给家里的长辈用，做得有老电影质感，控制在两到四万"},
+        {"role":"assistant","content":"日常功能怎么安排？"},
+        {"role":"user","content":"都交给你，按日常需要安排"},
+    ]
+    calls=[]
+    class Response:
+        def __init__(self,message):self.message=message
+        def raise_for_status(self):pass
+        def json(self):return {"choices":[{"message":self.message}]}
+    async def fake_post(_client,_url,**kwargs):
+        calls.append(kwargs["json"])
+        if len(calls)==1:
+            arguments={"audience":["老人"],"functions":[],"catalog_style":"中古","style_terms":["老电影质感"],"budget_text":"两到四万","delegated_standard_functions":True}
+            return Response({"role":"assistant","content":None,"tool_calls":[{"id":"requirements-1","type":"function","function":{"name":"capture_design_requirements","arguments":json.dumps(arguments,ensure_ascii=False)}}]})
+        return Response({"role":"assistant","content":"需求已确认，结构化报价已经生成。"})
+    monkeypatch.setattr(design_chat_module,"serialized_post",fake_post)
+    monkeypatch.setattr(design_chat_module.settings,"openai_base_url","http://model.test")
+    monkeypatch.setattr(design_chat_module.settings,"openai_api_key","test-key")
+    monkeypatch.setattr(design_chat_module.settings,"chat_model","test-model")
+    room={"boundary":[{"x_mm":0,"z_mm":0},{"x_mm":2400,"z_mm":0},{"x_mm":2400,"z_mm":2000},{"x_mm":0,"z_mm":2000}],"height_mm":2600,"openings":[]}
+    result=await design_chat(messages,graph,room)
+    assert calls[0]["tools"]==[REQUIREMENT_TOOL]
+    assert calls[1]["messages"][-1]["role"]=="tool"
+    assert result["requirements"]["complete"] is True
+    assert result["pricing_status"]=="final"
+    assert len(result["material_quotes"])==3
+    assert len(result["furniture_quotes"])>=3
+    assert result["quote_total"]>0
+
 def test_empty_quote_context_blocks_model_invented_prices():
     unsafe="建议墙板按 200 元/㎡，材料合计 16853 元。"
     safe=_safe_model_message(unsafe,[])
@@ -128,7 +191,7 @@ def test_quote_tool_calculates_from_server_candidates_only():
     assert result["材料合计"]==2296
     assert [line["材料编号"] for line in result["材料报价"]]==["QB1","DB1"]
     assert QUOTE_TOOL["function"]["parameters"]["properties"].keys()=={"product_ids"}
-    assert "必须调用 calculate_design_quote" in PROMPT
+    assert "calculate_design_quote 确定性计算" in PROMPT
 
 def test_material_quotes_use_wall_ceiling_and_floor_quantities():
     surfaces={"wall_purchase_sqm":19.36,"ceiling_purchase_sqm":4.4,"floor_purchase_sqm":4.4}

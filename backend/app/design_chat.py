@@ -12,7 +12,7 @@ PROMPT="""你是室内设计师“小和”，唯一目标是通过多轮对话�
 
 【每轮执行顺序】
 1. 只根据完整对话中用户明确说过的内容更新“需求采集状态”，不得猜测、补写或把助手说过的话当成用户确认。
-2. 优先补齐：使用人群、功能需求、喜好风格、预期价格区间；上下文的 missing_fields 是唯一追问依据。像真人设计师一样逐步聊：先接住用户刚说的具体生活困扰，用用户自己的词简短复述，再只问一个最影响下一步方案的问题。禁止一轮连问多个字段，禁止让用户按表格格式回答。
+2. 优先补齐：使用人群、功能需求、喜好风格、预期价格区间；上下文的 missing_fields 是唯一追问依据。像真人设计师一样逐步聊：先接住用户刚说的具体生活困扰，用用户自己的词简短复述，再只问一个最影响下一步方案的问题。用户在功能追问后明确说“没特别要求”“你看着来”时，接受“常规卫浴”而且不要重复追问。禁止一轮连问多个字段，禁止让用户按表格格式回答。
 3. 空间尺寸和面积只能引用“量房用量”，禁止要求用户另报面积，禁止从聊天文字提取或覆盖尺寸。
 4. 设备只能服从“设备规则”；“不能有的设备”优先级最高，绝不能推荐、报价或用近义词变相推荐。适老、老人或轮椅场景禁止淋浴隔断。
 5. 风格只能服从“风格归一结果”。口语风格词要说明其最接近的知识图谱风格；低置信或多候选时给出候选感受并请用户确认，逐轮收敛，禁止生造清单风格。
@@ -171,24 +171,38 @@ def requirement_state(messages):
     text=" ".join(x["content"] for x in messages if x["role"]=="user")
     audience=[x for x in ("老人","父母","儿童","轮椅","成人") if x in text]
     functions=[x for x in ("洗澡","淋浴","坐便","洗漱","洗衣","收纳","扶手","坐浴") if x in text]
+    if not functions:
+        waiver_terms=("没特别要求","没有特别要求","没什么特别要求","无特别要求","你看着来","按常规来","常规就行")
+        for index,message in enumerate(messages):
+            if message["role"]!="user" or not any(term in message["content"] for term in waiver_terms):continue
+            previous=next((item["content"] for item in reversed(messages[:index]) if item["role"]=="assistant"),"")
+            if "功能" in message["content"] or any(term in previous for term in ("功能","淋浴","如厕","洗漱","洗衣","收纳")):
+                functions=["淋浴","坐便","洗漱"]
+                break
     style_match=resolve_style(messages);styles=[style_match["catalog_style"]] if style_match["catalog_style"] else []
-    money=r"(?:\d+(?:\.\d+)?|[零一二两三四五六七八九十百千]+(?:点[零一二三四五六七八九]+)?)\s*(?:万元|万|元)"
-    budget_match=re.search(rf"({money}(?:\s*[-到至~]\s*{money})?)",text)
+    amount=r"(?:\d+(?:\.\d+)?|[零一二两三四五六七八九十百千]+(?:点[零一二三四五六七八九]+)?)"
+    money=rf"{amount}\s*(?:万元|万|元)"
+    budget_match=re.search(rf"({amount}\s*[-到至~]\s*{money}|{money}(?:\s*[-到至~]\s*{money})?)",text)
     collected={"使用人群":audience,"功能需求":functions,"喜好风格":styles,"预期价格区间":budget_match.group(1) if budget_match else None}
     missing=[key for key,value in collected.items() if not value]
     return {"collected":collected,"missing_fields":missing,"complete":not missing,"style_match":style_match}
 
-def _safe_model_message(message,quotes):
+def _safe_model_message(message,quotes,catalog_has_prices=False,missing_fields=None):
     monetary=re.compile(r"(?:¥|￥|\d+(?:\.\d+)?\s*(?:元|万元|元/㎡|元/平米)|单价|小计|总价|合计)")
     if monetary.search(message):
         if quotes:
             return "报价已由服务端报价工具按产品清单和量房用量计算，请查看下方结构化报价明细；我不会复述或另行生成金额。"
+        if catalog_has_prices:
+            missing="、".join(missing_fields or [])
+            detail=f"还需确认{missing}，" if missing else "需求确认后，"
+            return f"产品清单已有可用价格；{detail}系统会按量房采购量生成结构化报价明细。"
         return "当前知识图谱没有可用报价，因此我不能提供单价、小计或总价。请先补充有效产品价格数据；我可以继续完成需求采集。"
     return message
 
 async def design_chat(messages,graph,room=None):
     if not settings.openai_base_url or not settings.openai_api_key or not settings.chat_model:raise RuntimeError("请先配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 CHAT_MODEL")
-    text=" ".join(x["content"] for x in messages if x["role"]=="user");state=requirement_state(messages);style_match=state["style_match"];rules=equipment_rules(text);surfaces=surface_estimate(room)
+    text=" ".join(x["content"] for x in messages if x["role"]=="user");state=requirement_state(messages);style_match=state["style_match"]
+    rules=equipment_rules(text+" "+" ".join(state["collected"]["功能需求"]));surfaces=surface_estimate(room)
     products=graph.search_constrained(text,forbidden=set(rules["不能有的设备"]));material_products=graph.search_constrained("地砖 墙板 吊顶 "+text,limit=30,allowed_categories=MATERIAL_CATEGORIES);quotes=material_quotes(material_products,surfaces)
     furniture_products=graph.search_constrained(" ".join(rules["必须设备"])+" "+text,limit=30,forbidden=set(rules["不能有的设备"]),allowed_categories=set(rules["必须设备"]))
     furniture=furniture_quotes(furniture_products,style_match)
@@ -227,6 +241,6 @@ async def design_chat(messages,graph,room=None):
         selected_ids=selected_material_ids+[line["product_id"] for line in selected_furniture_lines]
         calculated=calculate_design_quote(quotes,selected_furniture_lines,selected_ids)
         selected_furniture=[{"product_id":line["product_id"],"category":line["家具名称"],"catalog_style":line.get("风格","通用"),"requested_style":style_match.get("catalog_style"),"model_lookup":line.get("model_lookup")} for line in selected_furniture_lines]
-    message=_safe_model_message(assistant.get("content") or "",calculated["材料报价"]+calculated["家具报价"])
+    message=_safe_model_message(assistant.get("content") or "",calculated["材料报价"]+calculated["家具报价"],bool(quotes or furniture),state["missing_fields"])
     total_range={"min":round(calculated["材料合计"]+furniture_range["min"],2),"max":round(calculated["材料合计"]+furniture_range["max"],2)}
     return {"message":message,"requirements":state,"style_match":style_match,"surfaces":surfaces,"material_quotes":calculated["材料报价"],"furniture_candidates":furniture_groups,"furniture_quotes":calculated["家具报价"],"selected_furniture":selected_furniture,"material_total":calculated["材料合计"],"furniture_price_range":furniture_range,"total_price_range":total_range,"furniture_total":calculated["家具合计"] if state["complete"] else None,"quote_total":calculated["总计"] if state["complete"] else None,"pricing_status":"final" if state["complete"] else "range_until_auto_layout_selection","equipment":rules,"products":products}

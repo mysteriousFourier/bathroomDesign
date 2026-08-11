@@ -80,11 +80,29 @@ def test_requirement_state_accepts_natural_chinese_budget_without_prefix():
     assert state["complete"] is True
     assert state["collected"]["预期价格区间"]=="两万元"
 
+def test_requirement_state_accepts_delegated_functions_and_short_budget_range():
+    state=requirement_state([
+        {"role":"user","content":"有老人，设计尽量好看一点暖色调，预算2-4万"},
+        {"role":"assistant","content":"这个卫生间主要需要哪些功能？比如是否需要淋浴、如厕或洗漱？"},
+        {"role":"user","content":"没特别要求，你看着来"},
+        {"role":"assistant","content":"轻法和素雅，您更喜欢哪个？"},
+        {"role":"user","content":"轻法"},
+    ])
+    assert state["complete"] is True
+    assert state["collected"]["功能需求"]==["淋浴","坐便","洗漱"]
+    assert state["collected"]["预期价格区间"]=="2-4万"
+
 def test_empty_quote_context_blocks_model_invented_prices():
     unsafe="建议墙板按 200 元/㎡，材料合计 16853 元。"
     safe=_safe_model_message(unsafe,[])
     assert "200" not in safe and "16853" not in safe
     assert "当前知识图谱没有可用报价" in safe
+
+def test_incomplete_requirements_do_not_report_a_populated_catalog_as_empty():
+    unsafe="材料合计 16853 元。"
+    safe=_safe_model_message(unsafe,[],catalog_has_prices=True,missing_fields=["功能需求"])
+    assert "知识图谱没有可用报价" not in safe
+    assert "产品清单已有可用价格" in safe and "功能需求" in safe
 
 def test_nonempty_quote_context_also_blocks_model_invented_prices():
     unsafe="建议按清单单价 999 元，材料合计 8888 元。"
@@ -222,6 +240,7 @@ def test_final_furniture_quote_selects_one_item_per_category_against_budget():
     ]
     assert [item["product_id"] for item in select_furniture_quotes(groups,"预算3000元",1800)]==["toilet-a","shower-a"]
     assert [item["product_id"] for item in select_furniture_quotes(groups,"两万元以内",1800)]==["toilet-b","shower-b"]
+    assert [item["product_id"] for item in select_furniture_quotes(groups,"预算2-4万",1800)]==["toilet-b","shower-b"]
 
 def test_default_quote_never_preselects_furniture():
     materials=[{"product_id":"wall","材料名称":"墙板"},{"product_id":"floor","材料名称":"地砖"},{"product_id":"ceiling","材料名称":"吊顶"}]

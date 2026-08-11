@@ -505,6 +505,46 @@ async def test_project_cannot_be_deleted_during_analysis(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_project_chat_sessions_persist_messages_quotes_and_history(tmp_path, monkeypatch) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+
+    async def fake_design_chat(messages, _graph, _room=None):
+        assert messages[-1] == {"role": "user", "content": "成人淋浴，喜欢素雅，预算2万元"}
+        return {
+            "message": "需求已完整，结构化报价已生成。",
+            "requirements": {"collected": {"使用人群": ["成人"]}, "missing_fields": [], "complete": True},
+            "style_match": {"user_terms": ["素雅"], "catalog_style": "素雅", "confidence": 1, "status": "matched", "candidates": [], "resolver_version": "test"},
+            "surfaces": {"source": "test", "floor_area_sqm": 6, "ceiling_area_sqm": 6, "wall_gross_area_sqm": 20, "opening_area_sqm": 0, "wall_net_area_sqm": 20, "waste_rate": .1, "floor_purchase_sqm": 6.6, "ceiling_purchase_sqm": 6.6, "wall_purchase_sqm": 22, "floor_layout": "", "ceiling_layout": "", "wall_layout": "", "warnings": []},
+            "material_quotes": [{"product_id": "wall", "材料编号": "QB1", "材料名称": "墙板", "单价": 80, "单位": "平米", "采购量": 22, "材料小计": 1760, "来源": "test"}],
+            "furniture_candidates": [], "furniture_quotes": [{"product_id": "toilet", "材料编号": "MT1", "家具名称": "马桶", "单价": 1200, "单位": "件", "数量": 1, "家具小计": 1200, "来源": "test"}], "selected_furniture": [],
+            "material_total": 1760, "furniture_price_range": {"min": 1200, "max": 1200}, "total_price_range": {"min": 2960, "max": 2960}, "furniture_total": 1200, "quote_total": 2960, "pricing_status": "final", "equipment": {}, "products": [],
+        }
+
+    monkeypatch.setattr(main_module, "design_chat", fake_design_chat)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        first_project = (await client.post("/api/projects", json={"name": "会话房型 A"})).json()["id"]
+        second_project = (await client.post("/api/projects", json={"name": "会话房型 B"})).json()["id"]
+        created = await client.post(f"/api/projects/{first_project}/chat-sessions", json={"title": "新对话"})
+        assert created.status_code == 201
+        session_id = created.json()["id"]
+        sent = await client.post(
+            f"/api/projects/{first_project}/chat-sessions/{session_id}/messages",
+            json={"content": "成人淋浴，喜欢素雅，预算2万元"},
+        )
+        assert sent.status_code == 200, sent.text
+        assert sent.json()["title"] == "成人淋浴，喜欢素雅，预算2万元"
+        assert sent.json()["messages"][-1]["quote"]["quote_total"] == 2960
+
+        history = (await client.get(f"/api/projects/{first_project}/chat-sessions")).json()
+        assert history[0]["id"] == session_id and history[0]["message_count"] == 3
+        reloaded = (await client.get(f"/api/projects/{first_project}/chat-sessions/{session_id}")).json()
+        assert [message["role"] for message in reloaded["messages"]] == ["assistant", "user", "assistant"]
+        assert (await client.get(f"/api/projects/{second_project}/chat-sessions")).json() == []
+        assert (await client.get(f"/api/projects/{second_project}/chat-sessions/{session_id}")).status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_model_folder_upload_list_read_and_delete(tmp_path) -> None:
     configure_temp_database(tmp_path)
     db.initialize()

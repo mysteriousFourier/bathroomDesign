@@ -106,6 +106,41 @@ def furniture_price_range(groups):
     """Price one item from every required candidate group without selecting an SKU."""
     return {"min":round(sum(x["min_price"] for x in groups),2),"max":round(sum(x["max_price"] for x in groups),2)}
 
+def _budget_number(value):
+    try:return float(value)
+    except (TypeError,ValueError):pass
+    normalized=str(value).replace("两","二")
+    if "点" in normalized:
+        integer,fraction=normalized.split("点",1)
+        fraction_digits="".join(str("零一二三四五六七八九".index(char)) for char in fraction if char in "零一二三四五六七八九")
+        return _budget_number(integer)+(float(f"0.{fraction_digits}") if fraction_digits else 0)
+    digits={char:index for index,char in enumerate("零一二三四五六七八九")};units={"十":10,"百":100,"千":1000}
+    total=0;current=0
+    for char in normalized:
+        if char in digits:current=digits[char]
+        elif char in units:total+=(current or 1)*units[char];current=0
+        else:return None
+    return float(total+current)
+
+def _budget_ceiling(value):
+    matches=re.findall(r"(\d+(?:\.\d+)?|[零一二两三四五六七八九十百千]+(?:点[零一二三四五六七八九]+)?)\s*(万元|万|元)",str(value or ""))
+    if not matches:return None
+    amounts=[number*(10000 if unit.startswith("万") else 1) for raw,unit in matches if (number:=_budget_number(raw)) is not None]
+    return max(amounts) if amounts else None
+
+def select_furniture_quotes(groups,budget_text,material_total):
+    """Select one priced, style-compatible candidate per required category for the final quote."""
+    if not groups:return []
+    minimum=sum(group["min_price"] for group in groups);maximum=sum(group["max_price"] for group in groups)
+    ceiling=_budget_ceiling(budget_text)
+    available=(ceiling-material_total) if ceiling is not None else minimum
+    ratio=0 if maximum <= minimum else max(0,min(1,(available-minimum)/(maximum-minimum)))
+    selected=[]
+    for group in groups:
+        options=sorted(group["candidates"],key=lambda item:(item["家具小计"],item["product_id"]))
+        selected.append(options[round(ratio*(len(options)-1))])
+    return selected
+
 def calculate_design_quote(material_candidates,furniture_candidates,product_ids):
     """Calculate all prices server-side; model input contains identifiers only."""
     selected=set(product_ids)
@@ -137,7 +172,8 @@ def requirement_state(messages):
     audience=[x for x in ("老人","父母","儿童","轮椅","成人") if x in text]
     functions=[x for x in ("洗澡","淋浴","坐便","洗漱","洗衣","收纳","扶手","坐浴") if x in text]
     style_match=resolve_style(messages);styles=[style_match["catalog_style"]] if style_match["catalog_style"] else []
-    budget_match=re.search(r"(?:预算|价格)[^，。；\n]{0,10}?((?:\d+(?:\.\d+)?)\s*(?:万|万元|元)(?:\s*[-到至~]\s*\d+(?:\.\d+)?\s*(?:万|万元|元))?)",text)
+    money=r"(?:\d+(?:\.\d+)?|[零一二两三四五六七八九十百千]+(?:点[零一二三四五六七八九]+)?)\s*(?:万元|万|元)"
+    budget_match=re.search(rf"({money}(?:\s*[-到至~]\s*{money})?)",text)
     collected={"使用人群":audience,"功能需求":functions,"喜好风格":styles,"预期价格区间":budget_match.group(1) if budget_match else None}
     missing=[key for key,value in collected.items() if not value]
     return {"collected":collected,"missing_fields":missing,"complete":not missing,"style_match":style_match}
@@ -161,7 +197,7 @@ async def design_chat(messages,graph,room=None):
     model_messages=[{"role":"system","content":PROMPT+"\n受控上下文："+json.dumps(context,ensure_ascii=False)},*messages]
     tool_choice={"type":"function","function":{"name":"calculate_design_quote"}} if state["complete"] else "auto"
     payload={"model":settings.chat_model,"messages":model_messages,"temperature":0,"tools":[QUOTE_TOOL],"tool_choice":tool_choice}
-    calculated=None
+    requested_material_ids=[]
     async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
         response=await serialized_post(client,settings.openai_base_url.rstrip("/")+"/chat/completions",headers={"Authorization":f"Bearer {settings.openai_api_key}"},json=payload);response.raise_for_status()
         assistant=response.json()["choices"][0]["message"]
@@ -172,10 +208,25 @@ async def design_chat(messages,graph,room=None):
                 if call.get("function",{}).get("name")!="calculate_design_quote":continue
                 try:args=json.loads(call["function"].get("arguments") or "{}")
                 except json.JSONDecodeError:args={}
-                calculated=calculate_design_quote(quotes,[],args.get("product_ids",[]))
-                model_messages.append({"role":"tool","tool_call_id":call["id"],"name":"calculate_design_quote","content":json.dumps(calculated,ensure_ascii=False)})
+                requested_material_ids=[str(value) for value in args.get("product_ids",[]) if value]
+                tool_result=calculate_design_quote(quotes,[],requested_material_ids)
+                model_messages.append({"role":"tool","tool_call_id":call["id"],"name":"calculate_design_quote","content":json.dumps(tool_result,ensure_ascii=False)})
             followup=await serialized_post(client,settings.openai_base_url.rstrip("/")+"/chat/completions",headers={"Authorization":f"Bearer {settings.openai_api_key}"},json={"model":settings.chat_model,"messages":model_messages,"temperature":0});followup.raise_for_status();assistant=followup.json()["choices"][0]["message"]
-    calculated=calculated or calculate_design_quote([],[],[])
+    calculated=calculate_design_quote([],[],[])
+    selected_furniture=[]
+    selected_furniture_lines=[]
+    if state["complete"]:
+        defaults=default_product_ids(quotes,[],rules)
+        selected_material_ids=list(requested_material_ids)
+        selected_categories={line["材料名称"] for line in quotes if line["product_id"] in selected_material_ids}
+        for product_id in defaults:
+            line=next((item for item in quotes if item["product_id"]==product_id),None)
+            if line and line["材料名称"] not in selected_categories:
+                selected_material_ids.append(product_id);selected_categories.add(line["材料名称"])
+        selected_furniture_lines=select_furniture_quotes(furniture_groups,state["collected"].get("预期价格区间"),sum(line.get("材料小计",0) for line in quotes if line["product_id"] in selected_material_ids))
+        selected_ids=selected_material_ids+[line["product_id"] for line in selected_furniture_lines]
+        calculated=calculate_design_quote(quotes,selected_furniture_lines,selected_ids)
+        selected_furniture=[{"product_id":line["product_id"],"category":line["家具名称"],"catalog_style":line.get("风格","通用"),"requested_style":style_match.get("catalog_style"),"model_lookup":line.get("model_lookup")} for line in selected_furniture_lines]
     message=_safe_model_message(assistant.get("content") or "",calculated["材料报价"]+calculated["家具报价"])
     total_range={"min":round(calculated["材料合计"]+furniture_range["min"],2),"max":round(calculated["材料合计"]+furniture_range["max"],2)}
-    return {"message":message,"requirements":state,"style_match":style_match,"surfaces":surfaces,"material_quotes":calculated["材料报价"],"furniture_candidates":furniture_groups,"furniture_quotes":[],"selected_furniture":[],"material_total":calculated["材料合计"],"furniture_price_range":furniture_range,"total_price_range":total_range,"furniture_total":None,"quote_total":None,"pricing_status":"range_until_auto_layout_selection","equipment":rules,"products":products}
+    return {"message":message,"requirements":state,"style_match":style_match,"surfaces":surfaces,"material_quotes":calculated["材料报价"],"furniture_candidates":furniture_groups,"furniture_quotes":calculated["家具报价"],"selected_furniture":selected_furniture,"material_total":calculated["材料合计"],"furniture_price_range":furniture_range,"total_price_range":total_range,"furniture_total":calculated["家具合计"] if state["complete"] else None,"quote_total":calculated["总计"] if state["complete"] else None,"pricing_status":"final" if state["complete"] else "range_until_auto_layout_selection","equipment":rules,"products":products}

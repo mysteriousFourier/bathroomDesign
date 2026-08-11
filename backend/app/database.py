@@ -10,7 +10,10 @@ from typing import Iterator
 
 from .config import settings
 from .measurement import measurement_from_spec, room_spec_from_measurement
-from .models import AssetResponse, MeasurementModel, ProjectResponse, RoomSpec
+from .models import AssetResponse, ChatMessageResponse, ChatSessionResponse, ChatSessionSummary, MeasurementModel, ProjectResponse, RoomSpec
+
+
+CHAT_GREETING = "您好，我是小和。我会直接读取主界面量房数据计算地面、墙面用量；您只需告诉我使用人群、功能、风格和预算。"
 
 
 def now_iso() -> str:
@@ -49,6 +52,27 @@ class Database:
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    quote_json TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_chat_sessions_project_updated
+                    ON chat_sessions(project_id, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created
+                    ON chat_messages(session_id, created_at);
                 """
             )
             columns = {row[1] for row in connection.execute("PRAGMA table_info(projects)").fetchall()}
@@ -206,6 +230,98 @@ class Database:
         with self.connect() as connection:
             if connection.execute("DELETE FROM projects WHERE id = ?", (project_id,)).rowcount == 0:
                 raise KeyError(project_id)
+
+    def create_chat_session(self, project_id: str, title: str = "新对话") -> ChatSessionResponse:
+        session_id = uuid.uuid4().hex
+        timestamp = now_iso()
+        with self.connect() as connection:
+            if connection.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
+                raise KeyError(project_id)
+            connection.execute(
+                "INSERT INTO chat_sessions (id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (session_id, project_id, title.strip() or "新对话", timestamp, timestamp),
+            )
+            connection.execute(
+                "INSERT INTO chat_messages (id, session_id, role, content, quote_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, session_id, "assistant", CHAT_GREETING, None, timestamp),
+            )
+        return self.get_chat_session(project_id, session_id)
+
+    def list_chat_sessions(self, project_id: str) -> list[ChatSessionSummary]:
+        with self.connect() as connection:
+            if connection.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
+                raise KeyError(project_id)
+            rows = connection.execute(
+                """
+                SELECT session.id, session.project_id, session.title, session.created_at, session.updated_at,
+                       COUNT(message.id) AS message_count,
+                       COALESCE((
+                           SELECT latest.content FROM chat_messages AS latest
+                           WHERE latest.session_id = session.id
+                           ORDER BY latest.created_at DESC, latest.rowid DESC LIMIT 1
+                       ), '') AS last_message
+                FROM chat_sessions AS session
+                LEFT JOIN chat_messages AS message ON message.session_id = session.id
+                WHERE session.project_id = ?
+                GROUP BY session.id
+                ORDER BY session.updated_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [ChatSessionSummary.model_validate(dict(row)) for row in rows]
+
+    def get_chat_session(self, project_id: str, session_id: str) -> ChatSessionResponse:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM chat_sessions WHERE id = ? AND project_id = ?",
+                (session_id, project_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(session_id)
+            message_rows = connection.execute(
+                "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at, rowid",
+                (session_id,),
+            ).fetchall()
+        messages = [ChatMessageResponse(
+            id=message["id"], role=message["role"], content=message["content"],
+            quote=json.loads(message["quote_json"]) if message["quote_json"] else None,
+            created_at=message["created_at"],
+        ) for message in message_rows]
+        return ChatSessionResponse(
+            id=row["id"], project_id=row["project_id"], title=row["title"],
+            message_count=len(messages), last_message=messages[-1].content if messages else "",
+            created_at=row["created_at"], updated_at=row["updated_at"], messages=messages,
+        )
+
+    def append_chat_turn(self, project_id: str, session_id: str, user_content: str, assistant_content: str, quote: dict[str, object]) -> ChatSessionResponse:
+        timestamp = now_iso()
+        with self.connect() as connection:
+            session = connection.execute(
+                "SELECT * FROM chat_sessions WHERE id = ? AND project_id = ?",
+                (session_id, project_id),
+            ).fetchone()
+            if session is None:
+                raise KeyError(session_id)
+            user_count = connection.execute(
+                "SELECT COUNT(*) FROM chat_messages WHERE session_id = ? AND role = 'user'",
+                (session_id,),
+            ).fetchone()[0]
+            connection.execute(
+                "INSERT INTO chat_messages (id, session_id, role, content, quote_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, session_id, "user", user_content, None, timestamp),
+            )
+            connection.execute(
+                "INSERT INTO chat_messages (id, session_id, role, content, quote_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, session_id, "assistant", assistant_content, json.dumps(quote, ensure_ascii=False), timestamp),
+            )
+            title = session["title"]
+            if user_count == 0 and title == "新对话":
+                title = user_content.strip().replace("\n", " ")[:28] or title
+            connection.execute(
+                "UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?",
+                (title, timestamp, session_id),
+            )
+        return self.get_chat_session(project_id, session_id)
 
     @staticmethod
     def _asset_response(row: sqlite3.Row) -> AssetResponse:

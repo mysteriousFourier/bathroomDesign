@@ -28,6 +28,10 @@ from .models import (
     AnalysisResponse,
     AssetResponse,
     CaptureAssessment,
+    ChatSessionCreate,
+    ChatSessionResponse,
+    ChatSessionSummary,
+    ChatTurnCreate,
     DesignChatRequest,
     MeasurementModel,
     MeasurementImportInspection,
@@ -117,6 +121,49 @@ async def design_chat_endpoint(payload: DesignChatRequest) -> dict:
     try:return await design_chat([x.model_dump() for x in payload.messages],product_graph,payload.room.model_dump() if payload.room else None)
     except RuntimeError as error:raise HTTPException(503,str(error)) from error
     except (httpx.HTTPError,KeyError,IndexError) as error:raise HTTPException(502,"对话模型暂时不可用") from error
+
+
+@app.get("/api/projects/{project_id}/chat-sessions", response_model=list[ChatSessionSummary])
+def list_project_chat_sessions(project_id: str) -> list[ChatSessionSummary]:
+    try:
+        return db.list_chat_sessions(project_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="项目不存在") from error
+
+
+@app.post("/api/projects/{project_id}/chat-sessions", response_model=ChatSessionResponse, status_code=201)
+def create_project_chat_session(project_id: str, payload: ChatSessionCreate) -> ChatSessionResponse:
+    try:
+        return db.create_chat_session(project_id, payload.title)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="项目不存在") from error
+
+
+@app.get("/api/projects/{project_id}/chat-sessions/{session_id}", response_model=ChatSessionResponse)
+def get_project_chat_session(project_id: str, session_id: str) -> ChatSessionResponse:
+    try:
+        return db.get_chat_session(project_id, session_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="对话不存在") from error
+
+
+@app.post("/api/projects/{project_id}/chat-sessions/{session_id}/messages", response_model=ChatSessionResponse)
+async def append_project_chat_message(project_id: str, session_id: str, payload: ChatTurnCreate) -> ChatSessionResponse:
+    try:
+        session = db.get_chat_session(project_id, session_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="对话不存在") from error
+    if sum(message.role == "user" for message in session.messages) >= 20:
+        raise HTTPException(status_code=422, detail="当前对话已达到 20 轮，请新建对话继续")
+    messages = [{"role": message.role, "content": message.content} for message in session.messages]
+    messages.append({"role": "user", "content": payload.content})
+    try:
+        result = await design_chat(messages, product_graph, payload.room.model_dump() if payload.room else None)
+    except RuntimeError as error:
+        raise HTTPException(503, str(error)) from error
+    except (httpx.HTTPError, KeyError, IndexError) as error:
+        raise HTTPException(502, "对话模型暂时不可用") from error
+    return db.append_chat_turn(project_id, session_id, payload.content, result["message"], result)
 
 
 @app.get("/api/projects", response_model=list[ProjectResponse])

@@ -1,6 +1,6 @@
 from pathlib import Path
 from backend.app.knowledge_graph import ProductKnowledgeGraph, equipment_rules
-from backend.app.design_chat import PROMPT, QUOTE_TOOL, _safe_model_message, calculate_design_quote, default_product_ids, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, requirement_state, resolve_style, surface_estimate
+from backend.app.design_chat import PROMPT, QUOTE_TOOL, _safe_model_message, calculate_design_quote, default_product_ids, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, requirement_state, resolve_style, select_furniture_quotes, surface_estimate
 
 def test_incremental_catalog(tmp_path: Path):
     graph=ProductKnowledgeGraph(tmp_path/"graph.json")
@@ -74,6 +74,11 @@ def test_requirement_state_reports_missing_fields():
     state=requirement_state([{"role":"user","content":"我想洗澡和坐便"}])
     assert state["complete"] is False
     assert state["missing_fields"]==["使用人群","喜好风格","预期价格区间"]
+
+def test_requirement_state_accepts_natural_chinese_budget_without_prefix():
+    state=requirement_state([{"role":"user","content":"成人使用，要淋浴，喜欢清爽素雅，两万元以内。"}])
+    assert state["complete"] is True
+    assert state["collected"]["预期价格区间"]=="两万元"
 
 def test_empty_quote_context_blocks_model_invented_prices():
     unsafe="建议墙板按 200 元/㎡，材料合计 16853 元。"
@@ -203,6 +208,20 @@ def test_furniture_combination_price_range_uses_each_required_category():
     assert groups[0]["candidate_count"]==2
     assert (groups[0]["min_price"],groups[0]["max_price"])==(800,1600)
     assert furniture_price_range(groups)=={"min":970,"max":1990}
+
+def test_final_furniture_quote_selects_one_item_per_category_against_budget():
+    groups=[
+        {"category":"马桶","min_price":800,"max_price":1600,"candidates":[
+            {"product_id":"toilet-a","家具名称":"马桶","家具小计":800},
+            {"product_id":"toilet-b","家具名称":"马桶","家具小计":1600},
+        ]},
+        {"category":"花洒","min_price":500,"max_price":900,"candidates":[
+            {"product_id":"shower-a","家具名称":"花洒","家具小计":500},
+            {"product_id":"shower-b","家具名称":"花洒","家具小计":900},
+        ]},
+    ]
+    assert [item["product_id"] for item in select_furniture_quotes(groups,"预算3000元",1800)]==["toilet-a","shower-a"]
+    assert [item["product_id"] for item in select_furniture_quotes(groups,"两万元以内",1800)]==["toilet-b","shower-b"]
 
 def test_default_quote_never_preselects_furniture():
     materials=[{"product_id":"wall","材料名称":"墙板"},{"product_id":"floor","材料名称":"地砖"},{"product_id":"ceiling","材料名称":"吊顶"}]

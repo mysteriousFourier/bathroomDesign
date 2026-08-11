@@ -108,6 +108,15 @@ export default function App() {
     window.setTimeout(() => setMessage((current) => current?.text === text ? null : current), 5000)
   }, [])
 
+  const handleDesignQuote = useCallback((quote: DesignChatResponse | null, notify = false) => {
+    setDesignQuote(quote)
+    if (!quote || !notify) return
+    const surfaces = surfaceMaterialsForDesignQuote(quote)
+    if (quote.requirements.complete && (surfaces.wall || surfaces.floor)) {
+      showMessage('success', `需求方案材质已自动填充：${surfaces.wall?.label ?? '墙板待匹配'} · ${surfaces.floor?.label ?? '地砖待匹配'}`)
+    }
+  }, [showMessage])
+
   const refreshProjects = useCallback(async (preferredId?: string) => {
     const list = await studioApi.projects()
     setProjects(list)
@@ -501,13 +510,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <Header projectName={project?.name} dirty={dirty} canUndo={history.length > 0} canRedo={future.length > 0} canConfirm={canConfirm} canModel={canModel} canExportMeasurement={canExportMeasurement} saving={busy === 'save'} onUndo={undo} onRedo={redo} onSave={() => void save()} onConfirm={() => void confirm()} onExportMeasurement={exportMeasurement} onExport={exportModel} onOpenLibrary={() => setMode('library')} onOpenChat={() => setChatOpen(true)} />
-      <DesignChat open={chatOpen} room={spec} onClose={() => setChatOpen(false)} onQuote={(quote) => {
-        setDesignQuote(quote)
-        const surfaces = surfaceMaterialsForDesignQuote(quote)
-        if (quote.requirements.complete && (surfaces.wall || surfaces.floor)) {
-          showMessage('success', `需求方案材质已自动填充：${surfaces.wall?.label ?? '墙板待匹配'} · ${surfaces.floor?.label ?? '地砖待匹配'}`)
-        }
-      }} />
+      <DesignChat open={chatOpen} projectId={project?.id ?? null} room={spec} onClose={() => setChatOpen(false)} onQuote={handleDesignQuote} />
       <MeasurementImportDialog open={measurementImportOpen} projectId={project?.id ?? null} hasMeasurement={!!project?.measurement} onClose={() => setMeasurementImportOpen(false)} onImported={applyMeasurementImport} />
       <ProjectRail projects={projects} project={project} health={health} busy={busy} planRotation={planRotation} onPlanRotationChange={setPlanRotation} onSelectProject={(id) => void selectProject(id)} onCreateProject={createProject} onDeleteProject={() => void deleteProject()} onUpload={upload} onOpenMeasurementImport={() => setMeasurementImportOpen(true)} onAnalyzePlan={() => void analyzePlan()} onAnalyzePhotos={() => void analyzePhotos()} />
       <main className="workspace">

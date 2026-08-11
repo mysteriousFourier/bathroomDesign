@@ -795,6 +795,37 @@ class DesignChatRequest(BaseModel):
     room: RoomSpec | None = None
 
 
+class ChatSessionCreate(BaseModel):
+    title: str = Field(default="新对话", min_length=1, max_length=80)
+
+
+class ChatTurnCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=8000)
+    room: RoomSpec | None = None
+
+
+class ChatMessageResponse(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    content: str
+    quote: dict[str, object] | None = None
+    created_at: str
+
+
+class ChatSessionSummary(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    message_count: int = Field(ge=0)
+    last_message: str = ""
+    created_at: str
+    updated_at: str
+
+
+class ChatSessionResponse(ChatSessionSummary):
+    messages: list[ChatMessageResponse] = Field(default_factory=list)
+
+
 class AssetResponse(BaseModel):
     id: str
     project_id: str

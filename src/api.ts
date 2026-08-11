@@ -1,4 +1,4 @@
-import type { AnalysisResponse, Asset, CaptureAssessment, ChatMessage, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, Project, RoomSpec } from './types'
+import type { AnalysisResponse, Asset, CaptureAssessment, ChatMessage, ChatSession, ChatSessionSummary, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, Project, RoomSpec } from './types'
 import type { ModelImportFile } from './modelImport'
 
 const defaultTimeoutMs = 90_000
@@ -83,5 +83,9 @@ export const studioApi = {
     return request<MeasurementImportResponse>(`/api/projects/${id}/measurement/import`, { method: 'POST', body: form, timeoutMs: 180_000 })
   },
   designChat: (messages: ChatMessage[], room: RoomSpec | null) => request<DesignChatResponse>('/api/design-chat', { method:'POST', headers:jsonHeaders, body:JSON.stringify({messages,room}), timeoutMs:150_000 }),
+  chatSessions: (projectId: string) => request<ChatSessionSummary[]>(`/api/projects/${projectId}/chat-sessions`),
+  createChatSession: (projectId: string) => request<ChatSession>(`/api/projects/${projectId}/chat-sessions`, { method:'POST', headers:jsonHeaders, body:JSON.stringify({ title:'新对话' }) }),
+  chatSession: (projectId: string, sessionId: string) => request<ChatSession>(`/api/projects/${projectId}/chat-sessions/${sessionId}`),
+  sendChatMessage: (projectId: string, sessionId: string, content: string, room: RoomSpec | null) => request<ChatSession>(`/api/projects/${projectId}/chat-sessions/${sessionId}/messages`, { method:'POST', headers:jsonHeaders, body:JSON.stringify({ content, room }), timeoutMs:150_000 }),
   measurementDownloadUrl: (id: string) => `/api/projects/${id}/measurement/download`,
 }

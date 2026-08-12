@@ -60,6 +60,11 @@ export function modelAssetForProduct(category: string, code?: string, tier?: Bui
     ?? candidates[0]
 }
 
+export function exactModelAssetForProduct(category: string, code: string) {
+  const categories = category === '适老浴室柜' ? ['适老浴室柜', '浴室柜'] : [category]
+  return records.find((asset) => asset.asset_type === 'fixture' && categories.includes(asset.category) && asset.catalog_codes.includes(code))
+}
+
 export function surfaceAssetForProduct(code: string) {
   return records.find((asset) => asset.asset_type === 'surface' && asset.catalog_codes.includes(code))
 }

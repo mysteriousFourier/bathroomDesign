@@ -527,7 +527,7 @@ export default function App() {
               <button className={mode === 'library' ? 'active' : ''} onClick={() => setMode('library')}><Box size={16} />模型库</button>
               <button className={mode === 'model' ? 'active' : ''} onClick={() => canPreview && setMode('model')} disabled={!canPreview}><BoxSelect size={16} />三维预览</button>
             </div>
-            {mode === 'review' && <SolutionList spec={spec} active={false} onOpenModel={() => canPreview && setMode('model')} onApplyLayout={applyAutoLayout} preference={{ style: designQuote?.style_match.catalog_style }} />}
+            {mode === 'review' && <SolutionList spec={spec} active={false} onOpenModel={() => canPreview && setMode('model')} onApplyLayout={applyAutoLayout} preference={{ style: designQuote?.style_match.catalog_style, levels: designQuote?.layout_levels }} blockers={designQuote?.layout_blockers} requireDecision={!!designQuote?.requirements.complete} />}
             {mode === 'annotation'
               ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
               : mode === 'library'

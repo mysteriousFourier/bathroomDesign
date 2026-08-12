@@ -24,6 +24,14 @@ def test_accessible_rule_forbids_partition():
     assert result["不能有的设备"]==["淋浴隔断"]
     assert "淋浴隔断" not in result["可有可无设备"]
 
+def test_storage_maps_to_user_mandated_bathroom_cabinet_category():
+    assert equipment_rules("需要洗漱和收纳")["必须设备"] == ["浴室柜"]
+
+def test_sitz_bathing_enables_accessible_equipment_rules():
+    result=equipment_rules("老人需要坐浴")
+    assert {"淋浴椅","花洒扶手","马桶扶手"}.issubset(result["必须设备"])
+    assert result["不能有的设备"] == ["淋浴隔断"]
+
 def test_approved_catalog_from_reference_image(tmp_path: Path):
     catalog=Path(__file__).parents[1]/"data"/"product_catalog.csv"
     graph=ProductKnowledgeGraph(tmp_path/"graph.json")
@@ -145,6 +153,8 @@ async def test_design_chat_uses_model_understanding_before_server_quote(tmp_path
         if len(calls)==1:
             arguments={"audience":["老人"],"functions":[],"catalog_style":"中古","style_terms":["老电影质感"],"budget_text":"两到四万","delegated_standard_functions":True}
             return Response({"role":"assistant","content":None,"tool_calls":[{"id":"requirements-1","type":"function","function":{"name":"capture_design_requirements","arguments":json.dumps(arguments,ensure_ascii=False)}}]})
+        if len(calls)==2:
+            return Response({"role":"assistant","content":None,"tool_calls":[]})
         return Response({"role":"assistant","content":"需求已确认，结构化报价已经生成。"})
     monkeypatch.setattr(design_chat_module,"serialized_post",fake_post)
     monkeypatch.setattr(design_chat_module.settings,"openai_base_url","http://model.test")
@@ -153,9 +163,12 @@ async def test_design_chat_uses_model_understanding_before_server_quote(tmp_path
     room={"boundary":[{"x_mm":0,"z_mm":0},{"x_mm":2400,"z_mm":0},{"x_mm":2400,"z_mm":2000},{"x_mm":0,"z_mm":2000}],"height_mm":2600,"openings":[]}
     result=await design_chat(messages,graph,room)
     assert calls[0]["tools"]==[REQUIREMENT_TOOL]
-    assert calls[1]["messages"][-1]["role"]=="tool"
+    assert calls[1]["tools"][0]["function"]["name"]=="decide_layout_levels"
+    assert calls[2]["messages"][-1]["role"]=="tool"
     assert result["requirements"]["complete"] is True
     assert result["pricing_status"]=="final"
+    assert len(result["layout_levels"])==3
+    assert all(level["products"] for level in result["layout_levels"])
     assert len(result["material_quotes"])==3
     assert len(result["furniture_quotes"])>=3
     assert result["quote_total"]>0

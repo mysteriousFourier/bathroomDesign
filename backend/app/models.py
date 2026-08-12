@@ -808,7 +808,13 @@ class VoiceTurnResponse(BaseModel):
     transcript: str
     session: "ChatSessionResponse"
     audio_base64: str
-    audio_mime_type: Literal["audio/wav"] = "audio/wav"
+    audio_mime_type: Literal["audio/wav", "audio/mpeg"] = "audio/wav"
+
+
+class VoiceAudioResponse(BaseModel):
+    text: str
+    audio_base64: str
+    audio_mime_type: Literal["audio/wav", "audio/mpeg"] = "audio/wav"
 
 
 class ChatMessageResponse(BaseModel):

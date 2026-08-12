@@ -4,9 +4,9 @@ from io import BytesIO, StringIO
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-RULES={"洗澡":["花洒","热水器"],"沐浴":["花洒","热水器"],"淋浴":["花洒","热水器"],"上厕所":["马桶"],"坐便":["马桶"],"洗衣":["洗衣机"],"洗衣服":["洗衣机"],"洗漱":["浴室柜"],"洗脸":["浴室柜"]}
+RULES={"洗澡":["花洒","热水器"],"沐浴":["花洒","热水器"],"淋浴":["花洒","热水器"],"上厕所":["马桶"],"坐便":["马桶"],"洗衣":["洗衣机"],"洗衣服":["洗衣机"],"洗漱":["浴室柜"],"洗脸":["浴室柜"],"收纳":["浴室柜"]}
 def equipment_rules(text:str)->dict[str,list[str]]:
-    required=[item for phrase,items in RULES.items() if phrase in text for item in items]; accessible=any(x in text for x in ("适老","老人","轮椅","扶手"))
+    required=[item for phrase,items in RULES.items() if phrase in text for item in items]; accessible=any(x in text for x in ("适老","老人","轮椅","扶手","坐浴"))
     if accessible:
         required=[x for x in required if x!="浴室柜"]+["淋浴椅","花洒扶手","马桶扶手"]
         if any(x in text for x in ("洗漱","洗脸","轮椅")):required.append("适老浴室柜")

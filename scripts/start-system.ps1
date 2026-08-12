@@ -253,7 +253,7 @@ function Invoke-Startup {
 
     Write-Step "Checking Python dependencies"
     $env:UV_CACHE_DIR = Join-Path $ProjectRoot ".uv-cache"
-    Invoke-Checked -FilePath $Uv -Arguments @("sync", "--dev", "--locked") -Description "Python dependency synchronization"
+    Invoke-Checked -FilePath $Uv -Arguments @("sync", "--dev", "--extra", "voice", "--locked") -Description "Python dependency synchronization"
     $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $Python)) {
         throw "uv completed but $Python was not created."

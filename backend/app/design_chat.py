@@ -169,6 +169,71 @@ QUOTE_TOOL={"type":"function","function":{"name":"calculate_design_quote","descr
 
 REQUIREMENT_TOOL={"type":"function","function":{"name":"capture_design_requirements","description":"根据完整对话理解并结构化卫生间需求。只记录用户明确表达或明确委托设计师决定的内容。","parameters":{"type":"object","properties":{"audience":{"type":"array","items":{"type":"string","enum":["老人","父母","儿童","轮椅","成人"]}},"functions":{"type":"array","items":{"type":"string","enum":["淋浴","坐便","洗漱","洗衣","收纳","扶手","坐浴"]}},"catalog_style":{"type":"string","enum":["","素雅","轻法","中古"]},"style_terms":{"type":"array","items":{"type":"string"}},"budget_text":{"type":"string","description":"保留用户预算原文，如 2-4万；未知时传空字符串。"},"delegated_standard_functions":{"type":"boolean","description":"用户是否用常规卫浴、日常使用、你看着来等表达明确委托采用常规淋浴、坐便、洗漱配置。"}},"required":["audience","functions","catalog_style","style_terms","budget_text","delegated_standard_functions"],"additionalProperties":False}}}
 
+LAYOUT_ROLES=("wet_zone","vanity","toilet","heater","washer","grab_bars")
+LAYOUT_WALLS=("north","south","east","west","nearest_plumbing")
+LAYOUT_ZONES=("dry","wet","service")
+LAYOUT_LEVEL_TOOL={"type":"function","function":{"name":"decide_layout_levels","description":"根据确认需求、量房摘要和真实产品候选生成三个可进入几何求解器的差异化布局脚本。","parameters":{"type":"object","properties":{"levels":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"object","properties":{"name":{"type":"string"},"reason":{"type":"string"},"product_tier":{"type":"string","enum":["basic","comfort","premium"]},"product_ids":{"type":"array","items":{"type":"string"}},"instructions":{"type":"array","items":{"type":"object","properties":{"fixture_role":{"type":"string","enum":list(LAYOUT_ROLES)},"wall":{"type":"string","enum":list(LAYOUT_WALLS)},"zone":{"type":"string","enum":list(LAYOUT_ZONES)},"near":{"type":"string"},"min_clearance_mm":{"type":"number","minimum":0,"maximum":2000}},"required":["fixture_role","wall","zone","min_clearance_mm"]}}},"required":["name","reason","product_tier","product_ids","instructions"]}}},"required":["levels"],"additionalProperties":False}}}
+
+def _layout_profile(required):
+    categories=set(required)
+    if {"淋浴椅","花洒扶手","马桶扶手","适老浴室柜"}&categories:return "elderly_safe"
+    if "洗衣机" in categories:return "laundry"
+    return "standard_shower"
+
+def _default_layout_instructions(profile,tier,categories):
+    walls=(("east","west","north"),("west","east","north"),("south","north","east"))[("basic","comfort","premium").index(tier)]
+    wet_wall,dry_wall,service_wall=walls
+    result=[{"fixture_role":"wet_zone","wall":wet_wall,"zone":"wet","near":"shower_drain","min_clearance_mm":0}]
+    if {"浴室柜","适老浴室柜"}&categories:result.append({"fixture_role":"vanity","wall":dry_wall,"zone":"dry","near":"","min_clearance_mm":600})
+    if "马桶" in categories:result.append({"fixture_role":"toilet","wall":service_wall,"zone":"dry","near":"toilet_drain","min_clearance_mm":800 if profile=="elderly_safe" else 600})
+    if "热水器" in categories:result.append({"fixture_role":"heater","wall":wet_wall,"zone":"service","near":"wet_zone","min_clearance_mm":0})
+    if "洗衣机" in categories:result.append({"fixture_role":"washer","wall":service_wall,"zone":"service","near":"water","min_clearance_mm":600})
+    if {"花洒扶手","马桶扶手"}&categories:result.append({"fixture_role":"grab_bars","wall":wet_wall,"zone":"wet","near":"wet_zone","min_clearance_mm":0})
+    return result
+
+def _safe_layout_instructions(items,profile,tier,categories):
+    defaults=_default_layout_instructions(profile,tier,categories);required_roles={x["fixture_role"] for x in defaults};result=[]
+    for item in items if isinstance(items,list) else []:
+        if not isinstance(item,dict):continue
+        role=item.get("fixture_role");wall=item.get("wall");zone=item.get("zone")
+        if role not in required_roles or wall not in LAYOUT_WALLS or zone not in LAYOUT_ZONES or any(x["fixture_role"]==role for x in result):continue
+        try:clearance=max(0,min(2000,round(float(item.get("min_clearance_mm",0)))))
+        except (TypeError,ValueError):continue
+        result.append({"fixture_role":role,"wall":wall,"zone":zone,"near":str(item.get("near") or ""),"min_clearance_mm":clearance})
+    return result if {x["fixture_role"] for x in result}==required_roles else defaults
+
+def _layout_product_snapshot(candidate):
+    lookup=candidate.get("model_lookup") or {}
+    return {"product_id":candidate["product_id"],"catalog_code":candidate["材料编号"],"category":candidate["家具名称"],"spec":candidate.get("规格型号","") ,"unit_price":candidate["家具小计"],"price_unit":candidate.get("单位") or "件","model_lookup":lookup}
+
+def _layout_candidate_blockers(groups,rules):
+    required=set(rules["必须设备"])
+    if not required:return ["当前需求没有映射到可布局设备，请补充淋浴、坐便、洗漱、洗衣、收纳或适老需求"]
+    missing=sorted(required-{group["category"] for group in groups})
+    return [f"产品目录缺少必需品类：{'、'.join(missing)}"] if missing else []
+
+def build_layout_levels(arguments,groups,rules):
+    required=set(rules["必须设备"]);blockers=_layout_candidate_blockers(groups,rules)
+    if blockers:return [],blockers
+    allowed={candidate["product_id"]:candidate for group in groups for candidate in group["candidates"]};profile=_layout_profile(required);validated=[]
+    for index,item in enumerate(arguments.get("levels",[]) if isinstance(arguments,dict) else []):
+        if not isinstance(item,dict):continue
+        ids=list(dict.fromkeys(str(x) for x in item.get("product_ids",[]) if str(x) in allowed));selected=[allowed[x] for x in ids];categories={x["家具名称"] for x in selected}
+        if categories!=required or len(selected)!=len(required):continue
+        tier=item.get("product_tier") if item.get("product_tier") in ("basic","comfort","premium") else ("basic","comfort","premium")[index]
+        instructions=_safe_layout_instructions(item.get("instructions"),profile,tier,categories)
+        validated.append({"id":f"level{index+1}","name":str(item.get("name") or f"方案 {index+1}"),"reason":str(item.get("reason") or "需求模型与规则引擎共同决策"),"demand_profile":profile,"product_tier":tier,"product_ids":ids,"products":[_layout_product_snapshot(x) for x in selected],"layout_script":{"version":"layout-script-v1","demand":profile,"budget":tier,"instructions":instructions,"source":"model-assisted-rule-engine"}})
+    signatures={(x["product_tier"],tuple(x["product_ids"]),tuple((i["fixture_role"],i["wall"],i["zone"]) for i in x["layout_script"]["instructions"])) for x in validated}
+    if len(validated)==3 and len(signatures)==3:return validated,[]
+    fallback=[]
+    for index,tier in enumerate(("basic","comfort","premium")):
+        selected=[]
+        for group in groups:
+            candidates=sorted(group["candidates"],key=lambda x:(x["家具小计"],x["product_id"]));selected.append(candidates[min(index,len(candidates)-1)])
+        categories={x["家具名称"] for x in selected};ids=[x["product_id"] for x in selected]
+        fallback.append({"id":f"level{index+1}","name":f"{('经济','舒适','品质')[index]}布局","reason":"模型布局结果未通过完整性校验，采用确定性产品与空间策略","demand_profile":profile,"product_tier":tier,"product_ids":ids,"products":[_layout_product_snapshot(x) for x in selected],"layout_script":{"version":"layout-script-v1","demand":profile,"budget":tier,"instructions":_default_layout_instructions(profile,tier,categories),"source":"deterministic-rule-engine"}})
+    return fallback,[]
+
 REQUIREMENT_CAPTURE_PROMPT="""首先调用 capture_design_requirements，不要直接回复用户。
 结合助手上一轮问题理解用户短回答；用户接受“常规卫浴”“日常使用”“你看着来”等建议时，将 delegated_standard_functions 设为 true，并把功能归一为淋浴、坐便、洗漱。
 风格只能归一为素雅、轻法、中古之一；无法确认时用空字符串。预算保留用户原文，不推测金额。
@@ -271,13 +336,25 @@ async def design_chat(messages,graph,room=None):
         furniture_products=graph.search_constrained(" ".join(rules["必须设备"])+" "+normalized_text,limit=30,forbidden=set(rules["不能有的设备"]),allowed_categories=set(rules["必须设备"]))
         furniture=furniture_quotes(furniture_products,style_match)
         furniture_groups=furniture_candidate_groups(furniture,rules);furniture_range=furniture_price_range(furniture_groups)
+        layout_levels=[];layout_blockers=[]
+        if state["complete"]:
+            layout_blockers=_layout_candidate_blockers(furniture_groups,rules)
+            if not layout_blockers:
+                room_context={"boundary":room.get("boundary",[]),"height_mm":room.get("height_mm"),"openings":room.get("openings",[]),"fixtures":[{"kind":x.get("kind"),"label":x.get("label"),"x_mm":x.get("x_mm"),"z_mm":x.get("z_mm"),"point_usage":x.get("point_usage")} for x in room.get("fixtures",[])]}
+                level_context={"requirements":state["collected"],"room":room_context,"equipment_rules":rules,"candidates":[{"category":g["category"],"products":[{"product_id":x["product_id"],"catalog_code":x["材料编号"],"spec":x.get("规格型号",""),"price":x["家具小计"],"model_dimensions_mm":(x.get("model_lookup") or {}).get("model_dimensions_mm")} for x in g["candidates"]]} for g in furniture_groups]}
+                level_payload={"model":settings.chat_model,"messages":[{"role":"system","content":"调用 decide_layout_levels，为同一量房生成三个可执行方案。每档必须且只能为每个必需品类选择一个候选 product_id；布局指令必须覆盖所选设备角色，并结合门窗、排水点和净距形成差异。产品选择与几何求解最终仍由服务端严格校验。"},{"role":"user","content":json.dumps(level_context,ensure_ascii=False)}],"temperature":0,"tools":[LAYOUT_LEVEL_TOOL],"tool_choice":{"type":"function","function":{"name":"decide_layout_levels"}}}
+                try:
+                    level_response=await serialized_post(client,settings.openai_base_url.rstrip("/")+"/chat/completions",headers={"Authorization":f"Bearer {settings.openai_api_key}"},json=level_payload);level_response.raise_for_status();level_message=level_response.json()["choices"][0]["message"];level_call=next((call for call in level_message.get("tool_calls",[]) if call.get("function",{}).get("name")=="decide_layout_levels"),None);level_arguments=json.loads(level_call["function"].get("arguments") or "{}") if level_call else {}
+                except (httpx.HTTPError,KeyError,TypeError,ValueError,json.JSONDecodeError):level_arguments={}
+                layout_levels,layout_blockers=build_layout_levels(level_arguments,furniture_groups,rules)
         calculated=calculate_design_quote([],[],[]);selected_furniture=[]
         if state["complete"]:
             selected_material_ids=default_product_ids(quotes,[],rules)
-            selected_furniture_lines=select_furniture_quotes(furniture_groups,state["collected"].get("预期价格区间"),sum(line.get("材料小计",0) for line in quotes if line["product_id"] in selected_material_ids))
+            selected_ids=layout_levels[0]["product_ids"] if layout_levels else []
+            selected_furniture_lines=[candidate for group in furniture_groups for candidate in group["candidates"] if candidate["product_id"] in selected_ids]
             calculated=calculate_design_quote(quotes,selected_furniture_lines,selected_material_ids+[line["product_id"] for line in selected_furniture_lines])
             selected_furniture=[{"product_id":line["product_id"],"category":line["家具名称"],"catalog_style":line.get("风格","通用"),"requested_style":style_match.get("catalog_style"),"model_lookup":line.get("model_lookup")} for line in selected_furniture_lines]
-        context={"需求采集状态":state,"风格归一结果":style_match,"量房用量":surfaces,"设备规则":rules,"统一报价候选":{"材料":quotes,"家具候选组":furniture_groups},"服务端报价结果":calculated if state["complete"] else None,"匹配产品":products}
+        context={"需求采集状态":state,"风格归一结果":style_match,"量房用量":surfaces,"设备规则":rules,"布局方案":layout_levels,"布局阻断":layout_blockers,"统一报价候选":{"材料":quotes,"家具候选组":furniture_groups},"服务端报价结果":calculated if state["complete"] else None,"匹配产品":products}
         if capture_call:
             final_messages=[*capture_messages,capture_assistant,{"role":"tool","tool_call_id":capture_call["id"],"name":"capture_design_requirements","content":json.dumps(context,ensure_ascii=False)}]
         else:
@@ -286,4 +363,4 @@ async def design_chat(messages,graph,room=None):
         assistant=followup.json()["choices"][0]["message"]
     message=_safe_model_message(assistant.get("content") or "",calculated["材料报价"]+calculated["家具报价"],bool(quotes or furniture),state["missing_fields"])
     total_range={"min":round(calculated["材料合计"]+furniture_range["min"],2),"max":round(calculated["材料合计"]+furniture_range["max"],2)}
-    return {"message":message,"requirements":state,"style_match":style_match,"surfaces":surfaces,"material_quotes":calculated["材料报价"],"furniture_candidates":furniture_groups,"furniture_quotes":calculated["家具报价"],"selected_furniture":selected_furniture,"material_total":calculated["材料合计"],"furniture_price_range":furniture_range,"total_price_range":total_range,"furniture_total":calculated["家具合计"] if state["complete"] else None,"quote_total":calculated["总计"] if state["complete"] else None,"pricing_status":"final" if state["complete"] else "range_until_auto_layout_selection","equipment":rules,"products":products}
+    return {"message":message,"requirements":state,"layout_levels":layout_levels,"layout_blockers":layout_blockers,"style_match":style_match,"surfaces":surfaces,"material_quotes":calculated["材料报价"],"furniture_candidates":furniture_groups,"furniture_quotes":calculated["家具报价"],"selected_furniture":selected_furniture,"material_total":calculated["材料合计"],"furniture_price_range":furniture_range,"total_price_range":total_range,"furniture_total":calculated["家具合计"] if state["complete"] else None,"quote_total":calculated["总计"] if state["complete"] else None,"pricing_status":"final" if state["complete"] and not layout_blockers else "range_until_auto_layout_selection","equipment":rules,"products":products}

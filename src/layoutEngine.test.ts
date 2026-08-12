@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { applyLayoutSolution, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
 import { manualRoom } from './spec'
 import { modelDimensions } from './modelDimensions'
+import graphOutput from './generated-layout-products.json'
+import type { LayoutLevelDecision } from './types'
 
 describe('deterministic requirement layout engine', () => {
   const room = manualRoom(3200, 2600, 2700)
@@ -18,6 +20,49 @@ describe('deterministic requirement layout engine', () => {
       expect(new Set(variants.map((x) => `${x.wet_zone.x_mm},${x.wet_zone.z_mm}`)).size).toBe(3)
       expect(new Set(variants.map((x) => x.fixtures.map((f) => `${f.kind}:${f.x_mm},${f.z_mm},${f.rotation_deg}`).join('|'))).size).toBe(3)
     }
+  })
+
+  it('uses exact model-selected graph products for coordinates, quote lines, and 3D fixtures', () => {
+    const products = graphOutput.scenarios.standard_shower.products
+      .filter((product) => ['花洒', '热水器', '马桶', '浴室柜'].includes(product.category))
+      .filter((product) => product.category !== '马桶' || product.code === 'MT1')
+      .filter((product, index, all) => all.findIndex((item) => item.category === product.category) === index)
+      .map((product) => ({ product_id:product.graph_id, catalog_code:product.code, category:product.category, spec:product.spec, unit_price:product.price, price_unit:'件', ...(product.code === 'MT1' ? { model_lookup:{ product_id:product.graph_id, catalog_code:product.code, category:product.category, catalog_style:'通用', normalized_requested_style:'素雅', spec:product.spec, model_asset_id:'snapshot-mt1', model_asset_src:'/model-library/test-mt1.glb', model_asset_format:'glb' as const, model_asset_label:'MT1 backend snapshot', model_dimensions_mm:{ width:431, depth:711, height:777 }, layout_fixture_kind:'马桶', binding_status:'bound' as const } } : {}) }))
+    const instruction = (fixture_role:string, wall:'north'|'south'|'east'|'west', zone:'dry'|'wet'|'service', near='') => ({ fixture_role, wall, zone, near, min_clearance_mm:fixture_role === 'wet_zone' || fixture_role === 'heater' ? 0 : 600 })
+    const levels = (['basic','comfort','premium'] as const).map((tier, index) => ({ id:`level${index+1}` as const, name:`真实产品方案 ${index+1}`, reason:'真实产品驱动', demand_profile:'standard_shower' as const, product_tier:tier, product_ids:products.map((product) => product.product_id), products, layout_script:{ version:'layout-script-v1' as const, demand:'standard_shower' as const, budget:tier, instructions:[instruction('wet_zone',index===0?'east':index===1?'west':'south','wet','shower_drain'),instruction('vanity','west','dry'),instruction('toilet','north','dry','toilet_drain'),instruction('heater','east','service','wet_zone')], source:'deterministic-rule-engine' as const } })) as LayoutLevelDecision[]
+    const [solution] = generateLayoutSolutions(room, { style:'素雅', levels })
+    expect(solution.selected_product_ids).toEqual(products.map((product) => product.product_id))
+    expect(solution.product_lines.map((line) => line.code)).toEqual(products.map((product) => product.catalog_code))
+    expect(products.every((product) => solution.fixtures.some((fixture) => fixture.label.startsWith(`${product.catalog_code} `)))).toBe(true)
+    expect(solution.checks.find((check) => check.code === 'KG-SELECTION')?.passed).toBe(true)
+    expect(solution.anchors.every((anchor) => Number.isInteger(anchor.x_mm) && anchor.instruction.includes('最小净距'))).toBe(true)
+    const snapshotToilet = solution.fixtures.find((fixture) => fixture.label.startsWith('MT1 '))
+    expect(snapshotToilet && [snapshotToilet.width_mm, snapshotToilet.depth_mm, snapshotToilet.height_mm]).toEqual([431, 711, 777])
+    expect(snapshotToilet?.model_asset?.src).toBe('/model-library/test-mt1.glb')
+    const applied = applyLayoutSolution(room, solution)
+    expect(products.every((product) => applied.fixtures.some((fixture) => fixture.id.includes(product.product_id)))).toBe(true)
+  })
+
+  it('uses directional front clearance and blocks an unsatisfiable layout', () => {
+    const products = graphOutput.scenarios.standard_shower.products
+      .filter((product) => ['花洒', '热水器', '马桶', '浴室柜'].includes(product.category))
+      .filter((product, index, all) => all.findIndex((item) => item.category === product.category) === index)
+      .map((product) => ({ product_id:product.graph_id, catalog_code:product.code, category:product.category, spec:product.spec, unit_price:product.price, price_unit:'件' }))
+    const makeLevels = (clearance:number) => (['basic','comfort','premium'] as const).map((tier, index) => ({
+      id:`level${index+1}` as const, name:`净空测试 ${index+1}`, reason:'净空测试', demand_profile:'standard_shower' as const,
+      product_tier:tier, product_ids:products.map((product) => product.product_id), products,
+      layout_script:{ version:'layout-script-v1' as const, demand:'standard_shower' as const, budget:tier, source:'deterministic-rule-engine' as const, instructions:[
+        { fixture_role:'wet_zone', wall:'east' as const, zone:'wet' as const, near:'shower_drain', min_clearance_mm:0 },
+        { fixture_role:'vanity', wall:'west' as const, zone:'dry' as const, min_clearance_mm:clearance },
+        { fixture_role:'toilet', wall:'north' as const, zone:'dry' as const, near:'toilet_drain', min_clearance_mm:clearance },
+        { fixture_role:'heater', wall:'east' as const, zone:'service' as const, near:'wet_zone', min_clearance_mm:0 },
+      ] },
+    })) as LayoutLevelDecision[]
+    const feasible = generateLayoutSolutions(room, { levels:makeLevels(200) })[0]
+    const constrained = generateLayoutSolutions(room, { levels:makeLevels(5000) })[0]
+    expect(constrained.solver_trace.feasible_candidates).toBeLessThan(feasible.solver_trace.feasible_candidates)
+    expect(constrained.checks.find((check) => check.code === 'G02-CLEARANCE')).toMatchObject({ passed:false, severity:'error' })
+    expect(() => applyLayoutSolution(room, constrained)).toThrow(/G02-CLEARANCE/)
   })
 
   it('quotes equipment and fixed-board surface materials for every tier', () => {

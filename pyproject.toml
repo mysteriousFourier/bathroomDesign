@@ -31,7 +31,15 @@ package = false
 dev = ["pytest>=8.3,<9", "pytest-asyncio>=0.25,<1"]
 
 [project.optional-dependencies]
-voice = ["funasr>=1.2,<2", "modelscope>=1.20,<2", "soundfile>=0.13,<1"]
+voice = [
+  "av>=14,<17",
+  "edge-tts>=7.2,<8",
+  "funasr>=1.2,<2",
+  "modelscope>=1.20,<2",
+  "soundfile>=0.13,<1",
+  "torch>=2.7,<3",
+  "torchaudio>=2.7,<3",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

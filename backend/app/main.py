@@ -33,6 +33,7 @@ from .models import (
     ChatSessionResponse,
     ChatSessionSummary,
     ChatTurnCreate,
+    VoiceAudioResponse,
     VoiceTurnResponse,
     DesignChatRequest,
     MeasurementModel,
@@ -47,7 +48,7 @@ from .models import (
     ValidationResponse,
 )
 from .validation import validate_spec
-from .voice import VoiceConfigurationError, synthesize, transcribe
+from .voice import VoiceConfigurationError, runtime_status, synthesize, transcribe
 
 
 project_root = Path(__file__).resolve().parents[2]
@@ -73,6 +74,8 @@ async def lifespan(_application: FastAPI):
 
 
 app = FastAPI(title="小和 API", version="0.1.0", lifespan=lifespan)
+
+VOICE_GREETING = "您好，我是小和需求助手。请告诉我家庭成员、使用需求、喜欢的风格和预算，我会结合当前量房数据为您规划。"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -110,6 +113,7 @@ def health() -> dict:
         "chat_model": settings.chat_model or None,
         "fallback_model": fallback_model,
         "ocr_configured": settings.ocr_engine.lower() == "paddle",
+        **runtime_status(),
     }
 
 @app.post("/api/knowledge/products/import")
@@ -198,8 +202,8 @@ async def append_project_voice_turn(
         messages.append({"role": "user", "content": transcript})
         result = await design_chat(messages, product_graph, room.model_dump())
         updated = db.append_chat_turn(project_id, session_id, transcript, result["message"], result)
-        speech = await asyncio.to_thread(synthesize, result["message"])
-        return VoiceTurnResponse(transcript=transcript, session=updated, audio_base64=speech)
+        speech, audio_mime_type = await asyncio.to_thread(synthesize, result["message"])
+        return VoiceTurnResponse(transcript=transcript, session=updated, audio_base64=speech, audio_mime_type=audio_mime_type)
     except KeyError as error:
         raise HTTPException(404, "对话不存在") from error
     except VoiceConfigurationError as error:
@@ -208,6 +212,17 @@ async def append_project_voice_turn(
         raise HTTPException(422, str(error)) from error
     except httpx.HTTPError as error:
         raise HTTPException(502, "对话模型暂时不可用") from error
+
+
+@app.get("/api/voice/greeting", response_model=VoiceAudioResponse)
+async def voice_greeting() -> VoiceAudioResponse:
+    try:
+        speech, audio_mime_type = await asyncio.to_thread(synthesize, VOICE_GREETING)
+        return VoiceAudioResponse(text=VOICE_GREETING, audio_base64=speech, audio_mime_type=audio_mime_type)
+    except VoiceConfigurationError as error:
+        raise HTTPException(503, str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 @app.get("/api/projects", response_model=list[ProjectResponse])

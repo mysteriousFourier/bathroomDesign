@@ -40,11 +40,14 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = 180
     funasr_model: str = "paraformer-zh"
     funasr_vad_model: str = "fsmn-vad"
-    funasr_punc_model: str = "ct-punc"
+    funasr_punc_model: str = ""
+    voice_model_cache_dir: Path = PROJECT_ROOT / ".tmp" / "modelscope"
+    voice_tts_provider: str = "edge"
+    edge_tts_voice: str = "zh-CN-XiaoxiaoNeural"
     melotts_speaker: str = "ZH"
     melotts_speed: float = 1.0
 
-    @field_validator("app_data_dir", "ocr_cache_dir", mode="after")
+    @field_validator("app_data_dir", "ocr_cache_dir", "voice_model_cache_dir", mode="after")
     @classmethod
     def resolve_project_path(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value

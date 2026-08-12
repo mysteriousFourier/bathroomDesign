@@ -55,6 +55,7 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Generated evidence and local demo assets
+/release/
 /evidence/**/*.png
 /evidence/**/*.jpg
 /evidence/**/*.jpeg

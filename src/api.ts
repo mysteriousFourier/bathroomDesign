@@ -1,4 +1,4 @@
-import type { AnalysisResponse, Asset, CaptureAssessment, ChatMessage, ChatSession, ChatSessionSummary, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, Project, RoomSpec, VoiceTurnResponse } from './types'
+import type { AnalysisResponse, Asset, CaptureAssessment, ChatMessage, ChatSession, ChatSessionSummary, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, Project, RoomSpec, VoiceAudioResponse, VoiceTurnResponse } from './types'
 import type { ModelImportFile } from './modelImport'
 
 const defaultTimeoutMs = 90_000
@@ -94,5 +94,6 @@ export const studioApi = {
     form.append('room_json', JSON.stringify(room))
     return request<VoiceTurnResponse>(`/api/projects/${projectId}/chat-sessions/${sessionId}/voice-turn`, { method:'POST', body:form, timeoutMs:300_000 })
   },
+  voiceGreeting: () => request<VoiceAudioResponse>('/api/voice/greeting', { timeoutMs:60_000 }),
   measurementDownloadUrl: (id: string) => `/api/projects/${id}/measurement/download`,
 }

@@ -19,7 +19,7 @@ Copy-Item .env.example .env
 # 编辑 .env，填写兼容 API 地址、密钥和支持图像输入的模型名
 npm install
 $env:UV_CACHE_DIR='.uv-cache'
-uv sync --dev
+uv sync --dev --extra voice
 ```
 
 开发时打开两个 PowerShell 窗口：
@@ -44,19 +44,19 @@ npm run build
 ### 需求助手语音通话（可选）
 
 需求助手标题栏的电话按钮可进入语音通话。浏览器录音由本机 CPU 上的 FunASR
-转写，助手回复由 MeloTTS 合成；每次语音问答仍作为标准的用户/助手消息保存，
-挂断后可在原对话继续输入文字。首次使用前安装可选依赖和 MeloTTS：
+转写，助手回复默认使用 `zh-CN-XiaoxiaoNeural` 中文神经音色；每次语音问答仍作为
+标准的用户/助手消息保存，挂断后可在原对话继续输入文字。首次使用前安装可选依赖：
 
 ```powershell
 uv sync --extra voice
-uv pip install git+https://github.com/myshell-ai/MeloTTS.git
-python -m unidic download
 ```
 
 首次通话会下载语音模型并预热，耗时明显长于后续通话。生产环境需要 HTTPS
 （localhost 除外）才能取得浏览器麦克风权限。模型名、音色和语速可通过
 `.env` 中的 `FUNASR_MODEL`、`FUNASR_VAD_MODEL`、`FUNASR_PUNC_MODEL`、
-`MELOTTS_SPEAKER`、`MELOTTS_SPEED` 调整。
+`EDGE_TTS_VOICE` 调整。默认 TTS 需要联网；已有 MeloTTS 环境可设置
+`VOICE_TTS_PROVIDER=melotts`，并通过 `MELOTTS_SPEAKER`、`MELOTTS_SPEED` 调整。
+默认不加载额外标点模型，以缩短首次启动时间；需要时设置 `FUNASR_PUNC_MODEL=ct-punc`。
 
 ## 模型接口配置
 

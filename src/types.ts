@@ -365,6 +365,9 @@ export interface Health {
   chat_model?: string | null
   fallback_model?: string | null
   ocr_configured?: boolean
+  voice_configured?: boolean
+  voice_asr_model?: string
+  voice_tts?: string
 }
 export interface ChatMessage { role:'user'|'assistant'; content:string }
 export interface SurfaceEstimate { source:string; floor_area_sqm:number; ceiling_area_sqm:number; wall_gross_area_sqm:number|null; opening_area_sqm:number; wall_net_area_sqm:number|null; waste_rate:number; floor_purchase_sqm:number; ceiling_purchase_sqm:number; wall_purchase_sqm:number|null; floor_layout:string; ceiling_layout:string; wall_layout:string; warnings:string[] }
@@ -375,11 +378,17 @@ export interface ModelLookup { product_id:string; catalog_code:string; category:
 export interface SelectedFurniture { product_id:string; category:string; catalog_style:string; requested_style:string|null; model_lookup:ModelLookup }
 export interface PriceRange { min:number; max:number }
 export interface FurnitureCandidateGroup { category:string; selection_status:'deferred_to_auto_layout'; candidate_count:number; min_price:number; max_price:number; candidates:Array<QuoteLine & {风格?:string;匹配风格?:string;model_lookup?:ModelLookup}> }
-export interface DesignChatResponse { message:string; requirements:RequirementState; style_match:StyleMatch; surfaces:SurfaceEstimate; material_quotes:QuoteLine[]; furniture_candidates:FurnitureCandidateGroup[]; furniture_quotes:Array<QuoteLine & {风格?:string;匹配风格?:string;model_lookup?:ModelLookup}>; selected_furniture:SelectedFurniture[]; material_total:number; furniture_price_range:PriceRange; total_price_range:PriceRange; furniture_total:number|null; quote_total:number|null; pricing_status:'range_until_auto_layout_selection'|'final'; equipment:Record<string,string[]>; products:Array<{id:string;attributes:Record<string,string>}> }
+export type LayoutDemandProfile = 'standard_shower'|'laundry'|'elderly_safe'
+export type LayoutBudgetTier = 'basic'|'comfort'|'premium'
+export interface LayoutInstructionInput { fixture_role:string; wall:'north'|'south'|'east'|'west'|'nearest_plumbing'; zone:'dry'|'wet'|'service'; near?:string; min_clearance_mm:number }
+export interface LayoutProductInput { product_id:string; catalog_code:string; category:string; spec:string; unit_price:number; price_unit:string; model_lookup?:ModelLookup }
+export interface LayoutLevelDecision { id:'level1'|'level2'|'level3'; name:string; reason:string; demand_profile:LayoutDemandProfile; product_tier:LayoutBudgetTier; product_ids:string[]; products:LayoutProductInput[]; layout_script:{version:'layout-script-v1';demand:LayoutDemandProfile;budget:LayoutBudgetTier;instructions:LayoutInstructionInput[];source:'model-assisted-rule-engine'|'deterministic-rule-engine'} }
+export interface DesignChatResponse { message:string; requirements:RequirementState; layout_levels?:LayoutLevelDecision[]; layout_blockers?:string[]; style_match:StyleMatch; surfaces:SurfaceEstimate; material_quotes:QuoteLine[]; furniture_candidates:FurnitureCandidateGroup[]; furniture_quotes:Array<QuoteLine & {风格?:string;匹配风格?:string;model_lookup?:ModelLookup}>; selected_furniture:SelectedFurniture[]; material_total:number; furniture_price_range:PriceRange; total_price_range:PriceRange; furniture_total:number|null; quote_total:number|null; pricing_status:'range_until_auto_layout_selection'|'final'; equipment:Record<string,string[]>; products:Array<{id:string;attributes:Record<string,string>}> }
 
 export interface ChatSessionSummary { id:string; project_id:string; title:string; message_count:number; last_message:string; created_at:string; updated_at:string }
 export interface ChatSessionMessage { id:string; role:'user'|'assistant'; content:string; quote:DesignChatResponse|null; created_at:string }
 export interface ChatSession extends ChatSessionSummary { messages:ChatSessionMessage[] }
-export interface VoiceTurnResponse { transcript:string; session:ChatSession; audio_base64:string; audio_mime_type:'audio/wav' }
+export interface VoiceTurnResponse { transcript:string; session:ChatSession; audio_base64:string; audio_mime_type:'audio/wav'|'audio/mpeg' }
+export interface VoiceAudioResponse { text:string; audio_base64:string; audio_mime_type:'audio/wav'|'audio/mpeg' }
 
 export type Selection = { type: 'room' } | { type: 'fixture'; id: string } | { type: 'opening'; id: string } | { type: 'dry_wet_zone'; id: string } | { type: 'plan_line'; id: string } | { type: 'plan_label'; id: string }

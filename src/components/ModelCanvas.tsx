@@ -1,7 +1,7 @@
 import { ContactShadows, Edges, Grid, OrbitControls, PerspectiveCamera, useGLTF, useTexture } from '@react-three/drei'
 import { Canvas, type ThreeEvent, useFrame, useLoader, useThree } from '@react-three/fiber'
 import { Eye, EyeOff, Focus, Layers, Move3d, SquareDashed } from 'lucide-react'
-import { Suspense, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { Component, Suspense, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Box3, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, Group, RepeatWrapping, Shape, SRGBColorSpace, Vector3 } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
@@ -17,7 +17,7 @@ export interface ModelCanvasHandle {
 
 type WallPart = { start: number; end: number; y: number; height: number }
 type WallLayers = { finish: Point2D[]; wall: Point2D[] }
-type SurfaceMaterials = { wall?: { textureSrc: string; widthMm: number; heightMm: number }; floor?: { textureSrc: string; widthMm: number; depthMm: number } }
+type SurfaceMaterials = { wall?: { textureSrc: string; widthMm: number; heightMm: number }; floor?: { textureSrc: string; widthMm: number; depthMm: number; rotationDeg?:0|90; offsetXmm?:number; offsetZmm?:number; layoutDescription?:string } }
 
 function wallPrismGeometry(quad: Point2D[], minY: number, maxY: number) {
   const geometry = new BufferGeometry()
@@ -196,6 +196,8 @@ function FixtureAssetModel({ fixture, selected }: { fixture: FixtureSpec; select
   return null
 }
 
+class FixtureAssetBoundary extends Component<{fixture:FixtureSpec;children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(){}render(){if(!this.state.failed)return this.props.children;const f=this.props.fixture;return <mesh position={[0,f.height_mm/2000,0]}><boxGeometry args={[f.width_mm/1000,f.height_mm/1000,f.depth_mm/1000]}/><meshStandardMaterial color="#c9cbc5" roughness={0.82}/><Edges color="#6f756c"/></mesh>}}
+
 function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; selected: boolean; onSelect: () => void }) {
   const width = fixture.width_mm / 1000
   const depth = fixture.depth_mm / 1000
@@ -206,7 +208,7 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
   const common = { castShadow: true, receiveShadow: true, onClick: select }
   return (
     <group position={[fixture.x_mm / 1000, (fixture.elevation_mm ?? 0) / 1000, fixture.z_mm / 1000]} rotation={[0, -fixture.rotation_deg * Math.PI / 180, 0]} userData={{ id: fixture.id, kind: fixture.kind, source: fixture.source, model_asset: fixture.model_asset?.id }} onClick={select}>
-      {fixture.model_asset && <FixtureAssetModel fixture={fixture} selected={selected} />}
+      {fixture.model_asset && <FixtureAssetBoundary fixture={fixture}><FixtureAssetModel fixture={fixture} selected={selected} /></FixtureAssetBoundary>}
       {!fixture.model_asset && fixture.kind === 'toilet' && <>
         <mesh {...common} position={[0, height * 0.28, depth * 0.08]} scale={[width, height * 0.55, depth * 0.7]}><sphereGeometry args={[0.5, 28, 20]} /><meshStandardMaterial color={ceramic} roughness={0.25} /><Edges color={outline} threshold={35} /></mesh>
         <mesh {...common} position={[0, height * 0.65, -depth * 0.3]}><boxGeometry args={[width * 0.9, height * 0.62, depth * 0.25]} /><meshStandardMaterial color={ceramic} roughness={0.25} /><Edges color={outline} /></mesh>
@@ -251,7 +253,7 @@ function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, o
     <group ref={groupRef} userData={{ schema_version: spec.schema_version, unit: 'meter', room_name: spec.name }} onClick={() => onSelect({ type: 'room' })}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <shapeGeometry args={[floorShape]} />
-        {surfaceMaterials?.floor ? <TexturedMaterial src={surfaceMaterials.floor.textureSrc} {...physicalWorldTextureTransform(surfaceMaterials.floor.widthMm, surfaceMaterials.floor.depthMm, bounds.minX, -bounds.minZ)} emphasizeJoints={emphasizeJoints} /> : <meshStandardMaterial color="#c8c6bd" roughness={0.84} side={DoubleSide} />}
+        {surfaceMaterials?.floor ? <TexturedMaterial src={surfaceMaterials.floor.textureSrc} {...physicalWorldTextureTransform(surfaceMaterials.floor.rotationDeg?surfaceMaterials.floor.depthMm:surfaceMaterials.floor.widthMm, surfaceMaterials.floor.rotationDeg?surfaceMaterials.floor.widthMm:surfaceMaterials.floor.depthMm, bounds.minX-(surfaceMaterials.floor.offsetXmm??0), -bounds.minZ-(surfaceMaterials.floor.offsetZmm??0))} emphasizeJoints={emphasizeJoints} /> : <meshStandardMaterial color="#c8c6bd" roughness={0.84} side={DoubleSide} />}
       </mesh>
       {showCeiling && <mesh position={[0, height, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <shapeGeometry args={[floorShape]} /><meshStandardMaterial color="#dedfd9" roughness={0.9} side={DoubleSide} transparent opacity={0.72} />
@@ -336,7 +338,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
         {surfaceMaterials && <>
           <strong>材质原尺寸排布（不缩放）· 板缝{emphasizeJoints ? '已加粗' : '标准显示'}</strong>
           {surfaceMaterials.wall && <code>墙板 {surfaceMaterials.wall.widthMm}×{surfaceMaterials.wall.heightMm} mm · 各墙面左下起铺 · 门窗处连续裁切</code>}
-          {surfaceMaterials.floor && <code>地砖 {surfaceMaterials.floor.widthMm}×{surfaceMaterials.floor.depthMm} mm · 房间轮廓原点起铺 · 边缘裁切</code>}
+          {surfaceMaterials.floor && <code>地砖 {surfaceMaterials.floor.widthMm}×{surfaceMaterials.floor.depthMm} mm · {surfaceMaterials.floor.layoutDescription??'智能起铺 · 边缘裁切'}</code>}
         </>}
         <div>{spec.fixtures.filter((fixture) => fixture.kind !== 'floor_drain').map((fixture) => (
           <code key={fixture.id} data-fixture-kind={fixture.kind}>{fixture.label} {fixture.width_mm}×{fixture.depth_mm}×{fixture.height_mm} mm</code>

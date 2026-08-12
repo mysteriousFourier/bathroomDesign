@@ -30,6 +30,9 @@ package = false
 [dependency-groups]
 dev = ["pytest>=8.3,<9", "pytest-asyncio>=0.25,<1"]
 
+[project.optional-dependencies]
+voice = ["funasr>=1.2,<2", "modelscope>=1.20,<2", "soundfile>=0.13,<1"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["backend/tests"]

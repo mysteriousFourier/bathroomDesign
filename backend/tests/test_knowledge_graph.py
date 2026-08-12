@@ -5,7 +5,12 @@ import pytest
 
 import backend.app.design_chat as design_chat_module
 from backend.app.knowledge_graph import ProductKnowledgeGraph, equipment_rules
-from backend.app.design_chat import PROMPT, QUOTE_TOOL, REQUIREMENT_TOOL, _safe_model_message, calculate_design_quote, default_product_ids, design_chat, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, requirement_state, requirement_state_from_model, resolve_style, select_furniture_quotes, surface_estimate
+from backend.app.design_chat import PROMPT, QUOTE_TOOL, REQUIREMENT_TOOL, _safe_model_message, calculate_design_quote, default_product_ids, design_chat, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, normalize_assistant_message, requirement_state, requirement_state_from_model, resolve_style, select_furniture_quotes, surface_estimate
+
+
+def test_normalize_assistant_message_removes_markdown_marks():
+    source = "## 需求确认\n- **使用人群**：[父母](https://invalid.example)\n- `预算`：三万元"
+    assert normalize_assistant_message(source) == "需求确认\n使用人群：父母\n预算：三万元"
 
 def test_incremental_catalog(tmp_path: Path):
     graph=ProductKnowledgeGraph(tmp_path/"graph.json")

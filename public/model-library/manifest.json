@@ -309,8 +309,8 @@
       "dimension_status": "verified",
       "price_tier": "basic",
       "catalog_codes": [
-        "XYG1-1",
-        "XYG1-2"
+        "YSG1-1",
+        "YSG1-2"
       ],
       "styles": [
         "中古",
@@ -339,8 +339,8 @@
       "dimension_status": "verified",
       "price_tier": "premium",
       "catalog_codes": [
-        "XYG2-1",
-        "XYG2-2"
+        "YSG2-1",
+        "YSG2-2"
       ],
       "styles": [
         "中古",

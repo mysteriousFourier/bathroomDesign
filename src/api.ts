@@ -1,4 +1,4 @@
-import type { AnalysisResponse, Asset, CaptureAssessment, ChatMessage, ChatSession, ChatSessionSummary, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, Project, RoomSpec } from './types'
+import type { AnalysisResponse, Asset, CaptureAssessment, ChatMessage, ChatSession, ChatSessionSummary, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, Project, RoomSpec, VoiceTurnResponse } from './types'
 import type { ModelImportFile } from './modelImport'
 
 const defaultTimeoutMs = 90_000
@@ -88,5 +88,11 @@ export const studioApi = {
   chatSession: (projectId: string, sessionId: string) => request<ChatSession>(`/api/projects/${projectId}/chat-sessions/${sessionId}`),
   deleteChatSession: (projectId: string, sessionId: string) => request<void>(`/api/projects/${projectId}/chat-sessions/${sessionId}`, { method:'DELETE' }),
   sendChatMessage: (projectId: string, sessionId: string, content: string, room: RoomSpec | null) => request<ChatSession>(`/api/projects/${projectId}/chat-sessions/${sessionId}/messages`, { method:'POST', headers:jsonHeaders, body:JSON.stringify({ content, room }), timeoutMs:150_000 }),
+  sendVoiceTurn: (projectId: string, sessionId: string, audio: Blob, room: RoomSpec) => {
+    const form = new FormData()
+    form.append('audio', audio, 'recording.webm')
+    form.append('room_json', JSON.stringify(room))
+    return request<VoiceTurnResponse>(`/api/projects/${projectId}/chat-sessions/${sessionId}/voice-turn`, { method:'POST', body:form, timeoutMs:300_000 })
+  },
   measurementDownloadUrl: (id: string) => `/api/projects/${id}/measurement/download`,
 }

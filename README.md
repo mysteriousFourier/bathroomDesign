@@ -41,6 +41,23 @@ npm run build
 
 此时访问 `http://127.0.0.1:8000`。
 
+### 需求助手语音通话（可选）
+
+需求助手标题栏的电话按钮可进入语音通话。浏览器录音由本机 CPU 上的 FunASR
+转写，助手回复由 MeloTTS 合成；每次语音问答仍作为标准的用户/助手消息保存，
+挂断后可在原对话继续输入文字。首次使用前安装可选依赖和 MeloTTS：
+
+```powershell
+uv sync --extra voice
+uv pip install git+https://github.com/myshell-ai/MeloTTS.git
+python -m unidic download
+```
+
+首次通话会下载语音模型并预热，耗时明显长于后续通话。生产环境需要 HTTPS
+（localhost 除外）才能取得浏览器麦克风权限。模型名、音色和语速可通过
+`.env` 中的 `FUNASR_MODEL`、`FUNASR_VAD_MODEL`、`FUNASR_PUNC_MODEL`、
+`MELOTTS_SPEAKER`、`MELOTTS_SPEED` 调整。
+
 ## 模型接口配置
 
 后端使用 Chat Completions 兼容协议调用模型接口，并以多模态 `image_url` 格式提交图片。一次平面图识别只调用一次 `READ_MODEL`，专门抄录逐边尺寸、门洞及高度；轮廓和点位由本地图像处理提取，尺寸绑定和几何组装也由本地代码完成。进程内所有魔塔模型请求共用单并发门禁，同时最多执行 1 个请求。

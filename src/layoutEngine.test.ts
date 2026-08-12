@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyLayoutSolution, generateLayoutSolutions } from './layoutEngine'
+import { applyLayoutSolution, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
 import { manualRoom } from './spec'
 import { modelDimensions } from './modelDimensions'
 
@@ -32,6 +32,14 @@ describe('deterministic requirement layout engine', () => {
     }
   })
 
+  it('always aligns the tile long edge with the room short edge', () => {
+    expect(optimizeFloorLayout(manualRoom(4105, 2160, 2700), 3000, 1200).rotation_deg).toBe(90)
+    expect(optimizeFloorLayout(manualRoom(2100, 3600, 2700), 3000, 1200).rotation_deg).toBe(0)
+    expect(optimizeFloorLayout(manualRoom(4105, 2160, 2700), 1200, 3000).rotation_deg).toBe(0)
+    expect(solutions.every((solution) => solution.floor_layout.rotation_deg === 90)).toBe(true)
+    expect(solutions.every((solution) => solution.floor_layout.description.includes('长边沿房型短边'))).toBe(true)
+  })
+
   it('emits exact semantic anchor coordinates and geometry checks', () => {
     expect(solutions.every((x) => x.anchors.length === x.fixtures.length)).toBe(true)
     expect(solutions.every((x) => x.anchors.every((a) => Number.isInteger(a.x_mm) && Number.isInteger(a.z_mm)))).toBe(true)
@@ -39,6 +47,10 @@ describe('deterministic requirement layout engine', () => {
     expect(solutions.every((x) => x.checks.every((c) => c.severity && c.source))).toBe(true)
     expect(solutions.every((x) => x.checks.some((c) => c.code === 'INPUT-DRAIN' && !c.passed))).toBe(true)
     expect(solutions.every((x) => x.score >= 0 && x.score <= 100)).toBe(true)
+    expect(solutions.every((x) => x.layout_script.source === 'requirement-rule-engine')).toBe(true)
+    expect(solutions.every((x) => x.layout_script.instructions.some((i) => i.fixture_role === 'wet_zone'))).toBe(true)
+    expect(solutions.every((x) => x.solver_trace.candidates_evaluated > 0 && x.solver_trace.feasible_candidates > 0)).toBe(true)
+    expect(solutions.every((x) => x.checks.some((c) => c.code === 'G05' && c.source === '栅格可达性'))).toBe(true)
   })
 
   it('blocks applying a candidate with a hard rule violation', () => {

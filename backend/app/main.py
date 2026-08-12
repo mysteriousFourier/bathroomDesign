@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from io import BytesIO
 from pathlib import Path
 import httpx
+import asyncio
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +33,7 @@ from .models import (
     ChatSessionResponse,
     ChatSessionSummary,
     ChatTurnCreate,
+    VoiceTurnResponse,
     DesignChatRequest,
     MeasurementModel,
     MeasurementImportInspection,
@@ -45,6 +47,7 @@ from .models import (
     ValidationResponse,
 )
 from .validation import validate_spec
+from .voice import VoiceConfigurationError, synthesize, transcribe
 
 
 project_root = Path(__file__).resolve().parents[2]
@@ -173,6 +176,38 @@ async def append_project_chat_message(project_id: str, session_id: str, payload:
     except (httpx.HTTPError, KeyError, IndexError) as error:
         raise HTTPException(502, "对话模型暂时不可用") from error
     return db.append_chat_turn(project_id, session_id, payload.content, result["message"], result)
+
+
+@app.post("/api/projects/{project_id}/chat-sessions/{session_id}/voice-turn", response_model=VoiceTurnResponse)
+async def append_project_voice_turn(
+    project_id: str,
+    session_id: str,
+    audio: UploadFile = File(...),
+    room_json: str = Form(...),
+) -> VoiceTurnResponse:
+    if audio.content_type and not audio.content_type.startswith("audio/"):
+        raise HTTPException(415, "请上传浏览器录制的音频")
+    content = await audio.read(settings.max_upload_mb * 1024 * 1024 + 1)
+    if len(content) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(413, "录音文件过大")
+    try:
+        room = RoomSpec.model_validate_json(room_json)
+        session = db.get_chat_session(project_id, session_id)
+        transcript = await asyncio.to_thread(transcribe, content, Path(audio.filename or "recording.webm").suffix or ".webm")
+        messages = [{"role": message.role, "content": message.content} for message in session.messages]
+        messages.append({"role": "user", "content": transcript})
+        result = await design_chat(messages, product_graph, room.model_dump())
+        updated = db.append_chat_turn(project_id, session_id, transcript, result["message"], result)
+        speech = await asyncio.to_thread(synthesize, result["message"])
+        return VoiceTurnResponse(transcript=transcript, session=updated, audio_base64=speech)
+    except KeyError as error:
+        raise HTTPException(404, "对话不存在") from error
+    except VoiceConfigurationError as error:
+        raise HTTPException(503, str(error)) from error
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(422, str(error)) from error
+    except httpx.HTTPError as error:
+        raise HTTPException(502, "对话模型暂时不可用") from error
 
 
 @app.get("/api/projects", response_model=list[ProjectResponse])

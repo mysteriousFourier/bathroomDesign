@@ -1,4 +1,4 @@
-import { CheckCircle2, MessageCircle, Plus, ReceiptText, Send, Trash2, X } from 'lucide-react'
+import { CheckCircle2, MessageCircle, Mic, Phone, PhoneOff, Plus, ReceiptText, Send, Trash2, X } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { studioApi } from '../api'
 import { polygonSignedArea } from '../spec'
@@ -52,7 +52,14 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [callActive, setCallActive] = useState(false)
+  const [callEnded, setCallEnded] = useState(false)
+  const [voiceState, setVoiceState] = useState<'idle'|'listening'|'processing'|'speaking'>('idle')
   const messagesRef = useRef<HTMLDivElement>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const audioRef = useRef<HTMLAudioElement | null>(null)
   const roomArea = useMemo(() => room && room.boundary.length > 2 ? Math.abs(polygonSignedArea(room.boundary)) / 1_000_000 : null, [room])
 
   useEffect(() => {
@@ -88,6 +95,12 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
     const node = messagesRef.current
     if (node) node.scrollTop = node.scrollHeight
   }, [activeSession?.messages.length, sending])
+
+  useEffect(() => () => {
+    recorderRef.current?.stop()
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    audioRef.current?.pause()
+  }, [])
 
   if (!open) return null
 
@@ -162,10 +175,68 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
     } finally { setSending(false) }
   }
 
+  async function startListening() {
+    if (!callActive || voiceState !== 'idle') return
+    try {
+      const stream = streamRef.current ?? await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      chunksRef.current = []
+      const recorder = new MediaRecorder(stream)
+      recorderRef.current = recorder
+      recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data) }
+      recorder.onstop = () => { void sendRecording(new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })) }
+      recorder.start()
+      setVoiceState('listening')
+      setError(null)
+    } catch (reason) {
+      setError(reason instanceof DOMException && reason.name === 'NotAllowedError' ? '需要允许麦克风权限才能通话' : (reason as Error).message)
+    }
+  }
+
+  async function sendRecording(recording: Blob) {
+    if (!projectId || !activeSession || !room || !recording.size) { setVoiceState('idle'); return }
+    setVoiceState('processing')
+    try {
+      const response = await studioApi.sendVoiceTurn(projectId, activeSession.id, recording, room)
+      setActiveSession(response.session)
+      const session = response.session
+      const summary: ChatSessionSummary = { id:session.id, project_id:session.project_id, title:session.title, message_count:session.message_count, last_message:session.last_message, created_at:session.created_at, updated_at:session.updated_at }
+      setSessions((current) => current.map((item) => item.id === session.id ? summary : item).sort((a, b) => b.updated_at.localeCompare(a.updated_at)))
+      const latestQuote = [...response.session.messages].reverse().find((message) => message.quote)?.quote
+      if (latestQuote) onQuote?.(latestQuote, true)
+      const audio = new Audio(`data:${response.audio_mime_type};base64,${response.audio_base64}`)
+      audioRef.current = audio
+      setVoiceState('speaking')
+      audio.onended = () => { setVoiceState(callActive ? 'idle' : 'idle') }
+      audio.onerror = () => { setVoiceState('idle'); setError('回复已保存，但语音播放失败') }
+      await audio.play()
+    } catch (reason) {
+      setError((reason as Error).message)
+      setVoiceState('idle')
+    }
+  }
+
+  function stopListening() {
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+  }
+
+  function hangUp() {
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.onstop = null
+      recorderRef.current.stop()
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    audioRef.current?.pause()
+    setCallActive(false)
+    setCallEnded(true)
+    setVoiceState('idle')
+  }
+
   const currentQuote = [...(activeSession?.messages ?? [])].reverse().find((message) => message.quote)?.quote ?? null
 
   return <aside className="design-chat" aria-label="小和需求助手">
-    <header><span><MessageCircle size={17} />小和需求助手</span><div className="chat-header-session">{activeSession?.title ?? '项目对话'}</div><button className="icon-button" onClick={onClose} aria-label="关闭"><X size={17} /></button></header>
+    <header><span><MessageCircle size={17} />小和需求助手</span><div className="chat-header-session">{activeSession?.title ?? '项目对话'}</div><div className="chat-header-actions"><button className={`icon-button chat-call-button${callActive ? ' active' : ''}`} onClick={() => callActive ? hangUp() : (setCallEnded(false), setCallActive(true))} disabled={!activeSession || !room || loading || sending} aria-label={callActive ? '挂断语音通话' : '进入语音通话'} title={callActive ? '挂断' : '语音通话'}>{callActive ? <PhoneOff size={17} /> : <Phone size={17} />}</button><button className="icon-button" onClick={() => { hangUp(); onClose() }} aria-label="关闭"><X size={17} /></button></div></header>
     <div className="chat-workspace">
       <nav className="chat-history" aria-label="历史对话">
         <button className="button primary chat-new" onClick={() => void createSession()} disabled={loading || sending || !!deletingId || !projectId}><Plus size={14} />新建对话</button>
@@ -180,7 +251,9 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
         </div>
       </nav>
       <section className="chat-thread">
+        {callActive && <div className="voice-call" role="region" aria-label="语音通话中"><div className={`voice-call-pulse ${voiceState}`}><Phone size={24} /></div><strong>正在与小和通话</strong><span>{voiceState === 'listening' ? '正在聆听，点击结束本次讲话' : voiceState === 'processing' ? '正在识别并思考…' : voiceState === 'speaking' ? '小和正在回复…' : '点击麦克风开始讲话'}</span><div><button className={`voice-record-button ${voiceState === 'listening' ? 'recording' : ''}`} onClick={voiceState === 'listening' ? stopListening : () => void startListening()} disabled={voiceState === 'processing' || voiceState === 'speaking'} aria-label={voiceState === 'listening' ? '结束讲话' : '开始讲话'}><Mic size={20} /></button><button className="voice-hangup-button" onClick={hangUp} aria-label="挂断"><PhoneOff size={20} /></button></div></div>}
         <div className="chat-thread-context">
+          {callEnded && <div className="voice-call-ended"><PhoneOff size={12} />语音通话已结束，本次问答已保存到当前对话</div>}
           <div>{roomArea === null ? '尚无可用量房轮廓，请先在主界面完成量房。' : `已读取主界面量房：地面 ${roomArea.toFixed(2)}㎡ · 层高 ${room?.height_mm ? `${(room.height_mm / 1000).toFixed(2)}m` : '待确认'} · ${room?.openings.length ?? 0} 个门窗洞口`}</div>
           {currentQuote && <>
             <div>量房面积：墙面 {currentQuote.surfaces.wall_net_area_sqm?.toFixed(2) ?? '待确认'}㎡ · 吊顶 {currentQuote.surfaces.ceiling_area_sqm.toFixed(2)}㎡ · 地面 {currentQuote.surfaces.floor_area_sqm.toFixed(2)}㎡</div>

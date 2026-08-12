@@ -46,11 +46,11 @@ export function SolutionList({ spec, active, onOpenModel, onApplyLayout, prefere
     <div className="layout-grid">{solutions.map((solution) => <button key={solution.id} data-blocking-count={solution.checks.filter((x) => !x.passed && x.severity === 'error').length} className={solution.id === selected.id ? 'layout-card selected' : 'layout-card'} onClick={() => setSelectedId(solution.id)}><LayoutPlan spec={spec} solution={solution} /><span>{solution.title}</span><strong>方案价 ¥{solution.total_price.toLocaleString('zh-CN')}</strong><small>{solution.layout_summary}</small><small>{solution.budget_label}选品 · {solution.score} 分</small></button>)}</div>
     <div className="layout-detail">
       <div><strong>{selected.title}</strong><span><Ruler size={13} />坐标单位 mm · 原点沿用量房数据</span><b>方案合计 ¥{selected.total_price.toLocaleString('zh-CN')}</b><small>设备 ¥{selected.equipment_price.toLocaleString('zh-CN')} · 材料 ¥{selected.material_price.toLocaleString('zh-CN')}</small><small>{selected.product_lines.map((line) => `${line.code} ${line.category} ¥${line.price}`).join(' · ')}</small><small>{selected.material_lines.map((line) => `${line.code} ${line.quantity}㎡ ¥${line.subtotal}`).join(' · ')}</small></div>
-      <div className="layout-anchors">{selected.anchors.map((a) => <code key={a.id}>{a.label}: ({a.x_mm}, {a.z_mm})</code>)}</div>
+      <div className="layout-anchors"><b>布局脚本 {selected.layout_script.version}</b>{selected.layout_script.instructions.map((i)=><code key={i.fixture_role}>{i.fixture_role}: {i.zone} / {i.wall}{i.near?` / near ${i.near}`:''}</code>)}<b>求解：{selected.solver_trace.feasible_candidates}/{selected.solver_trace.candidates_evaluated} 可行 · {selected.solver_trace.reachable?'路径可达':'路径阻断'}</b>{selected.anchors.map((a) => <code key={a.id}>{a.label}: ({a.x_mm}, {a.z_mm}) · {a.instruction}</code>)}</div>
       <div className="layout-checks">{selected.checks.map((c) => <span className={c.passed ? 'pass' : c.severity === 'error' ? 'fail' : 'warn'} key={c.code}>{c.passed ? <CheckCircle2 size={12} /> : <ShieldAlert size={12} />}<b>{c.code}</b> [{c.severity}/{c.source}] {c.message}</span>)}</div>
       <div className="layout-actions"><button className="button" onClick={onOpenModel}><BoxSelect size={14} />查看当前 3D</button><button className="button primary" disabled={blockingCount > 0} title={blockingCount ? `存在 ${blockingCount} 个硬错误` : undefined} onClick={() => onApplyLayout(selected)}><Wand2 size={14} />{blockingCount ? '硬错误未通过' : '执行自动布局并打开 3D'}</button></div>
     </div>
-    <span className="layout-method">需求指令 → 语义锚点 → 设备包围盒 → 边界/碰撞/通道/门区校验 → 精确坐标场景</span>
+    <span className="layout-method">需求规则 → layout-script-v1 语义约束 → 通用候选生成 → 多边形/碰撞/门区/栅格可达性求解 → 精确坐标场景</span>
     </div>}
   </section>
 }

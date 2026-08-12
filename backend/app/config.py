@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     ocr_engine: str = "paddle"
     paddleocr_python: str = ""
     ocr_timeout_seconds: int = 180
+    funasr_model: str = "paraformer-zh"
+    funasr_vad_model: str = "fsmn-vad"
+    funasr_punc_model: str = "ct-punc"
+    melotts_speaker: str = "ZH"
+    melotts_speed: float = 1.0
 
     @field_validator("app_data_dir", "ocr_cache_dir", mode="after")
     @classmethod

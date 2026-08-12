@@ -380,5 +380,6 @@ export interface DesignChatResponse { message:string; requirements:RequirementSt
 export interface ChatSessionSummary { id:string; project_id:string; title:string; message_count:number; last_message:string; created_at:string; updated_at:string }
 export interface ChatSessionMessage { id:string; role:'user'|'assistant'; content:string; quote:DesignChatResponse|null; created_at:string }
 export interface ChatSession extends ChatSessionSummary { messages:ChatSessionMessage[] }
+export interface VoiceTurnResponse { transcript:string; session:ChatSession; audio_base64:string; audio_mime_type:'audio/wav' }
 
 export type Selection = { type: 'room' } | { type: 'fixture'; id: string } | { type: 'opening'; id: string } | { type: 'dry_wet_zone'; id: string } | { type: 'plan_line'; id: string } | { type: 'plan_label'; id: string }

@@ -804,6 +804,13 @@ class ChatTurnCreate(BaseModel):
     room: RoomSpec | None = None
 
 
+class VoiceTurnResponse(BaseModel):
+    transcript: str
+    session: "ChatSessionResponse"
+    audio_base64: str
+    audio_mime_type: Literal["audio/wav"] = "audio/wav"
+
+
 class ChatMessageResponse(BaseModel):
     id: str
     role: Literal["user", "assistant"]

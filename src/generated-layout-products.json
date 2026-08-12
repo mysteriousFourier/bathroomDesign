@@ -171,9 +171,9 @@
         },
         {
           "graph_id": "6afa3d46b2d72b7e50c9",
-          "code": "XYJ2-2",
+          "code": "YSG2-2",
           "category": "浴室柜",
-          "spec": "XYJ2-1 实木 深砂灰",
+          "spec": "YSG2-1 实木 深砂灰",
           "price": 2500.0,
           "retrieval": {
             "method": "hybrid_rrf",
@@ -237,9 +237,9 @@
         },
         {
           "graph_id": "1dad86e0180bcf1dfd22",
-          "code": "XYJ2-1",
+          "code": "YSG2-1",
           "category": "浴室柜",
-          "spec": "XYJ2-1 实木 银灰色",
+          "spec": "YSG2-1 实木 银灰色",
           "price": 2500.0,
           "retrieval": {
             "method": "hybrid_rrf",
@@ -281,9 +281,9 @@
         },
         {
           "graph_id": "1264ae54e3400eaa09d6",
-          "code": "XYJ1-2",
+          "code": "YSG1-2",
           "category": "浴室柜",
-          "spec": "XYJ1-1 三聚氰胺板 深砂灰",
+          "spec": "YSG1-1 三聚氰胺板 深砂灰",
           "price": 1200.0,
           "retrieval": {
             "method": "hybrid_rrf",
@@ -303,9 +303,9 @@
         },
         {
           "graph_id": "af80672fd0027d732238",
-          "code": "XYJ1-1",
+          "code": "YSG1-1",
           "category": "浴室柜",
-          "spec": "XYJ1-1 三聚氰胺板 米白色",
+          "spec": "YSG1-1 三聚氰胺板 米白色",
           "price": 1200.0,
           "retrieval": {
             "method": "hybrid_rrf",
@@ -584,9 +584,9 @@
         },
         {
           "graph_id": "6afa3d46b2d72b7e50c9",
-          "code": "XYJ2-2",
+          "code": "YSG2-2",
           "category": "浴室柜",
-          "spec": "XYJ2-1 实木 深砂灰",
+          "spec": "YSG2-1 实木 深砂灰",
           "price": 2500.0,
           "retrieval": {
             "method": "hybrid_rrf",
@@ -672,9 +672,9 @@
         },
         {
           "graph_id": "1dad86e0180bcf1dfd22",
-          "code": "XYJ2-1",
+          "code": "YSG2-1",
           "category": "浴室柜",
-          "spec": "XYJ2-1 实木 银灰色",
+          "spec": "YSG2-1 实木 银灰色",
           "price": 2500.0,
           "retrieval": {
             "method": "hybrid_rrf",
@@ -694,9 +694,9 @@
         },
         {
           "graph_id": "1264ae54e3400eaa09d6",
-          "code": "XYJ1-2",
+          "code": "YSG1-2",
           "category": "浴室柜",
-          "spec": "XYJ1-1 三聚氰胺板 深砂灰",
+          "spec": "YSG1-1 三聚氰胺板 深砂灰",
           "price": 1200.0,
           "retrieval": {
             "method": "hybrid_rrf",
@@ -716,9 +716,9 @@
         },
         {
           "graph_id": "af80672fd0027d732238",
-          "code": "XYJ1-1",
+          "code": "YSG1-1",
           "category": "浴室柜",
-          "spec": "XYJ1-1 三聚氰胺板 米白色",
+          "spec": "YSG1-1 三聚氰胺板 米白色",
           "price": 1200.0,
           "retrieval": {
             "method": "hybrid_rrf",
@@ -955,9 +955,9 @@
         },
         {
           "graph_id": "d160efd598ee6410271b",
-          "code": "XYJ3-3",
+          "code": "YSG3-3",
           "category": "适老浴室柜",
-          "spec": "XYJ3-1 实木 适老 深砂灰",
+          "spec": "YSG3-1 实木 适老 深砂灰",
           "price": 2800.0,
           "retrieval": {
             "method": "hybrid_rrf",
@@ -977,9 +977,9 @@
         },
         {
           "graph_id": "f1f81a351457a7151dd9",
-          "code": "XYJ3-1",
+          "code": "YSG3-1",
           "category": "适老浴室柜",
-          "spec": "XYJ3-1 实木 适老 米白色",
+          "spec": "YSG3-1 实木 适老 米白色",
           "price": 2800.0,
           "retrieval": {
             "method": "hybrid_rrf",

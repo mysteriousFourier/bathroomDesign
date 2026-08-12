@@ -223,6 +223,20 @@ def requirement_state_from_model(arguments,messages):
     missing=[key for key,value in collected.items() if not value]
     return {"collected":collected,"missing_fields":missing,"complete":not missing,"style_match":style_match}
 
+def normalize_assistant_message(message):
+    """Remove model-authored Markdown while preserving readable plain text."""
+    text=str(message or "").replace("\r\n","\n").replace("\r","\n")
+    text=re.sub(r"```(?:[\w+-]+)?\s*([\s\S]*?)```",r"\1",text)
+    text=re.sub(r"`([^`]+)`",r"\1",text)
+    text=re.sub(r"!\[([^]]*)\]\([^)]+\)",r"\1",text)
+    text=re.sub(r"\[([^]]+)\]\([^)]+\)",r"\1",text)
+    text=re.sub(r"^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)","",text,flags=re.MULTILINE)
+    text=re.sub(r"(?<!\w)(\*\*|__)(.+?)\1",r"\2",text)
+    text=re.sub(r"(?<!\w)([*_~])(.+?)\1",r"\2",text)
+    text=re.sub(r"\n{3,}","\n\n",text)
+    return text.strip()
+
+
 def _safe_model_message(message,quotes,catalog_has_prices=False,missing_fields=None):
     monetary=re.compile(r"(?:¥|￥|\d+(?:\.\d+)?\s*(?:元|万元|元/㎡|元/平米)|单价|小计|总价|合计)")
     if monetary.search(message):
@@ -233,7 +247,7 @@ def _safe_model_message(message,quotes,catalog_has_prices=False,missing_fields=N
             detail=f"还需确认{missing}，" if missing else "需求确认后，"
             return f"产品清单已有可用价格；{detail}系统会按量房采购量生成结构化报价明细。"
         return "当前知识图谱没有可用报价，因此我不能提供单价、小计或总价。请先补充有效产品价格数据；我可以继续完成需求采集。"
-    return message
+    return normalize_assistant_message(message)
 
 async def design_chat(messages,graph,room=None):
     if not settings.openai_base_url or not settings.openai_api_key or not settings.chat_model:raise RuntimeError("请先配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 CHAT_MODEL")

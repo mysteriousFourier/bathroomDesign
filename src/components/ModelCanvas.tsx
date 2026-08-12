@@ -1,6 +1,6 @@
 import { ContactShadows, Edges, Grid, OrbitControls, PerspectiveCamera, useGLTF, useTexture } from '@react-three/drei'
 import { Canvas, type ThreeEvent, useFrame, useLoader, useThree } from '@react-three/fiber'
-import { Eye, EyeOff, Focus, Layers, Move3d, SquareDashed } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, EyeOff, Focus, Layers, Move3d, ReceiptText, SquareDashed } from 'lucide-react'
 import { Component, Suspense, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Box3, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, Group, RepeatWrapping, Shape, SRGBColorSpace, Vector3 } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
@@ -294,12 +294,16 @@ function CameraAwareRoom({ spec, selection, showCeiling, cutaway, onHiddenWallsC
   return <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} hiddenWallIndexes={hiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
 }
 
-export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selection: Selection; onSelect: (selection: Selection) => void; layoutInfo?: { title: string; summary: string; totalPrice: number; products: string } | null; surfaceMaterials?: SurfaceMaterials }>(function ModelCanvas({ spec, selection, onSelect, layoutInfo, surfaceMaterials }, ref) {
+type QuoteLine = { name: string; quantity: number; unit: string; price: number; spec: string }
+type LayoutInfo = { title: string; level: 'level1' | 'level2' | 'level3'; totalPrice: number; lines: QuoteLine[] }
+
+export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selection: Selection; onSelect: (selection: Selection) => void; layoutInfo?: LayoutInfo | null; surfaceMaterials?: SurfaceMaterials }>(function ModelCanvas({ spec, selection, onSelect, layoutInfo, surfaceMaterials }, ref) {
   const [showCeiling, setShowCeiling] = useState(false)
   const [cutaway, setCutaway] = useState(true)
   const [hiddenWallIndexes, setHiddenWallIndexes] = useState<number[]>([])
   const [cameraKey, setCameraKey] = useState(0)
   const [emphasizeJoints, setEmphasizeJoints] = useState(true)
+  const [quoteOpen, setQuoteOpen] = useState(true)
   const groupRef = useRef<Group>(null)
   const roomBoundary = finishedRoomBoundary(spec)
   const bounds = roomBounds(roomBoundary)
@@ -331,19 +335,17 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
           <button className="icon-button" onClick={() => setCameraKey((value) => value + 1)} title="重置视角"><Focus size={17} /></button>
         </div>
       </div>
-      <aside className="scene-fixture-summary" data-testid="scene-fixture-summary" aria-label="三维实体清单">
-        <strong>{layoutInfo?.title ?? '3D 实体布局'} · 全部落地</strong>
-        {layoutInfo && <><span>{layoutInfo.summary}</span><strong>方案合计 ¥{layoutInfo.totalPrice.toLocaleString('zh-CN')}</strong><span>{layoutInfo.products}</span></>}
-        <span>房间层高 {spec.height_mm ?? 2600} mm · 实体尺寸按 W×D×H</span>
-        {surfaceMaterials && <>
-          <strong>材质原尺寸排布（不缩放）· 板缝{emphasizeJoints ? '已加粗' : '标准显示'}</strong>
-          {surfaceMaterials.wall && <code>墙板 {surfaceMaterials.wall.widthMm}×{surfaceMaterials.wall.heightMm} mm · 各墙面左下起铺 · 门窗处连续裁切</code>}
-          {surfaceMaterials.floor && <code>地砖 {surfaceMaterials.floor.widthMm}×{surfaceMaterials.floor.depthMm} mm · {surfaceMaterials.floor.layoutDescription??'智能起铺 · 边缘裁切'}</code>}
-        </>}
-        <div>{spec.fixtures.filter((fixture) => fixture.kind !== 'floor_drain').map((fixture) => (
-          <code key={fixture.id} data-fixture-kind={fixture.kind}>{fixture.label} {fixture.width_mm}×{fixture.depth_mm}×{fixture.height_mm} mm</code>
-        ))}</div>
-      </aside>
+      {layoutInfo && <div className={quoteOpen ? 'quote-drawer-shell open' : 'quote-drawer-shell'}>
+        <button className="quote-drawer-toggle" type="button" onClick={() => setQuoteOpen((value) => !value)} aria-label={quoteOpen ? '收起报价' : '展开报价'} aria-expanded={quoteOpen}>{quoteOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}</button>
+        <aside className="scene-fixture-summary quote-drawer" data-testid="scene-fixture-summary" aria-label="方案报价">
+          <header><span><ReceiptText size={16} />方案报价</span><strong>{layoutInfo.title} - {layoutInfo.level}</strong></header>
+          <section className="quote-total"><span>方案合计</span><strong>总价 ¥{layoutInfo.totalPrice.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</strong></section>
+          <div className="quote-lines">{layoutInfo.lines.map((line, index) => <article className="quote-line" key={`${line.spec}-${index}`}>
+            <div><strong>{line.name} × {line.quantity.toLocaleString('zh-CN')} {line.unit}</strong><b>{line.price.toLocaleString('zh-CN', { minimumFractionDigits: 2 })} 元</b></div>
+            <code>{line.spec}</code>
+          </article>)}</div>
+        </aside>
+      </div>}
       <Canvas key={cameraKey} shadows dpr={[1, 2]} gl={{ antialias: true, preserveDrawingBuffer: true }} style={{ touchAction: 'none' }} onContextMenu={(event) => event.preventDefault()} onPointerMissed={() => onSelect({ type: 'room' })}>
         <color attach="background" args={['#ecece7']} />
         <PerspectiveCamera makeDefault position={[center.x / 1000 + extent * 1.65, extent * 2.05, center.z / 1000 + extent * 1.65]} fov={42} near={0.01} far={100} />

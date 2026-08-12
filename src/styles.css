@@ -419,16 +419,28 @@ p, h1, h2, figure { margin: 0; }
 .fixture-shape text { fill: #2d4d40; text-anchor: middle; font-size: 9px; pointer-events: none; }
 .fixture-shape .fixture-wall-binding { fill: #7a5100; font: 700 9px Consolas, monospace; paint-order: stroke; stroke: #fff; stroke-width: 3; }
 .model-canvas-wrap { min-width: 0; min-height: 0; padding-top: 0; }
-.model-canvas-wrap > div:not(.canvas-toolbar), .model-canvas-wrap canvas { width: 100% !important; height: 100% !important; }
+.model-canvas-wrap > div:not(.canvas-toolbar):not(.quote-drawer-shell), .model-canvas-wrap canvas { width: 100% !important; height: 100% !important; }
 .model-canvas-wrap canvas { display: block; touch-action: none; cursor: grab; }
 .model-canvas-wrap canvas:active { cursor: grabbing; }
 .model-toolbar { z-index: 8; }
-.scene-fixture-summary { position: absolute; z-index: 3; left: 18px; bottom: 18px; width: min(390px, calc(100% - 36px)); padding: 12px 14px; border: 1px solid rgba(82,96,91,.28); border-radius: 10px; background: rgba(250,250,247,.92); box-shadow: 0 8px 28px rgba(35,46,41,.16); backdrop-filter: blur(8px); pointer-events: none; }
-.scene-fixture-summary > strong, .scene-fixture-summary > span { display: block; }
-.scene-fixture-summary > strong { color: #294b3d; font-size: 13px; }
-.scene-fixture-summary > span { margin-top: 3px; color: #68736d; font-size: 11px; }
-.scene-fixture-summary > div { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
-.scene-fixture-summary code { padding: 3px 6px; border-radius: 5px; background: #edf1ed; color: #40534a; font-size: 10px; }
+.quote-drawer-shell { position: absolute; z-index: 9; top: 57px; right: 0; bottom: 0; width: min(390px, calc(100% - 44px)); transform: translateX(100%); transition: transform .22s ease; pointer-events: none; }
+.quote-drawer-shell.open { transform: translateX(0); }
+.quote-drawer-toggle { position: absolute; top: 18px; left: -36px; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-right: 0; border-radius: 5px 0 0 5px; background: rgb(250 249 246 / 96%); color: var(--green); box-shadow: -4px 4px 14px rgb(35 46 41 / 12%); cursor: pointer; pointer-events: auto; }
+.quote-drawer-toggle:hover { background: var(--green-soft); }
+.scene-fixture-summary.quote-drawer { width: 100%; height: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--line-strong); background: rgb(250 249 246 / 97%); box-shadow: -10px 0 30px rgb(35 46 41 / 15%); backdrop-filter: blur(10px); pointer-events: auto; }
+.quote-drawer header { padding: 18px 20px 15px; border-bottom: 1px solid var(--line); }
+.quote-drawer header span { display: flex; align-items: center; gap: 7px; color: var(--green); font-size: 12px; font-weight: 700; }
+.quote-drawer header strong { display: block; margin-top: 8px; color: var(--ink); font-size: 17px; }
+.quote-total { padding: 18px 20px; border-bottom: 1px solid var(--line); background: #eef3ef; }
+.quote-total span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.quote-total strong { color: #244b39; font-size: 22px; }
+.quote-lines { min-height: 0; overflow-y: auto; padding: 4px 20px 24px; }
+.quote-line { padding: 15px 0 14px; border-bottom: 1px solid var(--line); }
+.quote-line > div { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.quote-line strong { min-width: 0; color: var(--ink); font-size: 14px; }
+.quote-line b { flex: none; color: #294b3d; font-size: 14px; }
+.quote-line code { display: block; margin-top: 7px; color: var(--muted); font: 11px/1.55 Consolas, monospace; white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .quote-drawer-shell { width: min(340px, calc(100% - 42px)); } .quote-drawer header { padding: 14px 16px 12px; } .quote-total { padding: 14px 16px; } .quote-lines { padding: 3px 16px 18px; } }
 .model-library { width: 100%; height: 100%; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); gap: 10px; padding: 68px 14px 14px; overflow: hidden; }
 .library-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--line-strong); background: var(--surface); box-shadow: var(--shadow-1); }
 .library-toolbar div { min-width: 0; display: grid; gap: 4px; }

@@ -22,8 +22,8 @@ export interface LayoutSolution {
   budget_label: string
   layout_label: string
   layout_summary: string
-  product_lines: Array<{ code: string; category: string; price: number }>
-  material_lines: Array<{ code: string; category: string; price: number; quantity: number; subtotal: number; model_asset_id?: string }>
+  product_lines: Array<{ code: string; category: string; spec: string; price: number; quantity: number; unit: string }>
+  material_lines: Array<{ code: string; category: string; spec: string; price: number; quantity: number; unit: string; subtotal: number; model_asset_id?: string }>
   surface_materials: { wall?: BuiltInModelRecord; floor?: BuiltInModelRecord }
   equipment_price: number
   material_price: number
@@ -255,7 +255,7 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
   const productLines = fixtures.filter((f) => f.kind !== 'floor_drain').map((f) => {
     const code = f.label.split(' ')[0]
     const product = (graphOutput.scenarios[demand].products as GraphProduct[]).find((item) => item.code === code)
-    return { code, category: product?.category ?? f.label.split(' ')[1] ?? '设备', price: product?.price ?? 0 }
+    return { code, category: product?.category ?? f.label.split(' ')[1] ?? '设备', spec: product?.spec ?? '规格待确认', price: product?.price ?? 0, quantity: 1, unit: '件' }
   })
   const quantities = surfaceQuantities(spec)
   const wallProduct = materialProduct('墙板', quality, style)
@@ -270,7 +270,7 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
   const materialLines = materialProducts.map(({ product, quantity }) => {
     const asset = surfaceAssetForProduct(product.材料编号)
     const price = Number(product.单价)
-    return { code: product.材料编号, category: product.材料名称, price, quantity, subtotal: Math.round(price * quantity * 100) / 100, model_asset_id: asset?.id }
+    return { code: product.材料编号, category: product.材料名称, spec: product.规格型号, price, quantity, unit: product.数量单位, subtotal: Math.round(price * quantity * 100) / 100, model_asset_id: asset?.id }
   })
   const equipmentPrice = productLines.reduce((sum, line) => sum + line.price, 0)
   const materialPrice = materialLines.reduce((sum, line) => sum + line.subtotal, 0)

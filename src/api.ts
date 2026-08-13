@@ -1,4 +1,4 @@
-import type { AnalysisResponse, Asset, CaptureAssessment, ChatMessage, ChatSession, ChatSessionSummary, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, Project, RoomSpec, VoiceAudioResponse, VoiceTurnResponse } from './types'
+import type { AnalysisResponse, Asset, AutoLayoutResponse, CaptureAssessment, ChatMessage, ChatSession, ChatSessionSummary, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, Project, RoomSpec, VoiceAudioResponse, VoiceTurnResponse } from './types'
 import type { ModelImportFile } from './modelImport'
 
 const defaultTimeoutMs = 90_000
@@ -83,6 +83,7 @@ export const studioApi = {
     return request<MeasurementImportResponse>(`/api/projects/${id}/measurement/import`, { method: 'POST', body: form, timeoutMs: 180_000 })
   },
   designChat: (messages: ChatMessage[], room: RoomSpec | null) => request<DesignChatResponse>('/api/design-chat', { method:'POST', headers:jsonHeaders, body:JSON.stringify({messages,room}), timeoutMs:150_000 }),
+  autoLayout: (room: RoomSpec, requirements: Record<string, string | string[] | null>, previousLayout?: AutoLayoutResponse['layout_levels'], geometryFeedback?: Record<string, unknown>) => request<AutoLayoutResponse>('/api/auto-layout', { method:'POST', headers:jsonHeaders, body:JSON.stringify({ room, requirements, previous_layout: previousLayout, geometry_feedback: geometryFeedback }), timeoutMs:150_000 }),
   chatSessions: (projectId: string) => request<ChatSessionSummary[]>(`/api/projects/${projectId}/chat-sessions`),
   createChatSession: (projectId: string) => request<ChatSession>(`/api/projects/${projectId}/chat-sessions`, { method:'POST', headers:jsonHeaders, body:JSON.stringify({ title:'新对话' }) }),
   chatSession: (projectId: string, sessionId: string) => request<ChatSession>(`/api/projects/${projectId}/chat-sessions/${sessionId}`),

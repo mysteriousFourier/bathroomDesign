@@ -11,6 +11,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 APP_DATA_DIR=/data
 COPY pyproject.toml ./
 COPY backend ./backend
+COPY public ./public
 RUN pip install --no-cache-dir .
 COPY --from=frontend /app/dist ./dist
 VOLUME ["/data"]

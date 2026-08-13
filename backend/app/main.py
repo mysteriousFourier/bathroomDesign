@@ -21,12 +21,14 @@ from .capture import assess_capture
 from .config import settings
 from .database import db
 from .design_chat import design_chat
+from .auto_layout import generate_model_layout
 from .knowledge_graph import ProductKnowledgeGraph
 from .measurement import measurement_contract_export, measurement_from_spec, validate_measurement
 from .measurement_import import MeasurementImportError, import_measurement_file, inspect_measurement_file
 from .model_assets import delete_model_asset, list_model_assets, resolve_model_asset_file, store_model_asset
 from .models import (
     AnalysisResponse,
+    AutoLayoutRequest,
     AssetResponse,
     CaptureAssessment,
     ChatSessionCreate,
@@ -128,6 +130,26 @@ async def design_chat_endpoint(payload: DesignChatRequest) -> dict:
     try:return await design_chat([x.model_dump() for x in payload.messages],product_graph,payload.room.model_dump() if payload.room else None)
     except RuntimeError as error:raise HTTPException(503,str(error)) from error
     except (httpx.HTTPError,KeyError,IndexError) as error:raise HTTPException(502,"对话模型暂时不可用") from error
+
+
+@app.post("/api/auto-layout")
+async def auto_layout_endpoint(payload: AutoLayoutRequest) -> dict:
+    try:
+        return await generate_model_layout(
+            payload.room.model_dump(),
+            product_graph,
+            payload.requirements,
+            payload.previous_layout,
+            payload.geometry_feedback,
+        )
+    except RuntimeError as error:
+        raise HTTPException(503, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(502, f"大模型布局无效：{error}") from error
+    except httpx.HTTPError as error:
+        raise HTTPException(502, f"大模型连接失败（{type(error).__name__}）：{str(error)[:300]}") from error
+    except (KeyError, IndexError) as error:
+        raise HTTPException(502, "大模型响应缺少必要字段") from error
 
 
 @app.get("/api/projects/{project_id}/chat-sessions", response_model=list[ChatSessionSummary])
@@ -526,6 +548,7 @@ def update_measurement(project_id: str, measurement: MeasurementModel) -> Projec
 
 dist_dir = project_root / "dist"
 template_file = project_root / "public" / "measurement-template.html"
+model_library_dir = project_root / "public" / "model-library"
 
 
 @app.get("/measurement-template.html", include_in_schema=False)
@@ -533,6 +556,10 @@ def measurement_template() -> FileResponse:
     if not template_file.is_file():
         raise HTTPException(status_code=404, detail="量房模板文件不存在")
     return FileResponse(template_file, media_type="text/html; charset=utf-8")
+
+
+if model_library_dir.exists():
+    app.mount("/model-library", StaticFiles(directory=model_library_dir), name="model-library")
 
 
 if dist_dir.exists():

@@ -11,12 +11,12 @@ import { MeasurementImportDialog } from './components/MeasurementImportDialog'
 import { PlanReview } from './components/PlanReview'
 import { PhotoAnnotation } from './components/PhotoAnnotation'
 import { ProjectRail } from './components/ProjectRail'
-import { SolutionList } from './components/SolutionList'
+import { selectAutomaticLayoutSolution, SolutionList } from './components/SolutionList'
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { fixtureModelAssetFromLibrary, type RoomModelAsset } from './modelAssets'
-import { applyLayoutSolution, type LayoutSolution } from './layoutEngine'
+import { applyLayoutSolution, generateLayoutSolutions, type LayoutSolution } from './layoutEngine'
 import { surfaceMaterialsForDesignQuote } from './modelLibrary'
 import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, updateOpeningFromLine, wallLength, wetZoneBoundaryValid } from './spec'
 import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
@@ -93,6 +93,7 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(false)
   const [measurementImportOpen, setMeasurementImportOpen] = useState(false)
   const [activeLayout, setActiveLayout] = useState<LayoutSolution | null>(null)
+  const [layoutSolutions, setLayoutSolutions] = useState<LayoutSolution[]>([])
   const [designQuote, setDesignQuote] = useState<DesignChatResponse | null>(null)
   const modelRef = useRef<ModelCanvasHandle>(null)
   const projectRef = useRef<Project | null>(null)
@@ -127,7 +128,7 @@ export default function App() {
     setMode(nextSpec?.plan_annotation && !nextSpec.plan_annotation.confirmed ? 'annotation' : 'review')
     setHistory([]); setFuture([]); setDirty(false); setSelection({ type: 'room' })
     setFocusEvidenceId(null); setActiveEvidenceId(null)
-    setActiveLayout(null); setDesignQuote(null)
+    setActiveLayout(null); setLayoutSolutions([]); setDesignQuote(null)
   }, [])
 
   useEffect(() => {
@@ -181,7 +182,7 @@ export default function App() {
       setProject(next); setSpec(nextSpec); setHistory([]); setFuture([]); setDirty(false); setMode(nextSpec?.plan_annotation && !nextSpec.plan_annotation.confirmed ? 'annotation' : 'review'); setSelection({ type: 'room' })
       setFocusEvidenceId(null); setActiveEvidenceId(null)
       setPlanRotation(null)
-      setActiveLayout(null); setDesignQuote(null)
+      setActiveLayout(null); setLayoutSolutions([]); setDesignQuote(null)
     } catch (error) { showMessage('error', (error as Error).message) }
     finally { setBusy(null) }
   }
@@ -490,6 +491,43 @@ export default function App() {
     showMessage('success', `已在三维房间显示“${solution.title}”，${solution.fixtures.length} 个实体按量房坐标和真实高度落地`)
   }
 
+  const runModelAutoLayout = async () => {
+    if (!spec) return
+    const requirements = designQuote?.requirements.collected ?? {
+      使用人群: ['成人'],
+      功能需求: ['淋浴', '坐便', '洗漱'],
+      喜好风格: ['素雅'],
+      预期价格区间: '常规卫浴',
+    }
+    let response = await studioApi.autoLayout(spec, requirements)
+    let solutions = generateLayoutSolutions(spec, {
+      style: designQuote?.style_match.catalog_style,
+      levels: response.layout_levels,
+    })
+    const modelCalls = [response.model_call]
+    let invalid = solutions.filter((solution) => solution.checks.some((check) => !check.passed && check.severity === 'error'))
+    if (invalid.length) {
+      const feedback = {
+        invalid_levels: invalid.map((solution) => ({
+          id: solution.id,
+          checks: solution.checks.filter((check) => !check.passed).map((check) => ({ code: check.code, severity: check.severity, message: check.message })),
+          anchors: solution.anchors.map((anchor) => ({ label: anchor.label, x_mm: anchor.x_mm, z_mm: anchor.z_mm, instruction: anchor.instruction })),
+          solver_trace: solution.solver_trace,
+        })),
+      }
+      response = await studioApi.autoLayout(spec, requirements, response.layout_levels, feedback)
+      modelCalls.push(response.model_call)
+      solutions = generateLayoutSolutions(spec, { style: designQuote?.style_match.catalog_style, levels: response.layout_levels })
+      invalid = solutions.filter((solution) => solution.checks.some((check) => !check.passed && check.severity === 'error'))
+    }
+    solutions.forEach((solution) => { solution.model_call = response.model_call; solution.model_calls = modelCalls })
+    if (invalid.length || solutions.length !== 3) throw new Error('自动碰撞调整未完成，请重新生成三个方案')
+    setLayoutSolutions(solutions)
+    const selected = selectAutomaticLayoutSolution(solutions)
+    if (!selected) throw new Error('自动碰撞调整未完成，请重新生成三个方案')
+    applyAutoLayout(selected)
+  }
+
   useEffect(() => {
     if (!pendingExport || mode !== 'model') return
     const timer = window.setTimeout(() => {
@@ -527,7 +565,7 @@ export default function App() {
               <button className={mode === 'library' ? 'active' : ''} onClick={() => setMode('library')}><Box size={16} />模型库</button>
               <button className={mode === 'model' ? 'active' : ''} onClick={() => canPreview && setMode('model')} disabled={!canPreview}><BoxSelect size={16} />三维预览</button>
             </div>
-            {mode === 'review' && <SolutionList spec={spec} active={false} onOpenModel={() => canPreview && setMode('model')} onApplyLayout={applyAutoLayout} preference={{ style: designQuote?.style_match.catalog_style, levels: designQuote?.layout_levels }} blockers={designQuote?.layout_blockers} requireDecision={!!designQuote?.requirements.complete} />}
+            {mode === 'review' && <SolutionList spec={spec} solutions={layoutSolutions} selectedSolution={activeLayout} onSelectSolution={applyAutoLayout} onOpenModel={() => canPreview && setMode('model')} onStartAutoLayout={runModelAutoLayout} />}
             {mode === 'annotation'
               ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
               : mode === 'library'

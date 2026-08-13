@@ -1,25 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { applyLayoutSolution, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
+import { applyLayoutSolution, blocksUseClearance, frontClearanceEnvelope, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
 import { manualRoom } from './spec'
 import { modelDimensions } from './modelDimensions'
 import graphOutput from './generated-layout-products.json'
 import type { LayoutLevelDecision } from './types'
+import { selectAutomaticLayoutSolution } from './components/SolutionList'
 
 describe('deterministic requirement layout engine', () => {
   const room = manualRoom(3200, 2600, 2700)
   room.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 1300, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'measured', confidence: 1 })
   const solutions = generateLayoutSolutions(room)
 
-  it('generates three demands at three price tiers for the same measured room', () => {
-    expect(solutions).toHaveLength(9)
-    expect(new Set(solutions.map((x) => x.demand)).size).toBe(3)
-    expect(new Set(solutions.map((x) => x.budget)).size).toBe(3)
-    expect(solutions.every((x) => x.total_price > 0 && x.product_lines.length > 0)).toBe(true)
-    for (const demand of new Set(solutions.map((x) => x.demand))) {
-      const variants = solutions.filter((x) => x.demand === demand)
-      expect(new Set(variants.map((x) => `${x.wet_zone.x_mm},${x.wet_zone.z_mm}`)).size).toBe(3)
-      expect(new Set(variants.map((x) => x.fixtures.map((f) => `${f.kind}:${f.x_mm},${f.z_mm},${f.rotation_deg}`).join('|'))).size).toBe(3)
-    }
+  it('generates one measured-room constraint solution instead of fixed 3 by 3 templates', () => {
+    expect(solutions).toHaveLength(1)
+    expect(solutions[0]).toMatchObject({ id:'automatic-layout', title:'当前约束求解结果', layout_label:'量房约束自动布局' })
+    expect(solutions[0].total_price).toBeGreaterThan(0)
+    expect(solutions[0].product_lines.length).toBeGreaterThan(0)
   })
 
   it('uses exact model-selected graph products for coordinates, quote lines, and 3D fixtures', () => {
@@ -65,6 +61,24 @@ describe('deterministic requirement layout engine', () => {
     expect(() => applyLayoutSolution(room, constrained)).toThrow(/G02-CLEARANCE/)
   })
 
+  it('uses the solved fixture rotation for front clearance when the model wall conflicts', () => {
+    const toilet = { id:'toilet', kind:'toilet', label:'马桶', x_mm:3596, z_mm:1455, width_mm:380, depth_mm:700, height_mm:760, rotation_deg:180, source:'derived', confidence:1 } as const
+    const clearance = frontClearanceEnvelope(toilet, { fixture_role:'toilet', wall:'east', zone:'service', near:'马桶排水', min_clearance_mm:400 })!
+    expect(clearance.x_mm).toBe(toilet.x_mm)
+    expect(clearance.z_mm).toBeLessThan(toilet.z_mm)
+    expect(clearance.width_mm).toBe(toilet.width_mm)
+    expect(clearance.depth_mm).toBe(400)
+  })
+
+  it('allows use clearance over an open wet floor zone but not over a solid fixture', () => {
+    const toilet = { id:'toilet', kind:'toilet', label:'马桶', x_mm:3596, z_mm:1455, width_mm:380, depth_mm:680, height_mm:760, rotation_deg:180, source:'derived', confidence:1 } as const
+    const clearance = frontClearanceEnvelope(toilet, { fixture_role:'toilet', wall:'east', zone:'dry', min_clearance_mm:800 })!
+    const wetZone = { id:'wet', kind:'shower', label:'方案淋浴湿区', x_mm:3600, z_mm:702, width_mm:900, depth_mm:900, height_mm:2000, rotation_deg:0, source:'derived', confidence:1 } as const
+    const vanity = { ...wetZone, id:'vanity', kind:'vanity', label:'浴室柜' } as const
+    expect(blocksUseClearance(toilet, clearance, wetZone)).toBe(false)
+    expect(blocksUseClearance(toilet, clearance, vanity)).toBe(true)
+  })
+
   it('quotes equipment and fixed-board surface materials for every tier', () => {
     for (const solution of solutions) {
       expect(solution.material_lines.map((line) => line.category).sort()).toEqual(['吊顶', '地砖', '墙板'])
@@ -81,8 +95,8 @@ describe('deterministic requirement layout engine', () => {
     expect(optimizeFloorLayout(manualRoom(4105, 2160, 2700), 3000, 1200).rotation_deg).toBe(90)
     expect(optimizeFloorLayout(manualRoom(2100, 3600, 2700), 3000, 1200).rotation_deg).toBe(0)
     expect(optimizeFloorLayout(manualRoom(4105, 2160, 2700), 1200, 3000).rotation_deg).toBe(0)
-    expect(solutions.every((solution) => solution.floor_layout.rotation_deg === 90)).toBe(true)
-    expect(solutions.every((solution) => solution.floor_layout.description.includes('长边沿房型短边'))).toBe(true)
+    expect(solutions[0].floor_layout.rotation_deg).toBe(90)
+    expect(solutions[0].floor_layout.description).toContain('长边沿房型短边')
   })
 
   it('emits exact semantic anchor coordinates and geometry checks', () => {
@@ -104,30 +118,58 @@ describe('deterministic requirement layout engine', () => {
     expect(() => applyLayoutSolution(room, invalid)).toThrow(/G01/)
   })
 
+  it('selects the highest-scoring valid solution for one-click automatic layout', () => {
+    const candidates = [structuredClone(solutions[0]), structuredClone(solutions[0]), structuredClone(solutions[0])]
+    candidates[0].id = 'candidate-1'
+    candidates[1].id = 'candidate-2'
+    candidates[2].id = 'candidate-3'
+    candidates[0].score = 70
+    candidates[1].score = 95
+    candidates[2].score = 99
+    candidates[2].checks.push({ code: 'TEST-BLOCK', passed: false, severity: 'error', source: 'test', message: 'blocked' })
+    expect(selectAutomaticLayoutSolution(candidates)?.id).toBe(candidates[1].id)
+  })
+
   it('applies a candidate without changing the measured boundary or openings', () => {
+    room.fixtures.push({ id:'measured-drain', kind:'drain', label:'马桶排水', point_usage:'toilet', x_mm:500, z_mm:300, width_mm:110, depth_mm:110, height_mm:10, rotation_deg:0, source:'measured', confidence:1 })
     const applied = applyLayoutSolution(room, solutions[0])
     expect(applied.boundary).toEqual(room.boundary)
     expect(applied.openings).toEqual(room.openings)
-    expect(applied.fixtures).toEqual(solutions[0].fixtures)
+    expect(applied.fixtures.find((fixture) => fixture.id === 'measured-drain')).toEqual(room.fixtures.find((fixture) => fixture.id === 'measured-drain'))
+    expect(applied.fixtures.filter((fixture) => fixture.layout_generated)).toHaveLength(solutions[0].fixtures.length)
     expect(applied.dry_wet_zones?.[0].boundary).toHaveLength(4)
+    expect(applyLayoutSolution(applied, solutions[0]).dry_wet_zones).toHaveLength(1)
   })
 
-  it('keeps wet area out of furniture and never adds an enclosure to accessible layouts', () => {
-    const elderly = solutions.filter((solution) => solution.demand === 'elderly_safe')
-    expect(elderly).toHaveLength(3)
-    expect(elderly.every((solution) => solution.fixtures.every((fixture) => fixture.kind !== 'shower' && !fixture.label.includes('淋浴区') && !fixture.label.includes('淋浴隔断')))).toBe(true)
-    expect(elderly.every((solution) => solution.fixtures.some((fixture) => fixture.label.startsWith('LYY-1')))).toBe(true)
-    expect(elderly.every((solution) => applyLayoutSolution(room, solution).dry_wet_zones?.[0].label.includes('非家具'))).toBe(true)
+  it('anchors the generated toilet to the measured toilet drain and preserves every measured point', () => {
+    const anchoredRoom = manualRoom(3200, 2600, 2700)
+    anchoredRoom.fixtures.push(
+      { id:'toilet-drain', kind:'drain', label:'马桶排水', point_usage:'toilet', x_mm:500, z_mm:305, width_mm:110, depth_mm:110, height_mm:10, rotation_deg:0, source:'measured', confidence:1 },
+      { id:'toilet-for-toilet-drain', kind:'toilet', label:'马桶占位', x_mm:500, z_mm:305, width_mm:380, depth_mm:700, height_mm:760, rotation_deg:0, source:'derived', confidence:.9, evidence_ids:['toilet-drain:toilet-drain'] },
+      { id:'shower-drain', kind:'floor_drain', label:'淋浴地漏', point_usage:'shower', x_mm:2700, z_mm:2100, width_mm:120, depth_mm:120, height_mm:10, rotation_deg:0, source:'measured', confidence:1 },
+      { id:'basin-water', kind:'water', label:'台盆给水', point_usage:'basin', x_mm:150, z_mm:1200, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'measured', confidence:1 },
+    )
+    const solution = generateLayoutSolutions(anchoredRoom).find((candidate) => !candidate.checks.some((check) => check.severity === 'error' && !check.passed))!
+    const applied = applyLayoutSolution(anchoredRoom, solution)
+    expect(anchoredRoom.fixtures.filter((point) => point.kind !== 'toilet').every((point) => applied.fixtures.some((fixture) => fixture.id === point.id))).toBe(true)
+    expect(applied.fixtures.some((fixture) => fixture.id === 'toilet-for-toilet-drain')).toBe(false)
+    const toilet = applied.fixtures.find((fixture) => fixture.layout_generated && fixture.kind === 'toilet')!
+    expect(Math.hypot(toilet.x_mm - 500, toilet.z_mm - 305)).toBeLessThanOrEqual(600)
+    expect(solution.checks.find((check) => check.code === 'PLUMBING-TOILET')?.passed).toBe(true)
+    expect(applied.fixtures.filter((fixture) => fixture.kind === 'floor_drain')).toHaveLength(1)
   })
 
   it('uses supplied model bounds for categories that have parsed geometry', () => {
-    const laundry = solutions.find((solution) => solution.demand === 'laundry')!
+    const laundryRoom = structuredClone(room)
+    laundryRoom.fixtures.push({ id:'washer-water', kind:'water', label:'洗衣机给水', point_usage:'general', x_mm:200, z_mm:1800, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'measured', confidence:1 })
+    const laundry = generateLayoutSolutions(laundryRoom)[0]
     const washer = laundry.fixtures.find((fixture) => fixture.label.includes('洗衣机'))!
-    expect([washer.width_mm, washer.depth_mm, washer.height_mm]).toEqual([608, 653, 860])
+    expect([washer.width_mm, washer.depth_mm].sort((a, b) => a - b)).toEqual([608, 653])
+    expect(washer.height_mm).toBe(860)
     expect(washer.label).toContain(modelDimensions['洗衣机'].file_name)
 
     const vanity = laundry.fixtures.find((fixture) => fixture.kind === 'vanity')!
-    expect([vanity.width_mm, vanity.depth_mm, vanity.height_mm]).toEqual([800, 500, 560])
+    expect([vanity.width_mm, vanity.depth_mm, vanity.height_mm]).toEqual([800, 200, 800])
     expect(laundry.fixtures.find((fixture) => fixture.label.includes('热水器'))?.elevation_mm).toBeGreaterThan(1200)
     expect(laundry.fixtures.find((fixture) => fixture.label.includes('花洒'))?.elevation_mm).toBe(700)
     expect(laundry.checks.find((item) => item.code === 'MODEL-DIMENSIONS')?.message).toContain('马桶')

@@ -115,6 +115,7 @@ class FixtureSpec(BaseModel):
     bound_wall_index: int | None = Field(default=None, ge=0)
     point_usage: Literal["general", "toilet", "shower", "basin"] | None = None
     model_asset: ModelAsset | None = None
+    layout_generated: bool = False
 
 
 class WallProfile(BaseModel):
@@ -802,6 +803,13 @@ class ChatSessionCreate(BaseModel):
 class ChatTurnCreate(BaseModel):
     content: str = Field(min_length=1, max_length=8000)
     room: RoomSpec | None = None
+
+
+class AutoLayoutRequest(BaseModel):
+    room: RoomSpec
+    requirements: dict[str, object] = Field(default_factory=dict)
+    previous_layout: dict[str, object] | list[dict[str, object]] | None = None
+    geometry_feedback: dict[str, object] | None = None
 
 
 class VoiceTurnResponse(BaseModel):

@@ -26,11 +26,14 @@ async def test_frontend_and_template_routes_do_not_depend_on_working_directory(t
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         homepage = await client.get("/")
         template = await client.get("/measurement-template.html")
+        model_manifest = await client.get("/model-library/manifest.json")
 
     assert homepage.status_code == 200
     assert '<div id="root"></div>' in homepage.text
     assert template.status_code == 200
     assert "单房间量房记录" in template.text
+    assert model_manifest.status_code == 200
+    assert model_manifest.json()["assets"]
     assert PROJECT_ROOT == Path(__file__).resolve().parents[2]
     assert settings.app_data_dir.is_absolute()
 

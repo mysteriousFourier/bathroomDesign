@@ -8,8 +8,9 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$AppUrl = "http://127.0.0.1:8000"
-$HealthUrl = "$AppUrl/api/health"
+$AppBaseUrl = "http://127.0.0.1:8000"
+$AppUrl = $AppBaseUrl
+$HealthUrl = "$AppBaseUrl/api/health"
 $BackendProcess = $null
 
 function Write-Step {
@@ -90,6 +91,15 @@ function Get-EnvironmentConfigVersion {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.Substring(0, 16).ToLowerInvariant()
 }
 
+function Set-AppUrlForCurrentFrontendBuild {
+    $IndexPath = Join-Path $ProjectRoot "dist\index.html"
+    if (-not (Test-Path -LiteralPath $IndexPath)) {
+        throw "Frontend build completed but $IndexPath was not created."
+    }
+    $BuildVersion = (Get-FileHash -LiteralPath $IndexPath -Algorithm SHA256).Hash.Substring(0, 16).ToLowerInvariant()
+    $script:AppUrl = "$AppBaseUrl/?v=$BuildVersion"
+}
+
 function Get-ListeningProcessId {
     param([int]$Port)
     $Netstat = Join-Path $env:SystemRoot "System32\netstat.exe"
@@ -111,7 +121,7 @@ function Test-KnownAppHealth {
     return @($LegacyFields | Where-Object { $_ -notin $PropertyNames }).Count -eq 0
 }
 
-function Stop-OutdatedAppService {
+function Stop-RunningAppService {
     param([object]$Health)
     if (-not (Test-KnownAppHealth -Health $Health)) {
         throw "Port 8000 is occupied by a service that does not identify as this project. Stop it manually and run this launcher again."
@@ -120,16 +130,15 @@ function Stop-OutdatedAppService {
     if (-not $ExistingProcessId) {
         throw "The old application answered health checks, but its process could not be identified. Stop the service on port 8000 and run this launcher again."
     }
-    Write-Host "Stopping outdated backend process tree $ExistingProcessId..."
-    $TaskKill = Join-Path $env:SystemRoot "System32\taskkill.exe"
-    & $TaskKill /PID $ExistingProcessId /T /F *> $null
+    Write-Host "Stopping running backend process $ExistingProcessId..."
+    Stop-Process -Id $ExistingProcessId -Force -ErrorAction Stop
     for ($Attempt = 1; $Attempt -le 20; $Attempt++) {
         if (-not (Test-PortOpen -Port 8000)) {
             return
         }
         Start-Sleep -Milliseconds 250
     }
-    throw "The outdated backend did not release port 8000. Stop process $ExistingProcessId manually and run this launcher again."
+    throw "The running backend did not release port 8000. Stop process $ExistingProcessId manually and run this launcher again."
 }
 
 function Normalize-ProcessPathVariable {
@@ -185,11 +194,11 @@ function Stop-BackendTree {
         return
     }
     Write-Host "Stopping backend process tree $($script:BackendProcess.Id)..."
-    $TaskKill = Join-Path $env:SystemRoot "System32\taskkill.exe"
-    & $TaskKill /PID $script:BackendProcess.Id /T /F *> $null
-    if ($LASTEXITCODE -ne 0 -and -not $script:BackendProcess.HasExited) {
-        Stop-Process -Id $script:BackendProcess.Id -Force -ErrorAction SilentlyContinue
+    $ListeningProcessId = Get-ListeningProcessId -Port 8000
+    if ($ListeningProcessId) {
+        Stop-Process -Id $ListeningProcessId -Force -ErrorAction SilentlyContinue
     }
+    Stop-Process -Id $script:BackendProcess.Id -Force -ErrorAction SilentlyContinue
     $script:BackendProcess.WaitForExit(5000) | Out-Null
 }
 
@@ -270,28 +279,10 @@ function Invoke-Startup {
         return
     }
 
-    $ExpectedSourceVersion = Get-BackendSourceVersion
-    $ExpectedConfigVersion = Get-EnvironmentConfigVersion -Path $EnvPath
     $ExistingHealth = Get-AppHealth
     if ($ExistingHealth -and $ExistingHealth.ok) {
-        $SourceMatches = [long]$ExistingHealth.source_version -eq $ExpectedSourceVersion
-        $ConfigMatches = [string]$ExistingHealth.config_version -eq $ExpectedConfigVersion
-        if ($SourceMatches -and $ConfigMatches) {
-            Write-Step "The current system version is already running"
-            Write-Host "Open $AppUrl"
-            Open-AppBrowser
-            if (-not $ExitAfterReady) {
-                Write-Host "This launcher does not own the existing service on port 8000."
-                [void](Read-Host "Press Enter to close this terminal")
-            }
-            return
-        }
-        Write-Step "Restarting an outdated backend"
-        Write-Host "Running source version: $($ExistingHealth.source_version); current source version: $ExpectedSourceVersion"
-        if (-not $ConfigMatches) {
-            Write-Host "The .env configuration changed; restarting to apply the configured models."
-        }
-        Stop-OutdatedAppService -Health $ExistingHealth
+        Write-Step "Restarting the running system"
+        Stop-RunningAppService -Health $ExistingHealth
     }
     if (Test-PortOpen -Port 8000) {
         throw "Port 8000 is already in use by another program. Stop it and run this launcher again."
@@ -299,6 +290,10 @@ function Invoke-Startup {
 
     Write-Step "Building the frontend"
     Invoke-Checked -FilePath $Npm -Arguments @("run", "build") -Description "Frontend build"
+    Set-AppUrlForCurrentFrontendBuild
+
+    $ExpectedSourceVersion = Get-BackendSourceVersion
+    $ExpectedConfigVersion = Get-EnvironmentConfigVersion -Path $EnvPath
 
     Write-Step "Starting the system"
     $LogDir = Join-Path $ProjectRoot ".tmp\startup"

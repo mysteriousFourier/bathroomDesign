@@ -23,6 +23,61 @@ import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, Fixtu
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
 
+const MAX_AUTO_LAYOUT_ATTEMPTS = 4
+
+const layoutGeometrySignature = (solution: LayoutSolution) => {
+  const role = (label: string, kind: string) => {
+    if (/浴室柜/.test(label)) return 'vanity'
+    if (/洗衣机/.test(label)) return 'washer'
+    if (/热水器/.test(label)) return 'heater'
+    if (/花洒/.test(label) && !/扶手/.test(label)) return 'shower_head'
+    if (/淋浴椅|适老椅/.test(label)) return 'shower_seat'
+    if (/扶手/.test(label)) return 'grab_bar'
+    return kind
+  }
+  const fixturePositions = solution.fixtures
+    .filter((fixture) => !['water', 'electric', 'floor_drain', 'drain'].includes(fixture.kind))
+    .map((fixture) => `${role(fixture.label, fixture.kind)}:${fixture.x_mm}:${fixture.z_mm}:${fixture.rotation_deg}`)
+  return [`wet_zone:${solution.wet_zone.x_mm}:${solution.wet_zone.z_mm}`, ...fixturePositions].sort().join('|')
+}
+
+const duplicateLayoutGroups = (solutions: LayoutSolution[]) => {
+  const groups = new Map<string, string[]>()
+  solutions.forEach((solution) => {
+    const signature = layoutGeometrySignature(solution)
+    groups.set(signature, [...(groups.get(signature) ?? []), solution.id])
+  })
+  return [...groups.values()].filter((ids) => ids.length > 1)
+}
+
+const invalidLayoutSolutions = (solutions: LayoutSolution[]) => solutions.filter((solution) =>
+  solution.checks.some((check) => !check.passed && check.severity === 'error'),
+)
+
+const layoutBatchReady = (solutions: LayoutSolution[]) =>
+  solutions.length === 3 && invalidLayoutSolutions(solutions).length === 0 && duplicateLayoutGroups(solutions).length === 0
+
+const layoutRetryFeedback = (solutions: LayoutSolution[], attempt: number) => ({
+  status: 'layout_validation_failed',
+  retry_attempt: attempt,
+  required_level_count: 3,
+  returned_level_count: solutions.length,
+  duplicate_layout_groups: duplicateLayoutGroups(solutions),
+  invalid_levels: invalidLayoutSolutions(solutions).map((solution) => ({
+    id: solution.id,
+    checks: solution.checks.filter((check) => !check.passed).map((check) => ({ code:check.code, severity:check.severity, message:check.message })),
+    fixtures: solution.fixtures.map((fixture) => ({ id:fixture.id, label:fixture.label, x_mm:fixture.x_mm, z_mm:fixture.z_mm, rotation_deg:fixture.rotation_deg, bound_wall_index:fixture.bound_wall_index })),
+    anchors: solution.anchors.map((anchor) => ({ label:anchor.label, x_mm:anchor.x_mm, z_mm:anchor.z_mm, instruction:anchor.instruction })),
+    solver_trace: solution.solver_trace,
+  })),
+  required_fixes: [
+    'Return exactly three geometrically valid layout levels with different main-fixture coordinates.',
+    'Keep every fixture inside the 35 mm wall-panel finished boundary and preserve required clearances.',
+    'Keep the shower wet-zone center, shower head, and hot/cold water points on the same bound wall and centerline.',
+    'Change wall and zone instructions for failed levels before retrying; do not repeat the rejected scripts.',
+  ],
+})
+
 const wetZonesOnly = (spec: RoomSpec) => {
   const wetZones = spec.dry_wet_zones?.filter((zone) => zone.kind === 'wet') ?? []
   if (wetZones.length <= 1 && wetZones.length === (spec.dry_wet_zones?.length ?? 0)) return spec
@@ -505,26 +560,19 @@ export default function App() {
       levels: response.layout_levels,
     })
     const modelCalls = [response.model_call]
-    let invalid = solutions.filter((solution) => solution.checks.some((check) => !check.passed && check.severity === 'error'))
-    if (invalid.length) {
-      const feedback = {
-        invalid_levels: invalid.map((solution) => ({
-          id: solution.id,
-          checks: solution.checks.filter((check) => !check.passed).map((check) => ({ code: check.code, severity: check.severity, message: check.message })),
-          anchors: solution.anchors.map((anchor) => ({ label: anchor.label, x_mm: anchor.x_mm, z_mm: anchor.z_mm, instruction: anchor.instruction })),
-          solver_trace: solution.solver_trace,
-        })),
-      }
+    let attempts = 1
+    while (!layoutBatchReady(solutions) && attempts < MAX_AUTO_LAYOUT_ATTEMPTS) {
+      const feedback = layoutRetryFeedback(solutions, attempts)
       response = await studioApi.autoLayout(spec, requirements, response.layout_levels, feedback)
       modelCalls.push(response.model_call)
       solutions = generateLayoutSolutions(spec, { style: designQuote?.style_match.catalog_style, levels: response.layout_levels })
-      invalid = solutions.filter((solution) => solution.checks.some((check) => !check.passed && check.severity === 'error'))
+      attempts++
     }
+    if (!layoutBatchReady(solutions)) throw new Error(`布局 Agent 连续 ${attempts} 轮未通过几何门禁，未展示或应用无效方案`)
     solutions.forEach((solution) => { solution.model_call = response.model_call; solution.model_calls = modelCalls })
-    if (invalid.length || solutions.length !== 3) throw new Error('自动碰撞调整未完成，请重新生成三个方案')
     setLayoutSolutions(solutions)
     const selected = selectAutomaticLayoutSolution(solutions)
-    if (!selected) throw new Error('自动碰撞调整未完成，请重新生成三个方案')
+    if (!selected) throw new Error('布局结果未通过自动选择门禁，未展示或应用无效方案')
     applyAutoLayout(selected)
   }
 

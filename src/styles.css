@@ -720,3 +720,7 @@ p, h1, h2, figure { margin: 0; }
 .layout-method { color: var(--muted); font: 8px Consolas, monospace; }
 @media (max-width: 1100px) { .solution-list.auto-layout { width: min(620px, calc(100% - 20px)); } .layout-grid { grid-template-columns: repeat(3, 1fr); } .layout-detail { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 640px) { .layout-header { align-items: stretch; flex-direction: column; } .layout-entry-actions { display: grid; grid-template-columns: 1fr 1fr; } .layout-entry-actions > :only-child { grid-column: 1 / -1; } }
+.model-orientation-controls{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--line,#ddd)}
+.model-orientation-controls small{margin-left:auto;color:#66706a}
+.orientation-preview-pool{position:fixed;left:-10000px;top:0;width:420px;height:320px;overflow:hidden;pointer-events:none}
+.orientation-preview-pool .model-preview-stage{width:420px;height:320px}

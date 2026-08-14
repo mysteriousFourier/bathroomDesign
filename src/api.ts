@@ -62,6 +62,8 @@ export const studioApi = {
     return request<ImportedModelAsset>(`/api/projects/${id}/model-assets`, { method: 'POST', body: form, timeoutMs: 300_000 })
   },
   deleteModelAsset: (projectId: string, assetId: string) => request<void>(`/api/projects/${projectId}/model-assets/${assetId}`, { method: 'DELETE' }),
+  correctModelOrientation: (projectId: string, assetId: string, view: 'front' | 'top' | 'side') => request<ImportedModelAsset>(`/api/projects/${projectId}/model-assets/${assetId}/orientation`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ view }) }),
+  autoCorrectModelOrientation: (projectId: string, assetId: string, preview_data_url: string) => request<ImportedModelAsset>(`/api/projects/${projectId}/model-assets/${assetId}/orientation/auto`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ preview_data_url }), timeoutMs: 120_000 }),
   captureAssessment: (assetId: string) => request<CaptureAssessment>(`/api/assets/${assetId}/capture-assessment`),
   analyzePlan: (id: string, rotationDegrees: number | null = null) => request<AnalysisResponse>(
     `/api/projects/${id}/analyze-plan${rotationDegrees === null ? '' : `?rotation_degrees=${rotationDegrees}`}`,

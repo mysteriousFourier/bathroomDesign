@@ -581,6 +581,17 @@ async def test_model_folder_upload_list_read_and_delete(tmp_path) -> None:
         assert listed.status_code == 200
         assert [item["id"] for item in listed.json()] == [asset["id"]]
 
+        corrected = await client.put(
+            f"/api/projects/{project_id}/model-assets/{asset['id']}/orientation",
+            json={"view": "side"},
+        )
+        assert corrected.status_code == 200
+        assert corrected.json()["orientation_view"] == "side"
+        assert corrected.json()["orientation_corrected"] is True
+        assert corrected.json()["orientation_source"] == "manual"
+        reloaded = (await client.get(f"/api/projects/{project_id}/model-assets")).json()[0]
+        assert reloaded["orientation_view"] == "side"
+
         model_file = await client.get(asset["src"])
         assert model_file.status_code == 200
         assert model_file.content == b'{"asset":{"version":"2.0"}}'

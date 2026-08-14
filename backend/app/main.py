@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import uuid
 import zipfile
@@ -25,7 +26,7 @@ from .auto_layout import generate_model_layout
 from .knowledge_graph import ProductKnowledgeGraph
 from .measurement import measurement_contract_export, measurement_from_spec, validate_measurement
 from .measurement_import import MeasurementImportError, import_measurement_file, inspect_measurement_file
-from .model_assets import delete_model_asset, list_model_assets, resolve_model_asset_file, store_model_asset
+from .model_assets import delete_model_asset, list_model_assets, resolve_model_asset_file, set_model_orientation, store_model_asset
 from .models import (
     AnalysisResponse,
     AutoLayoutRequest,
@@ -43,6 +44,8 @@ from .models import (
     MeasurementImportResponse,
     MeasurementValidationResponse,
     ModelAssetResponse,
+    ModelOrientationAutoRequest,
+    ModelOrientationRequest,
     ProjectCreate,
     ProjectResponse,
     RoomSpec,
@@ -300,6 +303,37 @@ def remove_model_asset(project_id: str, asset_id: str) -> None:
         delete_model_asset(project_id, asset_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="项目不存在") from error
+
+
+@app.put("/api/projects/{project_id}/model-assets/{asset_id}/orientation", response_model=ModelAssetResponse)
+def correct_model_orientation(project_id: str, asset_id: str, request: ModelOrientationRequest) -> ModelAssetResponse:
+    return set_model_orientation(project_id, asset_id, request.view, "manual")
+
+
+@app.post("/api/projects/{project_id}/model-assets/{asset_id}/orientation/auto", response_model=ModelAssetResponse)
+async def auto_correct_model_orientation(project_id: str, asset_id: str, request: ModelOrientationAutoRequest) -> ModelAssetResponse:
+    if not request.preview_data_url.startswith("data:image/"):
+        raise HTTPException(status_code=422, detail="模型预览图无效")
+    if not settings.ai_configured:
+        raise HTTPException(status_code=503, detail="视觉模型尚未配置，请人工选择方向")
+    prompt = (
+        "你是3D家具模型入库质检员。观察等轴测预览，判断该模型当前最适合作为标准正视图、顶视图还是侧视图。"
+        "只返回 JSON，例如 {\"view\":\"front\"}；view 只能是 front、top、side。"
+    )
+    async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
+        response = await client.post(
+            settings.openai_base_url.rstrip("/") + "/chat/completions",
+            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+            json={"model": settings.read_model, "temperature": 0, "response_format": {"type": "json_object"}, "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": request.preview_data_url, "detail": "high"}}]}]},
+        )
+        response.raise_for_status()
+    try:
+        payload = json.loads(response.json()["choices"][0]["message"]["content"])
+        view = payload["view"]
+        if view not in {"front", "top", "side"}: raise ValueError
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=502, detail="视觉模型未返回有效方向") from error
+    return set_model_orientation(project_id, asset_id, view, "auto")
 
 
 @app.get("/api/projects/{project_id}/model-assets/{asset_id}/files/{relative_path:path}")

@@ -77,16 +77,17 @@ function PreviewModel({ src, format, onDimensions }: { src: string; format: Mode
   return <ObjPreview src={src} onDimensions={onDimensions} />
 }
 
-export function ModelAssetPreview({ assetKey, src, format, onDimensions }: {
+export function ModelAssetPreview({ assetKey, src, format, onDimensions, onPreviewReady }: {
   assetKey: string
   src: string
   format: ModelAssetFormat
   onDimensions?: (dimensions: Dimensions) => void
+  onPreviewReady?: (capture: () => string) => void
 }) {
   return (
     <div className="model-preview-stage">
       <PreviewErrorBoundary key={assetKey}>
-        <Canvas camera={{ position: [2.8, 1.9, 2.8], fov: 38 }} dpr={[1, 1.5]} gl={{ antialias: true, preserveDrawingBuffer: true }} shadows frameloop="always">
+        <Canvas key={assetKey} onCreated={({ gl }) => onPreviewReady?.(() => gl.domElement.toDataURL('image/jpeg', 0.86))} camera={{ position: [2.8, 1.9, 2.8], fov: 38 }} dpr={[1, 1.5]} gl={{ antialias: true, preserveDrawingBuffer: true }} shadows frameloop="always">
           <color attach="background" args={['#e7e6e1']} />
           <ambientLight intensity={1.4} />
           <directionalLight position={[3, 5, 4]} intensity={2.1} castShadow />

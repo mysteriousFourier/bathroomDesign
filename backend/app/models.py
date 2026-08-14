@@ -887,6 +887,17 @@ class ModelAssetResponse(BaseModel):
     file_count: int = Field(gt=0)
     created_at: str
     src: str
+    orientation_view: Literal["front", "top", "side"] | None = None
+    orientation_corrected: bool = False
+    orientation_source: Literal["auto", "manual"] | None = None
+
+
+class ModelOrientationRequest(BaseModel):
+    view: Literal["front", "top", "side"]
+
+
+class ModelOrientationAutoRequest(BaseModel):
+    preview_data_url: str
 
 
 class ProjectResponse(BaseModel):

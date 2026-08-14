@@ -1,4 +1,4 @@
-import { Box, BoxSelect, FileBox, FolderOpen, HardDriveUpload, Plus, Trash2, UploadCloud } from 'lucide-react'
+import { Box, BoxSelect, FileBox, FolderOpen, HardDriveUpload, Plus, ScanSearch, Trash2, UploadCloud } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { studioApi } from '../api'
 import type { RoomModelAsset } from '../modelAssets'
@@ -12,6 +12,9 @@ type DisplayModelAsset = RoomModelAsset & {
   filename: string
   fileCount: number
   builtIn?: boolean
+  orientation_view?: 'front' | 'top' | 'side' | null
+  orientation_corrected?: boolean
+  orientation_source?: 'auto' | 'manual' | null
 }
 
 const defaultDimensions: Dimensions = { width: 600, depth: 600, height: 600 }
@@ -34,6 +37,9 @@ function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
     filename: asset.filename,
     fileCount: asset.file_count,
     builtIn: false,
+    orientation_view: asset.orientation_view,
+    orientation_corrected: asset.orientation_corrected,
+    orientation_source: asset.orientation_source,
   }
 }
 
@@ -53,12 +59,14 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
+  const previewCaptures = useRef<Record<string, () => string>>({})
   const [uploadedAssets, setUploadedAssets] = useState<ImportedModelAsset[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [dimensions, setDimensions] = useState<Record<string, Dimensions>>({})
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [correcting, setCorrecting] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -82,7 +90,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }, [projectId])
 
   const assets = useMemo(() => [
-    ...builtInRoomAssets.map((asset) => ({ ...asset, filename: asset.label, fileCount: 1, builtIn: true })),
+    ...builtInRoomAssets.map((asset): DisplayModelAsset => ({ ...asset, filename: asset.label, fileCount: 1, builtIn: true })),
     ...uploadedAssets.map(uploadedDisplayAsset),
   ], [uploadedAssets])
   const selected = assets.find((asset) => asset.id === selectedId) ?? assets[0]
@@ -148,6 +156,26 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
     }
   }
 
+  const replaceAsset = (updated: ImportedModelAsset) => setUploadedAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
+  const correctSelected = async (view: 'front' | 'top' | 'side') => {
+    if (!selected || selected.builtIn) return
+    try { setError(''); replaceAsset(await studioApi.correctModelOrientation(projectId, selected.id, view)) }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : '人工方向纠正失败') }
+  }
+  const autoCorrectAll = async () => {
+    const pending = uploadedAssets.filter((asset) => !asset.orientation_corrected)
+    if (!pending.length) return
+    setCorrecting(true); setError('')
+    try {
+      for (const asset of pending) {
+        const capture = previewCaptures.current[asset.id]
+        if (!capture) throw new Error(`模型“${asset.label}”预览尚未就绪`)
+        replaceAsset(await studioApi.autoCorrectModelOrientation(projectId, asset.id, capture()))
+      }
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : '自动方向纠正失败') }
+    finally { setCorrecting(false) }
+  }
+
   return (
     <div className="model-library">
       <div className="library-toolbar">
@@ -155,6 +183,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
           <strong>模型库</strong>
           <span>{assets.filter((asset) => asset.asset_type === 'fixture').length} 个设备模型 · {assets.filter((asset) => asset.asset_type === 'surface').length} 个板块材质</span>
         </div>
+        <button className="button secondary" type="button" disabled={correcting || !uploadedAssets.some((asset) => !asset.orientation_corrected)} onClick={() => void autoCorrectAll()}><ScanSearch size={16} />{correcting ? '视觉纠正中' : '一键纠正'}</button>
         <button className="button secondary" onClick={onOpenRoom} disabled={!canAddToRoom}><Box size={16} />三维房间</button>
       </div>
 
@@ -193,7 +222,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <button className={`model-asset-row${selected?.id === asset.id ? ' active' : ''}`} key={asset.id} onClick={() => setSelectedId(asset.id)}>
                 <span className="model-asset-icon"><BoxSelect size={19} /></span>
                 <span className="model-asset-copy"><strong>{asset.label}</strong><span>{asset.format.toUpperCase()} · {fileSize(asset.bytes)}</span></span>
-                <span className={`model-origin ${asset.builtIn ? 'builtin' : 'uploaded'}`}>{asset.builtIn ? asset.asset_type === 'surface' ? '板块' : '内置' : '项目'}</span>
+                <span className={`model-origin ${asset.builtIn ? 'builtin' : 'uploaded'}`}>{asset.builtIn ? asset.asset_type === 'surface' ? '板块' : '内置' : asset.orientation_corrected ? '已纠正' : '待纠正'}</span>
               </button>
             ))}
           </div>
@@ -208,13 +237,14 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
                 <button className="button primary compact" type="button" disabled={!canAddToRoom} onClick={() => onAddToRoom(selectedForRoom)}><Plus size={15} />加入房间</button>
               </div>
             </header>
-            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} />
+            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} onPreviewReady={(capture) => { previewCaptures.current[selected.id] = capture }} />
             <div className="model-browser-meta">
               <div><span>格式</span><strong>{selected.format.toUpperCase()}</strong></div>
               <div><span>文件</span><strong>{selected.fileCount}</strong></div>
               <div><span>尺寸</span><strong>{selectedDimensions.width} × {selectedDimensions.depth} × {selectedDimensions.height} mm</strong></div>
               <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '暂无'}</code></div>
             </div>
+            {!selected.builtIn && <div className="model-orientation-controls"><span>方向纠正</span>{(['front', 'top', 'side'] as const).map((view) => <button key={view} type="button" className={`button compact ${selected.orientation_view === view ? 'primary' : 'secondary'}`} onClick={() => void correctSelected(view)}>{{ front: '正面', top: '顶面', side: '侧面' }[view]}</button>)}<small>{selected.orientation_corrected ? `${selected.orientation_source === 'auto' ? '视觉自动' : '人工'}纠正完成` : '尚未纠正'}</small></div>}
           </> : selected ? <>
             <header className="model-browser-header"><div><strong>{selected.label}</strong><span>{selected.filename} · 固定板块材质</span></div></header>
             <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} />
@@ -222,6 +252,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
           </> : <div className="model-browser-empty"><HardDriveUpload size={28} /><strong>尚无模型</strong></div>}
         </section>
       </div>
+      <div className="orientation-preview-pool" aria-hidden="true">{uploadedAssets.filter((asset) => !asset.orientation_corrected && asset.id !== selected?.id).map((asset) => <ModelAssetPreview key={asset.id} assetKey={`orientation-${asset.id}`} src={asset.src} format={asset.format} onPreviewReady={(capture) => { previewCaptures.current[asset.id] = capture }} />)}</div>
     </div>
   )
 }

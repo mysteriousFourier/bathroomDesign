@@ -296,6 +296,9 @@ export interface ImportedModelAsset {
   file_count: number
   created_at: string
   src: string
+  orientation_view: 'front' | 'top' | 'side' | null
+  orientation_corrected: boolean
+  orientation_source: 'auto' | 'manual' | null
 }
 
 export interface CaptureCheck {

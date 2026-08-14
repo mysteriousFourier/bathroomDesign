@@ -231,7 +231,7 @@ describe('deterministic requirement layout engine', () => {
     expect(showerPoints.every((fixture)=>fixture.bound_wall_index===showerHead.bound_wall_index)).toBe(true)
     expect(solution.checks.filter((check)=>check.severity==='error'&&!check.passed).map((check)=>check.code)).toEqual([])
 
-    const accessibleProducts = graphOutput.scenarios.elderly_safe.products
+    const accessibleProducts = [...graphOutput.scenarios.elderly_safe.products, graphOutput.scenarios.laundry.products.find((product)=>product.category==='洗衣机')!]
       .filter((product,index,all)=>all.findIndex((item)=>item.category===product.category)===index)
       .map((product)=>({product_id:product.graph_id,catalog_code:product.code,category:product.category,spec:product.spec,unit_price:product.price,price_unit:'件'}))
     const walls = [
@@ -247,6 +247,7 @@ describe('deterministic requirement layout engine', () => {
         {fixture_role:'vanity',wall:walls[index].vanity,zone:'dry' as const,min_clearance_mm:600},
         {fixture_role:'toilet',wall:'nearest_plumbing' as const,zone:'dry' as const,min_clearance_mm:800},
         {fixture_role:'heater',wall:walls[index].heater,zone:'service' as const,min_clearance_mm:0},
+        {fixture_role:'washer',wall:'south' as const,zone:'service' as const,min_clearance_mm:600},
         {fixture_role:'grab_bars',wall:walls[index].wet,zone:'wet' as const,min_clearance_mm:0},
       ]},
     })) satisfies LayoutLevelDecision[]

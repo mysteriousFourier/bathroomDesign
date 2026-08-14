@@ -347,6 +347,33 @@ function fixedLayoutObstacles(spec: RoomSpec) {
   return spec.fixtures.filter((fixture) => !fixture.layout_generated && ['pipe', 'column', 'radiator', 'other'].includes(fixture.kind))
 }
 
+function placementWallIndices(spec: RoomSpec, item: FixtureSpec, preferredWall: Exclude<SemanticWall, 'nearest_plumbing'>, target: { x:number; z:number }, rearGap: number | undefined, anchor?: PlacementAnchor) {
+  const primary = wallIndexForSemantic(spec, preferredWall, { x_mm:target.x, z_mm:target.z })
+  if (rearGap === undefined) return [primary]
+  const boundary = layoutBoundary(spec)
+  const canChangeDirection = !anchor && /(洗衣机|浴室柜)/.test(item.label)
+  const ranked = boundary.map((start, index) => {
+    const end = boundary[(index + 1) % boundary.length]
+    const projection = projectPointToWall(boundary, index, { x_mm:target.x, z_mm:target.z })
+    return {
+      index,
+      preferred: semanticWallForIndex(spec, index) === preferredWall,
+      distance: projection?.distance_mm ?? Number.POSITIVE_INFINITY,
+      length: Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm),
+    }
+  }).filter((candidate) => canChangeDirection || candidate.preferred)
+    .sort((left, right) => Number(right.preferred) - Number(left.preferred) || left.distance - right.distance || right.length - left.length)
+  return [primary, ...ranked.map((candidate) => candidate.index).filter((index) => index !== primary)]
+}
+
+function placementPriority(item: FixtureSpec) {
+  if (item.kind === 'toilet') return 4
+  if (/洗衣机/.test(item.label)) return 3
+  if (item.kind === 'vanity' || /浴室柜/.test(item.label)) return 2
+  if (/淋浴椅|适老椅/.test(item.label)) return 1
+  return 0
+}
+
 function retainFixtureAcrossLayouts(fixture: FixtureSpec) {
   if (fixture.layout_generated) return false
   if (['floor_drain', 'drain', 'water', 'electric', 'pipe', 'column', 'radiator'].includes(fixture.kind)) return true
@@ -367,51 +394,54 @@ function searchPlacement(spec: RoomSpec, item: FixtureSpec, occupied: FixtureSpe
       ? { x: plumbing.x_mm, z: plumbing.z_mm }
       : semanticTarget(spec, instruction, item.width_mm, item.depth_mm)
   const finishBoundary = layoutBoundary(spec)
-  const hostWallIndex = wallIndexForSemantic(spec, hostWall, { x_mm:target.x, z_mm:target.z })
-  const hostStart = finishBoundary[hostWallIndex]
-  const hostEnd = finishBoundary[(hostWallIndex + 1) % finishBoundary.length]
-  const hostInward = wallInwardNormal(finishBoundary, hostWallIndex)
-  const resolvedHostWall = semanticWallForIndex(spec, hostWallIndex) ?? hostWall
-  const hostIsVertical = Math.abs(hostEnd.z_mm-hostStart.z_mm) >= Math.abs(hostEnd.x_mm-hostStart.x_mm)
-  let best: { x:number; z:number; rotation:number; width:number; depth:number; score:number; clearance?:FixtureSpec } | null = null
-  const rotations = rearGap === undefined ? (anchor?.rotation_deg === undefined ? [0, 90, 180, 270] : [anchor.rotation_deg]) : [wallFacingRotation(resolvedHostWall)]
-  for (const rotation of rotations) {
-    const width = rotation % 180 ? item.depth_mm : item.width_mm
-    const depth = rotation % 180 ? item.width_mm : item.depth_mm
-    const gridX = Array.from({ length: Math.max(0, Math.floor((b.maxX - width - 80) / step) + 1) }, (_, index) => Math.ceil((b.minX + width / 2 + 40) / step) * step + index * step)
-    const gridZ = Array.from({ length: Math.max(0, Math.floor((b.maxZ - depth - 80) / step) + 1) }, (_, index) => Math.ceil((b.minZ + depth / 2 + 40) / step) * step + index * step)
-    const wallX = rearGap !== undefined && hostIsVertical ? Math.round(hostStart.x_mm + hostInward.x * (width / 2 + rearGap)) : undefined
-    const wallZ = rearGap !== undefined && !hostIsVertical ? Math.round(hostStart.z_mm + hostInward.z * (depth / 2 + rearGap)) : undefined
-    const segmentMinX = Math.min(hostStart.x_mm,hostEnd.x_mm)+width/2,segmentMaxX=Math.max(hostStart.x_mm,hostEnd.x_mm)-width/2
-    const segmentMinZ = Math.min(hostStart.z_mm,hostEnd.z_mm)+depth/2,segmentMaxZ=Math.max(hostStart.z_mm,hostEnd.z_mm)-depth/2
-    const baseX = anchor?.locked ? [anchor.x_mm] : [...new Set([anchor?.x_mm,target.x,...gridX].filter((value): value is number => value !== undefined))]
-    const baseZ = anchor?.locked ? [anchor.z_mm] : [...new Set([anchor?.z_mm,target.z,...gridZ].filter((value): value is number => value !== undefined))]
-    const xValues = wallX === undefined ? (rearGap !== undefined && !hostIsVertical ? baseX.filter((value)=>value>=segmentMinX&&value<=segmentMaxX) : baseX) : [wallX]
-    const zValues = wallZ === undefined ? (rearGap !== undefined && hostIsVertical ? baseZ.filter((value)=>value>=segmentMinZ&&value<=segmentMaxZ) : baseZ) : [wallZ]
-    for (const x of xValues) {
-      for (const z of zValues) {
-        trace.evaluated++
-        if (anchor?.max_distance_mm !== undefined && Math.hypot(x - anchor.x_mm, z - anchor.z_mm) > anchor.max_distance_mm) continue
-        const candidate = { ...item, x_mm:x, z_mm:z, width_mm:width, depth_mm:depth, rotation_deg:rotation }
-        const clearance = frontClearanceEnvelope(candidate, instruction)
-        const occupiedConflict = occupied.some((other) => !permittedAssembly(candidate, other) && (
-          overlaps(candidate, other, BODY_GAP_MM)
-          || (placementClearances.get(other) ? overlaps(candidate, placementClearances.get(other)!) : false)
-        ))
-        const clearanceConflict = !!clearance && (
-          !fixtureInsideRoom(clearance, boundary)
-          || blocksDoorEnvelope(spec, clearance)
-          || occupied.some((other) => blocksUseClearance(candidate, clearance, other))
-        )
-        if (!fixtureInsideRoom(candidate, boundary) || blocksDoorEnvelope(spec, candidate) || occupiedConflict || clearanceConflict) continue
-        trace.feasible++
-        const wallDistance = Math.min(x - b.minX - width / 2, b.maxX - x - width / 2, z - b.minZ - depth / 2, b.maxZ - z - depth / 2)
-        const plumbingDistance = plumbing ? Math.hypot(x - plumbing.x_mm, z - plumbing.z_mm) : 0
-        const semanticDistance = Math.hypot(x - target.x, z - target.z)
-        const score = -wallDistance * 2 - plumbingDistance * 8 - semanticDistance * 8
-        if (!best || score > best.score) best = { x, z, rotation, width, depth, score, clearance }
+  const primaryWallIndex = wallIndexForSemantic(spec, hostWall, { x_mm:target.x, z_mm:target.z })
+  let best: { x:number; z:number; rotation:number; width:number; depth:number; score:number; wallIndex:number; clearance?:FixtureSpec } | null = null
+  for (const hostWallIndex of placementWallIndices(spec, item, hostWall, target, rearGap, anchor)) {
+    const hostStart = finishBoundary[hostWallIndex]
+    const hostEnd = finishBoundary[(hostWallIndex + 1) % finishBoundary.length]
+    const hostInward = wallInwardNormal(finishBoundary, hostWallIndex)
+    const resolvedHostWall = semanticWallForIndex(spec, hostWallIndex) ?? hostWall
+    const hostIsVertical = Math.abs(hostEnd.z_mm-hostStart.z_mm) >= Math.abs(hostEnd.x_mm-hostStart.x_mm)
+    const rotations = rearGap === undefined ? (anchor?.rotation_deg === undefined ? [0, 90, 180, 270] : [anchor.rotation_deg]) : [wallFacingRotation(resolvedHostWall)]
+    for (const rotation of rotations) {
+      const width = rotation % 180 ? item.depth_mm : item.width_mm
+      const depth = rotation % 180 ? item.width_mm : item.depth_mm
+      const gridX = Array.from({ length: Math.max(0, Math.floor((b.maxX - width - 80) / step) + 1) }, (_, index) => Math.ceil((b.minX + width / 2 + 40) / step) * step + index * step)
+      const gridZ = Array.from({ length: Math.max(0, Math.floor((b.maxZ - depth - 80) / step) + 1) }, (_, index) => Math.ceil((b.minZ + depth / 2 + 40) / step) * step + index * step)
+      const wallX = rearGap !== undefined && hostIsVertical ? Math.round(hostStart.x_mm + hostInward.x * (width / 2 + rearGap)) : undefined
+      const wallZ = rearGap !== undefined && !hostIsVertical ? Math.round(hostStart.z_mm + hostInward.z * (depth / 2 + rearGap)) : undefined
+      const segmentMinX = Math.min(hostStart.x_mm,hostEnd.x_mm)+width/2,segmentMaxX=Math.max(hostStart.x_mm,hostEnd.x_mm)-width/2
+      const segmentMinZ = Math.min(hostStart.z_mm,hostEnd.z_mm)+depth/2,segmentMaxZ=Math.max(hostStart.z_mm,hostEnd.z_mm)-depth/2
+      const baseX = anchor?.locked ? [anchor.x_mm] : [...new Set([anchor?.x_mm,target.x,...gridX].filter((value): value is number => value !== undefined))]
+      const baseZ = anchor?.locked ? [anchor.z_mm] : [...new Set([anchor?.z_mm,target.z,...gridZ].filter((value): value is number => value !== undefined))]
+      const xValues = wallX === undefined ? (rearGap !== undefined && !hostIsVertical ? baseX.filter((value)=>value>=segmentMinX&&value<=segmentMaxX) : baseX) : [wallX]
+      const zValues = wallZ === undefined ? (rearGap !== undefined && hostIsVertical ? baseZ.filter((value)=>value>=segmentMinZ&&value<=segmentMaxZ) : baseZ) : [wallZ]
+      for (const x of xValues) {
+        for (const z of zValues) {
+          trace.evaluated++
+          if (anchor?.max_distance_mm !== undefined && Math.hypot(x - anchor.x_mm, z - anchor.z_mm) > anchor.max_distance_mm) continue
+          const candidate = { ...item, x_mm:x, z_mm:z, width_mm:width, depth_mm:depth, rotation_deg:rotation }
+          const clearance = frontClearanceEnvelope(candidate, instruction)
+          const occupiedConflict = occupied.some((other) => !permittedAssembly(candidate, other) && (
+            overlaps(candidate, other, BODY_GAP_MM)
+            || (placementClearances.get(other) ? overlaps(candidate, placementClearances.get(other)!) : false)
+          ))
+          const clearanceConflict = !!clearance && (
+            !fixtureInsideRoom(clearance, boundary)
+            || blocksDoorEnvelope(spec, clearance)
+            || occupied.some((other) => blocksUseClearance(candidate, clearance, other))
+          )
+          if (!fixtureInsideRoom(candidate, boundary) || blocksDoorEnvelope(spec, candidate) || occupiedConflict || clearanceConflict) continue
+          trace.feasible++
+          const wallDistance = Math.min(x - b.minX - width / 2, b.maxX - x - width / 2, z - b.minZ - depth / 2, b.maxZ - z - depth / 2)
+          const plumbingDistance = plumbing ? Math.hypot(x - plumbing.x_mm, z - plumbing.z_mm) : 0
+          const semanticDistance = Math.hypot(x - target.x, z - target.z)
+          const score = -wallDistance * 2 - plumbingDistance * 8 - semanticDistance * 8
+          if (!best || score > best.score) best = { x, z, rotation, width, depth, score, wallIndex:hostWallIndex, clearance }
+        }
       }
     }
+    if (best) break
   }
   if (!best) {
     // Keep attached fixtures inside the wall-panel boundary even when a
@@ -419,9 +449,10 @@ function searchPlacement(spec: RoomSpec, item: FixtureSpec, occupied: FixtureSpe
     if (rearGap !== undefined) snapRearToWall(spec, item, hostWall, rearGap)
     return false
   }
-  Object.assign(item, { x_mm:best.x, z_mm:best.z, rotation_deg:best.rotation, width_mm:best.width, depth_mm:best.depth })
-  if (rearGap !== undefined) item.bound_wall_index = hostWallIndex
-  if (best.clearance) placementClearances.set(item, best.clearance)
+  const solved = best as NonNullable<typeof best>
+  Object.assign(item, { x_mm:solved.x, z_mm:solved.z, rotation_deg:solved.rotation, width_mm:solved.width, depth_mm:solved.depth })
+  if (rearGap !== undefined) item.bound_wall_index = solved.wallIndex ?? primaryWallIndex
+  if (solved.clearance) placementClearances.set(item, solved.clearance)
   return true
 }
 function isReachable(spec:RoomSpec,fixtures:FixtureSpec[],goal:{x:number;z:number}){const b=rectangleBounds(spec),step=100,radius=300,blocked=(x:number,z:number)=>!pointInPolygon(x,z,spec.boundary)||fixtures.some(f=>(f.elevation_mm??0)===0&&f.kind!=='floor_drain'&&Math.abs(x-f.x_mm)<f.width_mm/2+radius&&Math.abs(z-f.z_mm)<f.depth_mm/2+radius);const door=spec.openings.find(o=>o.kind==='door');if(!door)return true;const edge=spec.boundary[door.wall_index],next=spec.boundary[(door.wall_index+1)%spec.boundary.length],horizontal=Math.abs(next.x_mm-edge.x_mm)>=Math.abs(next.z_mm-edge.z_mm);let sx=horizontal?Math.min(edge.x_mm,next.x_mm)+door.offset_mm+door.width_mm/2:edge.x_mm,sz=horizontal?edge.z_mm:Math.min(edge.z_mm,next.z_mm)+door.offset_mm+door.width_mm/2;sx+=horizontal?0:(sx<(b.minX+b.maxX)/2?step:-step);sz+=horizontal?(sz<(b.minZ+b.maxZ)/2?step:-step):0;const key=(x:number,z:number)=>`${Math.round(x/step)},${Math.round(z/step)}`,queue=[[Math.round(sx/step)*step,Math.round(sz/step)*step]],seen=new Set<string>();while(queue.length){const [x,z]=queue.shift()!,k=key(x,z);if(seen.has(k))continue;if(Math.hypot(x-goal.x,z-goal.z)<=450)return true;if(blocked(x,z))continue;seen.add(k);for(const [dx,dz] of [[step,0],[-step,0],[0,step],[0,-step]])queue.push([x+dx,z+dz])}return false}
@@ -489,7 +520,7 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
     fixtures.push(productFixture(`${demand}-${budget}-shower-bar`, 'other', showerBar, shower.x_mm + 380, shower.z_mm, { width_mm: 80, depth_mm: 600, height_mm: 900 }, 0, 700))
     fixtures.push(productFixture(`${demand}-${budget}-toilet-bar`, 'other', toiletBar, toilet.x_mm + 330, toilet.z_mm, { width_mm: 80, depth_mm: 600, height_mm: 750 }, 0, 650))
   }
-  const solverTrace={evaluated:wetTrace.evaluated,feasible:wetTrace.feasible},groundProducts=fixtures.filter(f=>['vanity','toilet'].includes(f.kind)||/(洗衣机|淋浴椅)/.test(f.label)).sort((left,right)=>Number(right.kind==='toilet')-Number(left.kind==='toilet')),placed=[...fixedObstacles,...fixtures.filter(f=>!groundProducts.includes(f)&&(f.elevation_mm??0)===0)];for(const item of groundProducts){const role=item.kind==='vanity'?'vanity':item.kind==='toilet'?'toilet':item.label.includes('洗衣机')?'washer':'wet_zone',plumbing=item.kind==='toilet'?toiletDrainPoint(spec):item.label.includes('洗衣机')?spec.fixtures.find(f=>f.kind==='water'):item.kind==='vanity'?spec.fixtures.find(f=>f.kind==='water'&&fixturePointUsage(f)==='basin'):undefined,anchor=item.kind==='toilet'?measuredToiletAnchor:undefined,baseRule=infrastructureRule(spec,instruction(role),anchor),rule=/淋浴椅/.test(item.label)?{...baseRule,wall:wallNearestPoint(spec,shower)}:baseRule;searchPlacement(spec,item,placed,rule,plumbing,solverTrace,anchor);placed.push(item)}
+  const solverTrace={evaluated:wetTrace.evaluated,feasible:wetTrace.feasible},groundProducts=fixtures.filter(f=>['vanity','toilet'].includes(f.kind)||/(洗衣机|淋浴椅)/.test(f.label)).sort((left,right)=>placementPriority(right)-placementPriority(left)),placed=[...fixedObstacles,...fixtures.filter(f=>!groundProducts.includes(f)&&(f.elevation_mm??0)===0)];for(const item of groundProducts){const role=item.kind==='vanity'?'vanity':item.kind==='toilet'?'toilet':item.label.includes('洗衣机')?'washer':'wet_zone',plumbing=item.kind==='toilet'?toiletDrainPoint(spec):item.label.includes('洗衣机')?spec.fixtures.find(f=>f.kind==='water'):item.kind==='vanity'?spec.fixtures.find(f=>f.kind==='water'&&fixturePointUsage(f)==='basin'):undefined,anchor=item.kind==='toilet'?measuredToiletAnchor:undefined,baseRule=infrastructureRule(spec,instruction(role),anchor),rule=/淋浴椅/.test(item.label)?{...baseRule,wall:wallNearestPoint(spec,shower)}:baseRule;searchPlacement(spec,item,placed,rule,plumbing,solverTrace,anchor);placed.push(item)}
   for(const item of fixtures.filter(f=>(f.elevation_mm??0)>0)){
     const baseRule=item.label.includes('热水器')?instruction('heater'):item.label.includes('扶手')?instruction('grab_bars'):instruction('wet_zone')
     const hostWall=item.label.includes('马桶扶手')?wallNearestPoint(spec,toilet):/花洒/.test(item.label)?wallNearestPoint(spec,shower):baseRule.wall==='nearest_plumbing'?wallNearestPoint(spec,item):baseRule.wall
@@ -623,7 +654,7 @@ function makeLevelSolution(spec:RoomSpec,level:LayoutLevelDecision,preference?:L
     if(elevation>0)elevated.push(entity);else ground.push(entity)
   }
   const placed:FixtureSpec[]=[...fixedObstacles,drain,shower]
-  ground.sort((left,right)=>Number(fixtureProducts.get(right.id)?.category==='马桶')-Number(fixtureProducts.get(left.id)?.category==='马桶'))
+  ground.sort((left,right)=>placementPriority(right)-placementPriority(left))
   for(const entity of ground){const product=fixtureProducts.get(entity.id)!,role=levelRole(product.category),plumbing=product.category==='马桶'?toiletDrainPoint(spec):product.category==='洗衣机'?spec.fixtures.find(f=>f.kind==='water'):product.category.includes('浴室柜')?spec.fixtures.find(f=>f.kind==='water'&&fixturePointUsage(f)==='basin'):undefined,anchor=product.category==='马桶'?measuredToiletAnchor:undefined,baseRule=infrastructureRule(spec,instruction(role),anchor),rule=product.category==='淋浴椅'?{...baseRule,wall:wallNearestPoint(spec,shower)}:baseRule;if(!searchPlacement(spec,entity,placed,rule,plumbing,solverTrace,anchor))placementFailures.push(entity.label);placed.push(entity)}
   const toilet=fixtures.find(f=>f.kind==='toilet')
   for(const entity of elevated){const product=fixtureProducts.get(entity.id)!,baseRule=instruction(levelRole(product.category)),rule=product.category==='马桶扶手'&&toilet?{...baseRule,wall:wallNearestPoint(spec,toilet)}:['花洒','花洒扶手'].includes(product.category)?{...baseRule,wall:wallNearestPoint(spec,shower)}:baseRule;if(product.category==='马桶扶手'&&toilet){entity.x_mm=Math.round(toilet.x_mm+330);entity.z_mm=toilet.z_mm}const wall=rule.wall==='nearest_plumbing'?wallNearestPoint(spec,entity):rule.wall;snapRearToWall(spec,entity,wall,requiredRearWallGap(entity)??0);moveInsideRoomPolygon(spec,entity)}

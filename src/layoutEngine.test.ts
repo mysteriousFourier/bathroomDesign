@@ -210,4 +210,47 @@ describe('deterministic requirement layout engine', () => {
     expect(vanity.bound_wall_index).toBe(3)
     expect(vanity.x_mm - vanity.width_mm / 2).toBe(finished[3].x_mm + 5)
   })
+
+  it('resolves semantic walls against the actual segments of a non-rectangular room', () => {
+    const measuredRoom = manualRoom(4105, 2160, 2200)
+    measuredRoom.boundary = [
+      {x_mm:0,z_mm:320},{x_mm:0,z_mm:2160},{x_mm:1255,z_mm:2160},{x_mm:1255,z_mm:1840},
+      {x_mm:4105,z_mm:1840},{x_mm:4105,z_mm:0},{x_mm:2515,z_mm:0},{x_mm:2515,z_mm:610},
+      {x_mm:1900,z_mm:610},{x_mm:1900,z_mm:0},{x_mm:260,z_mm:0},{x_mm:260,z_mm:320},
+    ]
+    measuredRoom.fixtures.push(
+      {id:'shower-drain-nonrect',kind:'floor_drain',label:'淋浴地漏',point_usage:'shower',x_mm:3775,z_mm:276,width_mm:75,depth_mm:75,height_mm:10,rotation_deg:0,source:'measured',confidence:1},
+      {id:'toilet-drain-nonrect',kind:'drain',label:'马桶排水',point_usage:'toilet',x_mm:3596,z_mm:1455,width_mm:110,depth_mm:110,height_mm:10,rotation_deg:0,source:'measured',confidence:1},
+    )
+    const solution = generateLayoutSolutions(measuredRoom)[0]
+    const vanity = solution.fixtures.find((fixture)=>fixture.kind==='vanity')!
+    const showerHead = solution.fixtures.find((fixture)=>fixture.label.includes('花洒')&&!fixture.label.includes('扶手'))!
+    const showerPoints = solution.fixtures.filter((fixture)=>fixture.point_usage==='shower'&&fixture.kind==='water')
+    expect(vanity.bound_wall_index).toBe(4)
+    expect(showerHead.bound_wall_index).toBe(5)
+    expect(showerPoints.every((fixture)=>fixture.bound_wall_index===showerHead.bound_wall_index)).toBe(true)
+    expect(solution.checks.filter((check)=>check.severity==='error'&&!check.passed).map((check)=>check.code)).toEqual([])
+
+    const accessibleProducts = graphOutput.scenarios.elderly_safe.products
+      .filter((product,index,all)=>all.findIndex((item)=>item.category===product.category)===index)
+      .map((product)=>({product_id:product.graph_id,catalog_code:product.code,category:product.category,spec:product.spec,unit_price:product.price,price_unit:'件'}))
+    const walls = [
+      {wet:'east',vanity:'west',heater:'east'},
+      {wet:'west',vanity:'south',heater:'west'},
+      {wet:'south',vanity:'north',heater:'south'},
+    ] as const
+    const accessibleLevels = (['basic','comfort','premium'] as const).map((tier,index)=>({
+      id:`level${index+1}` as 'level1'|'level2'|'level3',name:`适老方案 ${index+1}`,reason:'凹形房间适老求解',demand_profile:'elderly_safe' as const,product_tier:tier,
+      product_ids:accessibleProducts.map((product)=>product.product_id),products:accessibleProducts,
+      layout_script:{version:'layout-script-v1' as const,demand:'elderly_safe' as const,budget:tier,source:'deterministic-rule-engine' as const,instructions:[
+        {fixture_role:'wet_zone',wall:walls[index].wet,zone:'wet' as const,min_clearance_mm:0},
+        {fixture_role:'vanity',wall:walls[index].vanity,zone:'dry' as const,min_clearance_mm:600},
+        {fixture_role:'toilet',wall:'nearest_plumbing' as const,zone:'dry' as const,min_clearance_mm:800},
+        {fixture_role:'heater',wall:walls[index].heater,zone:'service' as const,min_clearance_mm:0},
+        {fixture_role:'grab_bars',wall:walls[index].wet,zone:'wet' as const,min_clearance_mm:0},
+      ]},
+    })) satisfies LayoutLevelDecision[]
+    const accessible = generateLayoutSolutions(measuredRoom,{levels:accessibleLevels})
+    expect(accessible.map((candidate)=>candidate.checks.filter((check)=>check.severity==='error'&&!check.passed).map((check)=>check.code))).toEqual([[],[],[]])
+  })
 })

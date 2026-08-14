@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallLength, wetZoneBoundaryValid } from '../spec'
+import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallFinishGap, wallLength, wetZoneBoundaryValid } from '../spec'
 import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -177,6 +177,7 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             <label className="checkbox-field"><input type="checkbox" checked={stripsExistingFinish(spec)} onChange={(event) => edit((draft) => { draft.strip_existing_finish = event.target.checked })} /><span>刨除原始完成面</span></label>
             <NumberField label="原饰面刨除" value={finishSurfaceOffset(spec)} min={0} disabled={!stripsExistingFinish(spec)} onChange={(value) => edit((draft) => { draft.finish_surface_offset_mm = value })} />
             <NumberField label="新饰面厚度" value={wallFinishBaseThickness(spec)} min={0} onChange={(value) => edit((draft) => { draft.wall_finish_thickness_mm = value })} />
+            <NumberField label="墙板安装空腔" value={wallFinishGap(spec)} min={0} onChange={(value) => edit((draft) => { draft.wall_finish_gap_mm = value })} />
             <div className="finish-editor">
               <button className="button secondary wide" onClick={() => edit((draft) => { draft.dry_wet_zones = generateDryWetZones(draft) })}>按淋浴地漏生成湿区</button>
               <button className="button secondary wide" disabled={(spec.dry_wet_zones ?? []).some((zone) => zone.kind === 'wet')} title={(spec.dry_wet_zones ?? []).some((zone) => zone.kind === 'wet') ? '当前房间已有湿区' : undefined} onClick={addZone}><Plus size={15} />添加湿区</button>

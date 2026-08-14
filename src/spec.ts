@@ -3,6 +3,7 @@ import type { BoundaryEdge, DryWetZone, FixtureKind, FixturePointUsage, FixtureS
 export const defaultWallThicknessMm = 200
 export const defaultFinishSurfaceOffsetMm = 20
 export const defaultWallFinishThicknessMm = 20
+export const defaultWallFinishGapMm = 0
 export const wallBindingSnapDistanceMm = 100
 export const toiletDrainRoughInMm = 305
 
@@ -122,6 +123,13 @@ export function wallLength(points: Point2D[], index: number) {
   const start = points[index]
   const end = points[(index + 1) % points.length]
   return Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm)
+}
+
+export function fixtureLocalFootprint(fixture: Pick<FixtureSpec, 'width_mm' | 'depth_mm' | 'rotation_deg'>) {
+  const quarterTurn = Math.abs(fixture.rotation_deg) % 180 === 90
+  return quarterTurn
+    ? { width_mm: fixture.depth_mm, depth_mm: fixture.width_mm }
+    : { width_mm: fixture.width_mm, depth_mm: fixture.depth_mm }
 }
 
 export interface WallRunPart {
@@ -518,6 +526,10 @@ export function wallFinishBaseThickness(spec: RoomSpec) {
   return spec.wall_finish_thickness_mm ?? defaultWallFinishThicknessMm
 }
 
+export function wallFinishGap(spec: RoomSpec) {
+  return spec.wall_finish_gap_mm ?? defaultWallFinishGapMm
+}
+
 export function polygonSignedArea(points: Point2D[]) {
   return points.reduce((sum, point, index) => {
     const next = points[(index + 1) % points.length]
@@ -556,7 +568,7 @@ export function structuralInnerBoundary(spec: RoomSpec) {
 
 export function finishedRoomBoundary(spec: RoomSpec) {
   const structural = structuralInnerBoundary(spec)
-  return offsetBoundaryByWall(structural, spec.boundary.map((_, index) => -wallFinishThickness(spec, index)))
+  return offsetBoundaryByWall(structural, spec.boundary.map((_, index) => -(wallFinishGap(spec) + wallFinishThickness(spec, index))))
 }
 
 export function fixtureCanBindWall(kind: FixtureKind) {

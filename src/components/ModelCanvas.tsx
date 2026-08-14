@@ -7,7 +7,7 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
-import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerQuads, wallLength } from '../spec'
+import { finishedRoomBoundary, fixtureLocalFootprint, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerQuads, wallLength } from '../spec'
 import { physicalTextureTransform, physicalWorldTextureTransform } from '../surfaceTexture'
 import type { FixtureModelAsset, FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
 
@@ -129,6 +129,7 @@ function modelAssetFormat(asset: FixtureModelAsset) {
 }
 
 function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: FixtureSpec; selected: boolean; object: Group }) {
+  const footprint = fixtureLocalFootprint(fixture)
   const { scene, scale, position } = useMemo(() => {
     const scene = object.clone(true)
     scene.traverse((child) => {
@@ -142,7 +143,7 @@ function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: Fixtur
     const center = new Vector3()
     box.getSize(size)
     box.getCenter(center)
-    const target = new Vector3(fixture.width_mm / 1000, fixture.height_mm / 1000, fixture.depth_mm / 1000)
+    const target = new Vector3(footprint.width_mm / 1000, fixture.height_mm / 1000, footprint.depth_mm / 1000)
     const scale = Math.min(
       target.x / Math.max(size.x, 0.001),
       target.y / Math.max(size.y, 0.001),
@@ -153,12 +154,12 @@ function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: Fixtur
       scale,
       position: new Vector3(-center.x * scale, -box.min.y * scale, -center.z * scale),
     }
-  }, [fixture.depth_mm, fixture.height_mm, fixture.width_mm, object])
+  }, [fixture.height_mm, footprint.depth_mm, footprint.width_mm, object])
 
   return <>
     <primitive object={scene} position={position} scale={scale} />
     <mesh position={[0, 0.01, 0]} visible={selected}>
-      <boxGeometry args={[fixture.width_mm / 1000, 0.02, fixture.depth_mm / 1000]} />
+      <boxGeometry args={[footprint.width_mm / 1000, 0.02, footprint.depth_mm / 1000]} />
       <meshStandardMaterial color="#c89638" transparent opacity={0.22} />
       <Edges color="#8a6725" />
     </mesh>
@@ -196,11 +197,12 @@ function FixtureAssetModel({ fixture, selected }: { fixture: FixtureSpec; select
   return null
 }
 
-class FixtureAssetBoundary extends Component<{fixture:FixtureSpec;children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(){}render(){if(!this.state.failed)return this.props.children;const f=this.props.fixture;return <mesh position={[0,f.height_mm/2000,0]}><boxGeometry args={[f.width_mm/1000,f.height_mm/1000,f.depth_mm/1000]}/><meshStandardMaterial color="#c9cbc5" roughness={0.82}/><Edges color="#6f756c"/></mesh>}}
+class FixtureAssetBoundary extends Component<{fixture:FixtureSpec;children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(){}render(){if(!this.state.failed)return this.props.children;const f=this.props.fixture,footprint=fixtureLocalFootprint(f);return <mesh position={[0,f.height_mm/2000,0]}><boxGeometry args={[footprint.width_mm/1000,f.height_mm/1000,footprint.depth_mm/1000]}/><meshStandardMaterial color="#c9cbc5" roughness={0.82}/><Edges color="#6f756c"/></mesh>}}
 
 function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; selected: boolean; onSelect: () => void }) {
-  const width = fixture.width_mm / 1000
-  const depth = fixture.depth_mm / 1000
+  const footprint = fixtureLocalFootprint(fixture)
+  const width = footprint.width_mm / 1000
+  const depth = footprint.depth_mm / 1000
   const height = fixture.height_mm / 1000
   const select = (event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); onSelect() }
   const outline = selected ? '#a46d13' : '#6f756c'

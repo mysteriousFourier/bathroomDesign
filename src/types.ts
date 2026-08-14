@@ -196,6 +196,7 @@ export interface RoomSpec {
   strip_existing_finish?: boolean
   finish_surface_offset_mm?: number
   wall_finish_thickness_mm?: number
+  wall_finish_gap_mm?: number
   wall_profiles?: WallProfile[]
   openings: OpeningSpec[]
   fixtures: FixtureSpec[]

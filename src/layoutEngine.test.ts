@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyLayoutSolution, blocksUseClearance, frontClearanceEnvelope, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
-import { manualRoom } from './spec'
+import { fixtureLocalFootprint, manualRoom } from './spec'
 import { modelDimensions } from './modelDimensions'
 import graphOutput from './generated-layout-products.json'
 import type { LayoutLevelDecision } from './types'
@@ -165,13 +165,19 @@ describe('deterministic requirement layout engine', () => {
     const laundry = generateLayoutSolutions(laundryRoom)[0]
     const washer = laundry.fixtures.find((fixture) => fixture.label.includes('洗衣机'))!
     expect([washer.width_mm, washer.depth_mm].sort((a, b) => a - b)).toEqual([608, 653])
+    expect(fixtureLocalFootprint({ ...washer, rotation_deg:90 })).toEqual({ width_mm:washer.depth_mm, depth_mm:washer.width_mm })
     expect(washer.height_mm).toBe(860)
     expect(washer.label).toContain(modelDimensions['洗衣机'].file_name)
+    expect(laundry.fixtures.some((fixture) => fixture.label === '自动洗衣机进水点' && fixture.kind === 'water')).toBe(true)
+    expect(laundry.fixtures.some((fixture) => fixture.label === '自动洗衣机电点' && fixture.kind === 'electric')).toBe(true)
+    expect(laundry.fixtures.filter((fixture) => fixture.kind === 'water' && fixture.point_usage === 'shower')).toHaveLength(2)
 
     const vanity = laundry.fixtures.find((fixture) => fixture.kind === 'vanity')!
     expect([vanity.width_mm, vanity.depth_mm, vanity.height_mm]).toEqual([800, 200, 800])
     expect(laundry.fixtures.find((fixture) => fixture.label.includes('热水器'))?.elevation_mm).toBeGreaterThan(1200)
     expect(laundry.fixtures.find((fixture) => fixture.label.includes('花洒'))?.elevation_mm).toBe(700)
+    expect(laundry.checks.find((item) => item.code === 'G06-WALL-ATTACH')).toMatchObject({ severity:'warning' })
+    expect(laundry.checks.find((item) => item.code === 'MEP-AUTO-POINTS')).toMatchObject({ passed:true, severity:'error' })
     expect(laundry.checks.find((item) => item.code === 'MODEL-DIMENSIONS')?.message).toContain('马桶')
   })
 })

@@ -538,6 +538,38 @@ function levelGraphProduct(product:LayoutProductInput):GraphProduct{return{graph
 function levelFallback(category:string){const defaults:Record<string,{width_mm:number;depth_mm:number;height_mm:number}>={"花洒":{width_mm:120,depth_mm:80,height_mm:1100},"热水器":{width_mm:720,depth_mm:180,height_mm:430},"马桶":{width_mm:380,depth_mm:680,height_mm:760},"浴室柜":{width_mm:800,depth_mm:500,height_mm:850},"适老浴室柜":{width_mm:800,depth_mm:500,height_mm:850},"洗衣机":{width_mm:600,depth_mm:620,height_mm:850},"淋浴椅":{width_mm:420,depth_mm:360,height_mm:450},"花洒扶手":{width_mm:80,depth_mm:600,height_mm:900},"马桶扶手":{width_mm:80,depth_mm:600,height_mm:750}};return defaults[category]??{width_mm:500,depth_mm:500,height_mm:800}}
 function levelRole(category:string){if(category==='马桶')return'toilet';if(['浴室柜','适老浴室柜'].includes(category))return'vanity';if(category==='洗衣机')return'washer';if(category==='热水器')return'heater';if(['花洒扶手','马桶扶手'].includes(category))return'grab_bars';return'wet_zone'}
 function levelKind(category:string):FixtureSpec['kind']{if(category==='马桶')return'toilet';if(['浴室柜','适老浴室柜'].includes(category))return'vanity';return'other'}
+const distinctLayoutWalls: Array<Partial<Record<'wet_zone'|'vanity'|'toilet', SemanticWall>>> = [
+  { wet_zone: 'east', vanity: 'west', toilet: 'north' },
+  { wet_zone: 'west', vanity: 'east', toilet: 'south' },
+  { wet_zone: 'south', vanity: 'north', toilet: 'east' },
+]
+function layoutScriptSignature(script: LayoutScript) {
+  return script.instructions.map((item) => `${item.fixture_role}:${item.wall}:${item.zone}:${item.near ?? ''}:${item.min_clearance_mm}`).sort().join('|')
+}
+function withDistinctLayoutWalls(level: LayoutLevelDecision, walls: Partial<Record<'wet_zone'|'vanity'|'toilet', SemanticWall>>) {
+  const availableRoles = new Set(['wet_zone', ...level.products.map((product) => levelRole(product.category))])
+  const instructions = level.layout_script.instructions.map((item) => {
+    const wall = walls[item.fixture_role as keyof typeof walls]
+    return wall && availableRoles.has(item.fixture_role) ? { ...item, wall } : item
+  })
+  for (const [role, wall] of Object.entries(walls) as Array<[keyof typeof walls, SemanticWall]>) {
+    if (availableRoles.has(role) && !instructions.some((item) => item.fixture_role === role)) instructions.push({ fixture_role: role, wall, zone: role === 'wet_zone' ? 'wet' : 'dry', min_clearance_mm: role === 'wet_zone' ? 0 : 600 })
+  }
+  return { ...level, layout_script: { ...level.layout_script, instructions } }
+}
+function diversifyDuplicateLayoutLevels(levels: LayoutLevelDecision[]) {
+  const used = new Set<string>()
+  return levels.map((level) => {
+    const initial = layoutScriptSignature(level.layout_script)
+    if (!used.has(initial)) { used.add(initial); return level }
+    for (const walls of distinctLayoutWalls) {
+      const diversified = withDistinctLayoutWalls(level, walls)
+      const signature = layoutScriptSignature(diversified.layout_script)
+      if (!used.has(signature)) { used.add(signature); return diversified }
+    }
+    return level
+  })
+}
 function makeLevelSolution(spec:RoomSpec,level:LayoutLevelDecision,preference?:LayoutPreference):LayoutSolution{
   const demand=level.demand_profile,budget=level.product_tier,quality=budgets.indexOf(budget),b=rectangleBounds(spec)
   const layoutScript=level.layout_script as LayoutScript,instruction=(role:string)=>layoutScript.instructions.find(i=>i.fixture_role===role)??layoutScript.instructions.find(i=>i.fixture_role==='wet_zone')??buildLayoutScript(demand,budget).instructions[0]
@@ -580,7 +612,7 @@ function makeLevelSolution(spec:RoomSpec,level:LayoutLevelDecision,preference?:L
 }
 
 export function generateLayoutSolutions(spec: RoomSpec, preference?: LayoutPreference) {
-  if(preference?.levels?.length)return preference.levels.slice(0,3).map(level=>makeLevelSolution(spec,level,preference))
+  if(preference?.levels?.length)return diversifyDuplicateLayoutLevels(preference.levels.slice(0,3)).map(level=>makeLevelSolution(spec,level,preference))
   return [generateAutomaticLayoutSolution(spec, preference)]
 }
 

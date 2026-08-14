@@ -167,7 +167,7 @@ function requiredRearWallGap(item: FixtureSpec) {
   if (item.kind === 'water' || item.kind === 'electric') return undefined
   if (item.kind === 'shower') return undefined
   if (/洗衣机/.test(item.label)) return WASHER_REAR_GAP_MM
-  if (/(热水器|花洒|扶手|淋浴椅|适老椅)/.test(item.label)) return 0
+  if (/(热水器|花洒|扶手|淋浴椅|适老椅|浴室柜)/.test(item.label)) return 0
   return undefined
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyLayoutSolution, blocksUseClearance, frontClearanceEnvelope, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
-import { fixtureLocalFootprint, manualRoom } from './spec'
+import { finishedRoomBoundary, fixtureLocalFootprint, manualRoom, projectPointToWall } from './spec'
 import { modelDimensions } from './modelDimensions'
 import graphOutput from './generated-layout-products.json'
 import type { LayoutLevelDecision } from './types'
@@ -172,15 +172,42 @@ describe('deterministic requirement layout engine', () => {
     expect(washer.label).toContain(modelDimensions['洗衣机'].file_name)
     expect(laundry.fixtures.some((fixture) => fixture.label === '自动洗衣机进水点' && fixture.kind === 'water')).toBe(true)
     expect(laundry.fixtures.some((fixture) => fixture.label === '自动洗衣机电点' && fixture.kind === 'electric')).toBe(true)
-    expect(laundry.fixtures.filter((fixture) => fixture.kind === 'water' && fixture.point_usage === 'shower')).toHaveLength(2)
+    const showerHead = laundry.fixtures.find((fixture) => fixture.label.includes('花洒') && !fixture.label.includes('扶手'))!
+    const showerWaterPoints = laundry.fixtures.filter((fixture) => fixture.kind === 'water' && fixture.point_usage === 'shower')
+    const showerWallIsVertical = showerHead.bound_wall_index === 1 || showerHead.bound_wall_index === 3
+    expect(showerWallIsVertical ? showerHead.z_mm : showerHead.x_mm).toBe(showerWallIsVertical ? laundry.wet_zone.z_mm : laundry.wet_zone.x_mm)
+    expect(showerWaterPoints).toHaveLength(2)
+    expect(showerWaterPoints.every((fixture) => fixture.bound_wall_index === showerHead.bound_wall_index)).toBe(true)
+    expect(showerWaterPoints.reduce((sum, fixture) => sum + (showerWallIsVertical ? fixture.z_mm : fixture.x_mm), 0) / 2).toBe(showerWallIsVertical ? showerHead.z_mm : showerHead.x_mm)
+    expect(showerWaterPoints.every((fixture) => {
+      const projection = projectPointToWall(finishedRoomBoundary({ ...laundryRoom, wall_finish_gap_mm:35 }), fixture.bound_wall_index!, fixture)
+      return projection?.distance_mm === 0
+    })).toBe(true)
 
     const vanity = laundry.fixtures.find((fixture) => fixture.kind === 'vanity')!
     expect([vanity.width_mm, vanity.depth_mm].sort((a, b) => a - b)).toEqual([200, 800])
     expect(vanity.height_mm).toBe(800)
+    expect(vanity.x_mm - vanity.width_mm / 2).toBeGreaterThanOrEqual(finishedRoomBoundary({ ...laundryRoom, wall_finish_gap_mm:35 })[3].x_mm + 5)
     expect(laundry.fixtures.find((fixture) => fixture.label.includes('热水器'))?.elevation_mm).toBeGreaterThan(1200)
     expect(laundry.fixtures.find((fixture) => fixture.label.includes('花洒'))?.elevation_mm).toBe(700)
     expect(laundry.checks.find((item) => item.code === 'G06-WALL-ATTACH')).toMatchObject({ severity:'warning' })
     expect(laundry.checks.find((item) => item.code === 'MEP-AUTO-POINTS')).toMatchObject({ passed:true, severity:'error' })
     expect(laundry.checks.find((item) => item.code === 'MODEL-DIMENSIONS')?.message).toContain('马桶')
+  })
+
+  it('keeps the accessible vanity fully inside the 35 mm wall-panel boundary', () => {
+    const product = graphOutput.scenarios.elderly_safe.products.find((item) => item.category === '适老浴室柜')!
+    const level = {
+      id:'level1' as const, name:'适老柜贴墙', reason:'适老柜墙板安装', demand_profile:'elderly_safe' as const, product_tier:'comfort' as const,
+      product_ids:[product.graph_id], products:[{ product_id:product.graph_id, catalog_code:product.code, category:product.category, spec:product.spec, unit_price:product.price, price_unit:'件' }],
+      layout_script:{ version:'layout-script-v1' as const, demand:'elderly_safe' as const, budget:'comfort' as const, source:'deterministic-rule-engine' as const, instructions:[
+        { fixture_role:'wet_zone', wall:'east' as const, zone:'wet' as const, min_clearance_mm:0 },
+        { fixture_role:'vanity', wall:'west' as const, zone:'dry' as const, min_clearance_mm:600 },
+      ] },
+    } satisfies LayoutLevelDecision
+    const vanity = generateLayoutSolutions(room, { levels:[level] }).at(0)!.fixtures.find((fixture) => fixture.kind === 'vanity')!
+    const finished = finishedRoomBoundary({ ...room, wall_finish_gap_mm:35 })
+    expect(vanity.bound_wall_index).toBe(3)
+    expect(vanity.x_mm - vanity.width_mm / 2).toBe(finished[3].x_mm + 5)
   })
 })

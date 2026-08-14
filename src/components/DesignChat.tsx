@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { studioApi } from '../api'
 import { polygonSignedArea } from '../spec'
 import type { ChatSession, ChatSessionSummary, DesignChatResponse, RoomSpec } from '../types'
+import { VOICE_MAX_TURN_MS, VOICE_MIN_TURN_MS, VOICE_PAUSE_MS, VoiceActivityDetector } from '../voiceActivity'
 
 type DesignChatProps = {
   open: boolean
@@ -72,6 +73,7 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
   const silenceStartedRef = useRef<number | null>(null)
   const recordingStartedRef = useRef(0)
   const discardRecordingRef = useRef(false)
+  const voiceActivityRef = useRef(new VoiceActivityDetector())
   const activeSessionRef = useRef(activeSession)
   const roomRef = useRef(room)
   const projectIdRef = useRef(projectId)
@@ -230,6 +232,7 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
   }
 
   function startVad(stream: MediaStream) {
+    voiceActivityRef.current.reset()
     const context = new AudioContext()
     const analyser = context.createAnalyser()
     analyser.fftSize = 1024
@@ -245,7 +248,8 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
       let energy = 0
       for (const sample of samples) energy += sample * sample
       const volume = Math.sqrt(energy / samples.length)
-      const speaking = volume > 0.035
+      const activity = voiceActivityRef.current.sample(volume, timestamp)
+      const speaking = activity.speaking
 
       if (!microphoneMutedRef.current && voiceStateRef.current === 'speaking') {
         speechFramesRef.current = speaking ? speechFramesRef.current + 1 : 0
@@ -259,10 +263,10 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
         speechFramesRef.current = speaking ? speechFramesRef.current + 1 : 0
         if (!recorderRef.current && speechFramesRef.current >= 2) startRecording()
         if (recorderRef.current) {
-          if (volume > 0.018) silenceStartedRef.current = null
+          if (volume > activity.continuationThreshold) silenceStartedRef.current = null
           else if (silenceStartedRef.current === null) silenceStartedRef.current = timestamp
           const elapsed = timestamp - recordingStartedRef.current
-          if ((silenceStartedRef.current !== null && timestamp - silenceStartedRef.current > 900 && elapsed > 700) || elapsed > 45_000) {
+          if ((silenceStartedRef.current !== null && timestamp - silenceStartedRef.current > VOICE_PAUSE_MS && elapsed > VOICE_MIN_TURN_MS) || elapsed > VOICE_MAX_TURN_MS) {
             stopRecording()
           }
         }

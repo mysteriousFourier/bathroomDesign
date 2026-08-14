@@ -68,6 +68,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const [uploading, setUploading] = useState(false)
   const [correcting, setCorrecting] = useState(false)
   const [error, setError] = useState('')
+  const [correctionNotice, setCorrectionNotice] = useState('')
 
   useEffect(() => {
     folderInputRef.current?.setAttribute('webkitdirectory', '')
@@ -112,6 +113,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
       validateModelImport(entries)
       setUploading(true)
       setError('')
+      setCorrectionNotice('')
       const uploaded = await studioApi.uploadModelAsset(projectId, entries)
       setUploadedAssets((current) => [uploaded, ...current])
       setSelectedId(uploaded.id)
@@ -159,13 +161,22 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const replaceAsset = (updated: ImportedModelAsset) => setUploadedAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
   const correctSelected = async (view: 'front' | 'top' | 'side') => {
     if (!selected || selected.builtIn) return
-    try { setError(''); replaceAsset(await studioApi.correctModelOrientation(projectId, selected.id, view)) }
+    try { setError(''); setCorrectionNotice(''); replaceAsset(await studioApi.correctModelOrientation(projectId, selected.id, view)) }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : '人工方向纠正失败') }
   }
   const autoCorrectAll = async () => {
     const pending = uploadedAssets.filter((asset) => !asset.orientation_corrected)
-    if (!pending.length) return
-    setCorrecting(true); setError('')
+    setError('')
+    if (!uploadedAssets.length) {
+      setCorrectionNotice('请先上传需要纠正方向的模型')
+      return
+    }
+    if (!pending.length) {
+      setCorrectionNotice('当前模型均已完成方向纠正，无需重复处理')
+      return
+    }
+    setCorrectionNotice('')
+    setCorrecting(true)
     try {
       for (const asset of pending) {
         const capture = previewCaptures.current[asset.id]
@@ -183,7 +194,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
           <strong>模型库</strong>
           <span>{assets.filter((asset) => asset.asset_type === 'fixture').length} 个设备模型 · {assets.filter((asset) => asset.asset_type === 'surface').length} 个板块材质</span>
         </div>
-        <button className="button secondary" type="button" disabled={correcting || !uploadedAssets.some((asset) => !asset.orientation_corrected)} onClick={() => void autoCorrectAll()}><ScanSearch size={16} />{correcting ? '视觉纠正中' : '一键纠正'}</button>
+        <button className="button secondary" type="button" disabled={correcting} onClick={() => void autoCorrectAll()}><ScanSearch size={16} />{correcting ? '视觉纠正中' : '一键纠正'}</button>
         <button className="button secondary" onClick={onOpenRoom} disabled={!canAddToRoom}><Box size={16} />三维房间</button>
       </div>
 
@@ -213,6 +224,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
       </div>
 
       {error && <div className="model-library-error" role="alert">{error}</div>}
+      {correctionNotice && <div className="model-library-notice" role="status">{correctionNotice}</div>}
 
       <div className="model-library-workbench">
         <section className="model-asset-list" aria-label="模型资产列表">

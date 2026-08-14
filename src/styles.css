@@ -455,6 +455,7 @@ p, h1, h2, figure { margin: 0; }
 .model-import-zone span { color: var(--muted); font-size: 10px; line-height: 1.45; }
 .model-import-actions { display: flex; gap: 6px; }
 .model-library-error { min-height: 32px; display: flex; align-items: center; padding: 7px 10px; border: 1px solid #d3a49e; border-radius: 3px; background: var(--red-soft); color: var(--red); font-size: 10px; }
+.model-library-notice { min-height: 32px; display: flex; align-items: center; padding: 7px 10px; border: 1px solid #a9bcae; border-radius: 3px; background: var(--green-soft); color: var(--green); font-size: 10px; }
 .model-library-workbench { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(210px, 30%) minmax(0, 1fr); border: 1px solid var(--line-strong); background: var(--surface); box-shadow: var(--shadow-1); }
 .model-asset-list { min-width: 0; min-height: 0; display: grid; grid-template-rows: 38px minmax(0, 1fr); border-right: 1px solid var(--line-strong); }
 .model-asset-list > header { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-bottom: 1px solid var(--line); }

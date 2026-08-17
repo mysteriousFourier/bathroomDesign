@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyLayoutSolution, blocksUseClearance, frontClearanceEnvelope, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
+import { applyLayoutSolution, blocksDoorEnvelope, blocksUseClearance, frontClearanceEnvelope, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
 import { finishedRoomBoundary, fixtureLocalFootprint, manualRoom, projectPointToWall } from './spec'
 import { modelDimensions } from './modelDimensions'
 import graphOutput from './generated-layout-products.json'
@@ -10,6 +10,19 @@ describe('deterministic requirement layout engine', () => {
   const room = manualRoom(3200, 2600, 2700)
   room.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 1300, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'measured', confidence: 1 })
   const solutions = generateLayoutSolutions(room)
+
+  it('checks every door, respects reverse wall direction, and differentiates outward/sliding doors', () => {
+    const multi = manualRoom(3000, 2400, 2600)
+    multi.openings.push(
+      { id:'reverse', kind:'door', wall_index:2, offset_mm:400, width_mm:800, height_mm:2100, sill_mm:0, label:'反向墙内开门', source:'measured', confidence:1, opening_form:'hinged', swing_direction:'inward' },
+      { id:'sliding', kind:'door', wall_index:1, offset_mm:500, width_mm:800, height_mm:2100, sill_mm:0, label:'推拉门', source:'measured', confidence:1, opening_form:'sliding', swing_direction:'unknown' },
+    )
+    const floorFixture=(x_mm:number,z_mm:number)=>({ id:'test', kind:'vanity' as const, label:'柜体', x_mm,z_mm,width_mm:300,depth_mm:300,height_mm:800,elevation_mm:0,rotation_deg:30,source:'derived' as const,confidence:1 })
+    expect(blocksDoorEnvelope(multi,floorFixture(2200,1700))).toBe(true)
+    expect(blocksDoorEnvelope(multi,floorFixture(2550,1200))).toBe(true)
+    expect(blocksDoorEnvelope(multi,floorFixture(2200,1200))).toBe(false)
+    expect(blocksDoorEnvelope(multi,{...floorFixture(2200,1700),elevation_mm:1500})).toBe(false)
+  })
 
   it('generates one measured-room constraint solution instead of fixed 3 by 3 templates', () => {
     expect(solutions).toHaveLength(1)
@@ -221,6 +234,7 @@ describe('deterministic requirement layout engine', () => {
     measuredRoom.fixtures.push(
       {id:'shower-drain-nonrect',kind:'floor_drain',label:'淋浴地漏',point_usage:'shower',x_mm:3775,z_mm:276,width_mm:75,depth_mm:75,height_mm:10,rotation_deg:0,source:'measured',confidence:1},
       {id:'toilet-drain-nonrect',kind:'drain',label:'马桶排水',point_usage:'toilet',x_mm:3596,z_mm:1455,width_mm:110,depth_mm:110,height_mm:10,rotation_deg:0,source:'measured',confidence:1},
+      {id:'toilet-for-toilet-drain-nonrect',kind:'toilet',label:'排污点临时马桶',x_mm:3596,z_mm:1455,width_mm:380,depth_mm:700,height_mm:760,rotation_deg:180,source:'derived',confidence:.9,evidence_ids:['toilet-drain:toilet-drain-nonrect']},
     )
     const solution = generateLayoutSolutions(measuredRoom)[0]
     const vanity = solution.fixtures.find((fixture)=>fixture.kind==='vanity')!

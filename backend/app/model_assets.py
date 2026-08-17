@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import mimetypes
 import re
 import shutil
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -24,6 +26,28 @@ ALLOWED_EXTENSIONS = PRIMARY_EXTENSIONS | {
 MAX_MODEL_FILES = 300
 MAX_MODEL_BYTES = 200 * 1024 * 1024
 MODEL_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
+_STORE_LOCK = threading.Lock()
+
+CATEGORY_DIMENSIONS: dict[str, dict[str, float]] = {
+    "散热器": {"width": 500, "depth": 160, "height": 700},
+    "花洒扶手": {"width": 80, "depth": 600, "height": 900},
+    "马桶扶手": {"width": 80, "depth": 600, "height": 750},
+    "淋浴椅": {"width": 420, "depth": 360, "height": 450},
+    "马桶": {"width": 380, "depth": 680, "height": 760},
+    "洗衣机": {"width": 600, "depth": 620, "height": 850},
+    "水龙头": {"width": 80, "depth": 160, "height": 160},
+    "热水器": {"width": 720, "depth": 180, "height": 430},
+    "花洒": {"width": 120, "depth": 80, "height": 1100},
+}
+
+CATALOG_BINDINGS: dict[str, tuple[list[str], str]] = {
+    "无障碍扶手-折叠式": (["FSM-1"], "外观复核为壁挂折叠马桶扶手"),
+    "无障碍折叠椅1": (["LYY-1"], "外观复核为带扶手的无障碍淋浴椅"),
+    "智能坐便器": (["MT3"], "文件名和外观对应智能马桶产品"),
+    "洗衣机": (["XYJ1-1"], "外观复核为白色波轮洗衣机"),
+    "热水器": (["RSQ1-1", "RSQ2-1"], "白色 60L 横式热水器共用外观模型"),
+    "花洒": (["HS2-1"], "外观复核为枪灰色恒温花洒"),
+}
 
 
 def _now_iso() -> str:
@@ -46,18 +70,122 @@ def _safe_relative_path(raw_path: str) -> PurePosixPath:
     return path
 
 
-def _asset_root(project_id: str) -> Path:
-    return db.asset_dir / project_id / "model-assets"
+def _asset_root() -> Path:
+    return db.data_dir / "model-assets"
 
 
-def _metadata_path(project_id: str, asset_id: str) -> Path:
+def _metadata_path(asset_id: str) -> Path:
     if not MODEL_ID_PATTERN.fullmatch(asset_id):
         raise HTTPException(status_code=404, detail="模型资产不存在")
-    return _asset_root(project_id) / asset_id / "asset.json"
+    return _asset_root() / asset_id / "asset.json"
 
 
 def _response_from_metadata(metadata: dict[str, object]) -> ModelAssetResponse:
     return ModelAssetResponse.model_validate(metadata)
+
+
+def _category_for_label(label: str) -> str | None:
+    normalized = label.replace(" ", "")
+    if "洗衣机龙头" in normalized or "水龙头" in normalized:
+        return "水龙头"
+    if "小背篓" in normalized or "散热器" in normalized:
+        return "散热器"
+    if "折叠椅" in normalized or "淋浴椅" in normalized or "坐凳" in normalized:
+        return "淋浴椅"
+    if "扶手B1" in normalized.upper() or ("扶手" in normalized and "折叠" in normalized):
+        return "马桶扶手"
+    if "扶手" in normalized:
+        return "花洒扶手"
+    if "智能坐便" in normalized or "坐便器" in normalized or "马桶" in normalized:
+        return "马桶"
+    if "洗衣机" in normalized:
+        return "洗衣机"
+    if "热水器" in normalized:
+        return "热水器"
+    if "花洒" in normalized:
+        return "花洒"
+    return None
+
+
+def _builtin_assets() -> list[dict[str, object]]:
+    path = Path(__file__).resolve().parents[1] / "data" / "model_library.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload.get("assets", []) if isinstance(payload, dict) else []
+    except (OSError, ValueError, TypeError):
+        return []
+
+
+def _builtin_duplicate(project_id: str, sha256: str) -> ModelAssetResponse | None:
+    asset = next((item for item in _builtin_assets() if item.get("asset_type") == "fixture" and item.get("sha256") == sha256), None)
+    if not asset:
+        return None
+    codes = list(asset.get("catalog_codes") or [])
+    products = _catalog_products()
+    return ModelAssetResponse(
+        id=str(asset["id"]), project_id=project_id, label=str(asset["label"]),
+        filename=str(asset["filename"]), format=str(asset["format"]),
+        bytes=int(asset["bytes"]), sha256=sha256, file_count=int(asset.get("file_count") or 1),
+        created_at=_now_iso(), src=str(asset["src"]), library_scope="builtin", deduplicated=True,
+        category=str(asset.get("category") or "") or None, dimensions_mm=asset.get("dimensions_mm"),
+        catalog_codes=codes,
+        product_ids=[products[code][1] for code in codes if code in products],
+        binding_status="bound" if codes else "unbound",
+        binding_note="内置模型库产品编号绑定",
+    )
+
+
+def _catalog_products() -> dict[str, tuple[str, str]]:
+    path = Path(__file__).resolve().parents[1] / "data" / "product_catalog.csv"
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as source:
+            rows = list(csv.DictReader(source))
+    except OSError:
+        return {}
+    result: dict[str, tuple[str, str]] = {}
+    for row in rows:
+        code, category = (row.get("材料编号") or "").strip(), (row.get("材料名称") or "").strip()
+        if code and category:
+            result[code] = (category, hashlib.sha256(f"{code}|{category}".encode()).hexdigest()[:20])
+    return result
+
+
+def _binding_for_label(label: str, category: str | None) -> dict[str, object]:
+    codes, note = CATALOG_BINDINGS.get(label, ([], "当前产品目录没有可确认的对应 SKU"))
+    products = _catalog_products()
+    valid = [code for code in codes if code in products and products[code][0] == category]
+    return {
+        "catalog_codes": valid,
+        "product_ids": [products[code][1] for code in valid],
+        "binding_status": "bound" if valid else "unbound",
+        "binding_note": note if valid else "当前产品目录没有可确认的对应 SKU",
+    }
+
+
+def _backfill_binding(metadata_path: Path, metadata: dict[str, object]) -> dict[str, object]:
+    binding = _binding_for_label(str(metadata.get("label") or ""), str(metadata.get("category") or "") or None)
+    if all(metadata.get(key) == value for key, value in binding.items()):
+        return metadata
+    metadata.update(binding)
+    response = _response_from_metadata(metadata)
+    temporary = metadata_path.with_suffix(".json.tmp")
+    temporary.write_text(response.model_dump_json(indent=2), encoding="utf-8")
+    temporary.replace(metadata_path)
+    return response.model_dump(mode="json")
+
+
+def list_shared_model_assets() -> list[ModelAssetResponse]:
+    root = _asset_root()
+    if not root.is_dir():
+        return []
+    assets: list[ModelAssetResponse] = []
+    for metadata_path in root.glob("*/asset.json"):
+        try:
+            metadata = _backfill_binding(metadata_path, json.loads(metadata_path.read_text(encoding="utf-8")))
+            assets.append(_response_from_metadata(metadata))
+        except (OSError, ValueError, TypeError):
+            continue
+    return sorted(assets, key=lambda asset: asset.created_at, reverse=True)
 
 
 async def store_model_asset(
@@ -78,10 +206,9 @@ async def store_model_asset(
     if len(primary_indexes) != 1:
         raise HTTPException(status_code=422, detail="每次导入需要且只能包含一个 GLB、GLTF、FBX、3DS 或 OBJ 主模型")
 
-    asset_id = uuid.uuid4().hex
-    asset_root = _asset_root(project_id)
-    temp_root = asset_root / f".upload-{asset_id}"
-    final_root = asset_root / asset_id
+    upload_id = uuid.uuid4().hex
+    asset_root = _asset_root()
+    temp_root = asset_root / f".upload-{upload_id}"
     files_root = temp_root / "files"
     primary_index = primary_indexes[0]
     primary_path = safe_paths[primary_index]
@@ -105,8 +232,17 @@ async def store_model_asset(
         if primary_bytes == 0:
             raise HTTPException(status_code=422, detail="主模型文件为空")
 
+        digest = primary_hash.hexdigest()
+        builtin = _builtin_duplicate(project_id, digest)
+        if builtin:
+            shutil.rmtree(temp_root, ignore_errors=True)
+            return builtin
+
+        asset_id = digest[:32]
+        final_root = asset_root / asset_id
         encoded_path = quote(primary_path.as_posix(), safe="/")
         label = primary_path.stem[:120]
+        category = _category_for_label(label)
         metadata = ModelAssetResponse(
             id=asset_id,
             project_id=project_id,
@@ -114,14 +250,23 @@ async def store_model_asset(
             filename=primary_path.name,
             format=primary_path.suffix.lower().lstrip("."),
             bytes=primary_bytes,
-            sha256=primary_hash.hexdigest(),
+            sha256=digest,
             file_count=len(files),
             created_at=_now_iso(),
-            src=f"/api/projects/{project_id}/model-assets/{asset_id}/files/{encoded_path}",
+            src=f"/api/model-assets/{asset_id}/files/{encoded_path}",
+            category=category,
+            dimensions_mm=CATEGORY_DIMENSIONS.get(category or ""),
+            **_binding_for_label(label, category),
         )
-        (temp_root / "asset.json").write_text(metadata.model_dump_json(indent=2), encoding="utf-8")
-        final_root.parent.mkdir(parents=True, exist_ok=True)
-        temp_root.replace(final_root)
+        with _STORE_LOCK:
+            existing_path = final_root / "asset.json"
+            if existing_path.is_file():
+                existing = _response_from_metadata(_backfill_binding(existing_path, json.loads(existing_path.read_text(encoding="utf-8"))))
+                shutil.rmtree(temp_root, ignore_errors=True)
+                return existing.model_copy(update={"deduplicated": True})
+            (temp_root / "asset.json").write_text(metadata.model_dump_json(indent=2), encoding="utf-8")
+            final_root.parent.mkdir(parents=True, exist_ok=True)
+            temp_root.replace(final_root)
         return metadata
     except Exception:
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -133,30 +278,26 @@ async def store_model_asset(
 
 def list_model_assets(project_id: str) -> list[ModelAssetResponse]:
     db.get_project(project_id)
-    root = _asset_root(project_id)
-    if not root.is_dir():
-        return []
-    assets: list[ModelAssetResponse] = []
-    for metadata_path in root.glob("*/asset.json"):
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            assets.append(_response_from_metadata(metadata))
-        except (OSError, ValueError, TypeError):
-            continue
-    return sorted(assets, key=lambda asset: asset.created_at, reverse=True)
+    return list_shared_model_assets()
 
 
 def delete_model_asset(project_id: str, asset_id: str) -> None:
     db.get_project(project_id)
-    metadata_path = _metadata_path(project_id, asset_id)
+    metadata_path = _metadata_path(asset_id)
     if not metadata_path.is_file():
         raise HTTPException(status_code=404, detail="模型资产不存在")
+    if any(
+        fixture.model_asset and fixture.model_asset.id == asset_id
+        for project in db.list_projects() if project.spec
+        for fixture in project.spec.fixtures
+    ):
+        raise HTTPException(status_code=409, detail="模型仍被项目布局使用，不能删除")
     shutil.rmtree(metadata_path.parent)
 
 
 def set_model_orientation(project_id: str, asset_id: str, view: str, source: str) -> ModelAssetResponse:
     db.get_project(project_id)
-    metadata_path = _metadata_path(project_id, asset_id)
+    metadata_path = _metadata_path(asset_id)
     if not metadata_path.is_file():
         raise HTTPException(status_code=404, detail="模型资产不存在")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -168,9 +309,8 @@ def set_model_orientation(project_id: str, asset_id: str, view: str, source: str
     return response
 
 
-def resolve_model_asset_file(project_id: str, asset_id: str, relative_path: str) -> tuple[Path, str]:
-    db.get_project(project_id)
-    metadata_path = _metadata_path(project_id, asset_id)
+def resolve_model_asset_file(asset_id: str, relative_path: str) -> tuple[Path, str]:
+    metadata_path = _metadata_path(asset_id)
     if not metadata_path.is_file():
         raise HTTPException(status_code=404, detail="模型资产不存在")
     safe_path = _safe_relative_path(relative_path)

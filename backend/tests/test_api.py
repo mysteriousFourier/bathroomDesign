@@ -561,6 +561,7 @@ async def test_model_folder_upload_list_read_and_delete(tmp_path) -> None:
     db.initialize()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         project_id = (await client.post("/api/projects", json={"name": "模型文件夹"})).json()["id"]
+        second_project_id = (await client.post("/api/projects", json={"name": "复用模型的项目"})).json()["id"]
         uploaded = await client.post(
             f"/api/projects/{project_id}/model-assets",
             data={"relative_paths": ["basin/model.gltf", "basin/model.bin", "basin/textures/albedo.png"]},
@@ -576,10 +577,27 @@ async def test_model_folder_upload_list_read_and_delete(tmp_path) -> None:
         assert asset["format"] == "gltf"
         assert asset["file_count"] == 3
         assert asset["sha256"] == "f74cabc3532658af0aa3e7abdd6939d22aa5cd78849dc06e3817248fe1c3788d"
+        assert asset["library_scope"] == "shared"
+        assert asset["src"].startswith("/api/model-assets/")
+
+        duplicate = await client.post(
+            f"/api/projects/{second_project_id}/model-assets",
+            data={"relative_paths": ["basin/model.gltf", "basin/model.bin", "basin/textures/albedo.png"]},
+            files=[
+                ("files", ("model.gltf", b'{"asset":{"version":"2.0"}}', "model/gltf+json")),
+                ("files", ("model.bin", b"different-dependency-is-not-a-second-model", "application/octet-stream")),
+                ("files", ("albedo.png", b"different-texture", "image/png")),
+            ],
+        )
+        assert duplicate.status_code == 201
+        assert duplicate.json()["id"] == asset["id"]
+        assert duplicate.json()["deduplicated"] is True
 
         listed = await client.get(f"/api/projects/{project_id}/model-assets")
         assert listed.status_code == 200
         assert [item["id"] for item in listed.json()] == [asset["id"]]
+        second_project_assets = (await client.get(f"/api/projects/{second_project_id}/model-assets")).json()
+        assert [item["id"] for item in second_project_assets] == [asset["id"]]
 
         corrected = await client.put(
             f"/api/projects/{project_id}/model-assets/{asset['id']}/orientation",
@@ -626,3 +644,32 @@ async def test_model_upload_rejects_unsafe_paths_and_multiple_primary_files(tmp_
         )
         assert multiple.status_code == 422
         assert "只能包含一个" in multiple.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_shared_model_requires_exact_product_binding_for_layout(tmp_path) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "产品模型绑定"})).json()["id"]
+        smart_toilet = await client.post(
+            f"/api/projects/{project_id}/model-assets",
+            data={"relative_paths": "智能坐便器.fbx"},
+            files={"files": ("智能坐便器.fbx", b"smart-toilet-model", "application/octet-stream")},
+        )
+        generic = await client.post(
+            f"/api/projects/{project_id}/model-assets",
+            data={"relative_paths": "普通模型.fbx"},
+            files={"files": ("普通模型.fbx", b"generic-model", "application/octet-stream")},
+        )
+
+    assert smart_toilet.json()["catalog_codes"] == ["MT3"]
+    assert smart_toilet.json()["product_ids"] == ["8d29797a7862c52c3e74"]
+    assert smart_toilet.json()["binding_status"] == "bound"
+    assert generic.json()["catalog_codes"] == []
+    assert generic.json()["binding_status"] == "unbound"
+
+    from backend.app.design_chat import _model_lookup
+    lookup = _model_lookup({"id": "8d29797a7862c52c3e74", "attributes": {"材料编号": "MT3", "材料名称": "马桶", "风格": "通用", "规格型号": "智能马桶"}}, {})
+    assert lookup["model_asset_id"] == smart_toilet.json()["id"]
+    assert lookup["binding_status"] == "bound"

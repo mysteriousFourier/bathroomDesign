@@ -30,13 +30,16 @@ function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
     version: '1.0.0',
     sha256: asset.sha256,
     bytes: asset.bytes,
-    source: '项目上传',
+    source: asset.library_scope === 'builtin' ? '内置模型库' : '共享模型库',
     source_asset_id: asset.id,
     lifecycle: 'approved',
-    dimensions_mm: defaultDimensions,
+    dimensions_mm: asset.dimensions_mm ?? defaultDimensions,
+    category: asset.category ?? undefined,
+    asset_type: 'fixture',
+    catalog_codes: asset.catalog_codes,
     filename: asset.filename,
     fileCount: asset.file_count,
-    builtIn: false,
+    builtIn: asset.library_scope === 'builtin',
     orientation_view: asset.orientation_view,
     orientation_corrected: asset.orientation_corrected,
     orientation_source: asset.orientation_source,
@@ -115,8 +118,11 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
       setError('')
       setCorrectionNotice('')
       const uploaded = await studioApi.uploadModelAsset(projectId, entries)
-      setUploadedAssets((current) => [uploaded, ...current])
+      setUploadedAssets((current) => uploaded.library_scope === 'builtin'
+        ? current
+        : [uploaded, ...current.filter((asset) => asset.id !== uploaded.id)])
       setSelectedId(uploaded.id)
+      if (uploaded.deduplicated) setCorrectionNotice(`“${uploaded.label}”已在${uploaded.library_scope === 'builtin' ? '内置' : '共享'}模型库中，未重复入库`)
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : '模型上传失败')
     } finally {
@@ -255,6 +261,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <div><span>文件</span><strong>{selected.fileCount}</strong></div>
               <div><span>尺寸</span><strong>{selectedDimensions.width} × {selectedDimensions.depth} × {selectedDimensions.height} mm</strong></div>
               <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '暂无'}</code></div>
+              {!selected.builtIn && <div><span>产品绑定</span><strong>{selected.catalog_codes?.length ? selected.catalog_codes.join('、') : '未绑定，不参与自动报价布局'}</strong></div>}
             </div>
             {!selected.builtIn && <div className="model-orientation-controls"><span>方向纠正</span>{(['front', 'top', 'side'] as const).map((view) => <button key={view} type="button" className={`button compact ${selected.orientation_view === view ? 'primary' : 'secondary'}`} onClick={() => void correctSelected(view)}>{{ front: '正面', top: '顶面', side: '侧面' }[view]}</button>)}<small>{selected.orientation_corrected ? `${selected.orientation_source === 'auto' ? '视觉自动' : '人工'}纠正完成` : '尚未纠正'}</small></div>}
           </> : selected ? <>

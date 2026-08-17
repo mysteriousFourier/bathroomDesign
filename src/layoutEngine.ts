@@ -122,7 +122,7 @@ function axisCuts(length:number,tile:number,offset:number){const first=offset===
 export function optimizeFloorLayout(spec:RoomSpec,tileWidthMm:number,tileDepthMm:number):FloorLayoutPlan{const b=rectangleBounds(spec),width=b.maxX-b.minX,depth=b.maxZ-b.minZ;const tileLongAxisIsWidth=tileWidthMm>=tileDepthMm;const roomShortAxisIsWidth=width<=depth;const requiredRotation:0|90=tileLongAxisIsWidth===roomShortAxisIsWidth?0:90;let best:FloorLayoutPlan|null=null;for(const rotation of [requiredRotation]){const tw=rotation===0?tileWidthMm:tileDepthMm,td=rotation===0?tileDepthMm:tileWidthMm;for(const ox of [...new Set([0,Math.round((width%tw)/2),width%tw])])for(const oz of [...new Set([0,Math.round((depth%td)/2),depth%td])]){const x=axisCuts(width,tw,ox),z=axisCuts(depth,td,oz),cuts=x.cuts*Math.ceil(depth/td)+z.cuts*Math.ceil(width/tw),narrow=x.narrow*Math.ceil(depth/td)+z.narrow*Math.ceil(width/tw),min=Math.round(Math.min(x.min,z.min)),score=100000-narrow*10000-cuts*100+min;const c:FloorLayoutPlan={rotation_deg:rotation,offset_x_mm:ox,offset_z_mm:oz,cut_count:cuts,narrow_cut_count:narrow,min_edge_mm:min,score,description:`长边沿房型短边 · ${rotation?'旋转90°':'横向'}铺贴 · 起铺偏移 ${ox}/${oz}mm · 窄条 ${narrow} · 最窄边条 ${min}mm`};if(!best||c.score>best.score)best=c}}return best as FloorLayoutPlan}
 
 function fixture(id: string, kind: FixtureSpec['kind'], label: string, x_mm: number, z_mm: number, width_mm: number, depth_mm: number, height_mm: number, rotation_deg = 0, elevation_mm = 0): FixtureSpec {
-  return { id, kind, label, x_mm: Math.round(x_mm), z_mm: Math.round(z_mm), width_mm, depth_mm, height_mm, elevation_mm, rotation_deg, source: 'derived', confidence: 1, layout_generated: true }
+  return { id, kind, label, x_mm: Math.round(x_mm), z_mm: Math.round(z_mm), width_mm, depth_mm, height_mm, elevation_mm, rotation_deg, source: 'derived', confidence: 1, layout_generated: true, position_status:'proposed' }
 }
 
 function snapshotAsset(lookup?: ModelLookup): FixtureModelAsset | undefined {
@@ -155,8 +155,17 @@ function productFixture(id: string, kind: FixtureSpec['kind'], product: GraphPro
   return result
 }
 
+type OrientedBox = { x_mm:number; z_mm:number; width_mm:number; depth_mm:number; rotation_deg:number }
+function physicalRotation(rotation:number) { const normalized=((rotation%360)+360)%360;return normalized%90===0?0:normalized }
+function boxAxes(box: OrientedBox) { const angle=physicalRotation(box.rotation_deg)*Math.PI/180,c=Math.cos(angle),s=Math.sin(angle);return [{x:c,z:s},{x:-s,z:c}] }
 function overlaps(a: FixtureSpec, b: FixtureSpec, clearance = 0) {
-  return Math.abs(a.x_mm - b.x_mm) < (a.width_mm + b.width_mm) / 2 + clearance && Math.abs(a.z_mm - b.z_mm) < (a.depth_mm + b.depth_mm) / 2 + clearance
+  const boxes:OrientedBox[]=[a,b].map(item=>({x_mm:item.x_mm,z_mm:item.z_mm,width_mm:item.width_mm+clearance*2,depth_mm:item.depth_mm+clearance*2,rotation_deg:item.rotation_deg??0}))
+  const axes=[...boxAxes(boxes[0]),...boxAxes(boxes[1])]
+  return axes.every(axis=>{
+    const projection=(box:OrientedBox)=>{const own=boxAxes(box);return Math.abs(axis.x*own[0].x+axis.z*own[0].z)*box.width_mm/2+Math.abs(axis.x*own[1].x+axis.z*own[1].z)*box.depth_mm/2}
+    const distance=Math.abs((boxes[1].x_mm-boxes[0].x_mm)*axis.x+(boxes[1].z_mm-boxes[0].z_mm)*axis.z)
+    return distance < projection(boxes[0])+projection(boxes[1])-0.5
+  })
 }
 
 const BODY_GAP_MM = 50
@@ -239,7 +248,8 @@ function fixtureInsideRoom(f: FixtureSpec, polygon: RoomSpec['boundary']) {
   // Model envelopes contain decimal millimetres while solved coordinates are integers.
   // Keep a 1 mm numeric tolerance so rounding does not turn wall contact into overflow.
   const hw = Math.max(0, f.width_mm / 2 - 1); const hd = Math.max(0, f.depth_mm / 2 - 1)
-  return [[f.x_mm - hw, f.z_mm - hd], [f.x_mm + hw, f.z_mm - hd], [f.x_mm + hw, f.z_mm + hd], [f.x_mm - hw, f.z_mm + hd]].every(([x, z]) => pointInPolygon(x, z, polygon))
+  const angle=physicalRotation(f.rotation_deg??0)*Math.PI/180,c=Math.cos(angle),s=Math.sin(angle)
+  return [[-hw,-hd],[hw,-hd],[hw,hd],[-hw,hd]].map(([x,z])=>[f.x_mm+x*c-z*s,f.z_mm+x*s+z*c]).every(([x, z]) => pointInPolygon(x, z, polygon))
 }
 
 function permittedAssembly(a: FixtureSpec, b: FixtureSpec) {
@@ -297,7 +307,19 @@ export function blocksUseClearance(candidate: FixtureSpec, clearance: FixtureSpe
   // Fixture bodies cannot enter it, but standing/use clearances may overlap it.
   return !isSpatialWetZone(other) && !permittedAssembly(candidate, other) && overlaps(clearance, other)
 }
-function blocksDoorEnvelope(spec:RoomSpec,f:FixtureSpec){if((f.elevation_mm??0)>0)return false;const door=spec.openings.find(o=>o.kind==='door');if(!door)return false;const s=spec.boundary[door.wall_index],e=spec.boundary[(door.wall_index+1)%spec.boundary.length],b=rectangleBounds(spec),horizontal=Math.abs(e.x_mm-s.x_mm)>=Math.abs(e.z_mm-s.z_mm);if(horizontal){const lo=Math.min(s.x_mm,e.x_mm)+door.offset_mm,hi=lo+door.width_mm,top=s.z_mm>b.minZ+(b.maxZ-b.minZ)/2;return f.x_mm+f.width_mm/2>lo&&f.x_mm-f.width_mm/2<hi&&(top?f.z_mm+f.depth_mm/2>s.z_mm-800:f.z_mm-f.depth_mm/2<s.z_mm+800)}const lo=Math.min(s.z_mm,e.z_mm)+door.offset_mm,hi=lo+door.width_mm,right=s.x_mm>b.minX+(b.maxX-b.minX)/2;return f.z_mm+f.depth_mm/2>lo&&f.z_mm-f.depth_mm/2<hi&&(right?f.x_mm+f.width_mm/2>s.x_mm-800:f.x_mm-f.width_mm/2<s.x_mm+800)}
+export function blocksDoorEnvelope(spec:RoomSpec,f:FixtureSpec){
+  if((f.elevation_mm??0)>50)return false
+  return spec.openings.filter(o=>o.kind==='door'&&o.wall_index<spec.boundary.length).some(door=>{
+    const s=spec.boundary[door.wall_index],e=spec.boundary[(door.wall_index+1)%spec.boundary.length]
+    const length=Math.hypot(e.x_mm-s.x_mm,e.z_mm-s.z_mm);if(!length)return true
+    const tangent={x:(e.x_mm-s.x_mm)/length,z:(e.z_mm-s.z_mm)/length},inward=wallInwardNormal(layoutBoundary(spec),door.wall_index)
+    const form=door.opening_form??'unknown',swing=door.swing_direction??'unknown'
+    const depth=(form==='sliding'||form==='pocket'||swing==='outward')?300:Math.max(800,door.width_mm)
+    const horizontal=Math.abs(tangent.x)>=Math.abs(tangent.z)
+    const envelope:FixtureSpec={...f,id:`door-envelope-${door.id}`,label:'门洞开启及通行包络',x_mm:s.x_mm+tangent.x*(door.offset_mm+door.width_mm/2)+inward.x*depth/2,z_mm:s.z_mm+tangent.z*(door.offset_mm+door.width_mm/2)+inward.z*depth/2,width_mm:horizontal?door.width_mm:depth,depth_mm:horizontal?depth:door.width_mm,rotation_deg:0,height_mm:1,elevation_mm:0}
+    return overlaps(f,envelope)
+  })
+}
 type PlacementAnchor = { x_mm: number; z_mm: number; rotation_deg?: number; locked?: boolean; max_distance_mm?: number }
 
 function showerDrainPoint(spec: RoomSpec) {
@@ -343,8 +365,12 @@ function infrastructureRule(spec: RoomSpec, instruction: LayoutInstruction, anch
   return anchor ? { ...instruction, wall: wallNearestPoint(spec, anchor) } : instruction
 }
 
+function isToiletDrainPlaceholder(fixture: FixtureSpec) {
+  return fixture.kind === 'toilet' && fixture.evidence_ids?.some((id) => id.startsWith('toilet-drain:'))
+}
+
 function fixedLayoutObstacles(spec: RoomSpec) {
-  return spec.fixtures.filter((fixture) => !fixture.layout_generated && ['pipe', 'column', 'radiator', 'other'].includes(fixture.kind))
+  return spec.fixtures.filter((fixture) => !fixture.layout_generated && !isToiletDrainPlaceholder(fixture) && !['floor_drain','drain','water','electric'].includes(fixture.kind))
 }
 
 function placementWallIndices(spec: RoomSpec, item: FixtureSpec, preferredWall: Exclude<SemanticWall, 'nearest_plumbing'>, target: { x:number; z:number }, rearGap: number | undefined, anchor?: PlacementAnchor) {
@@ -379,7 +405,7 @@ function retainFixtureAcrossLayouts(fixture: FixtureSpec) {
   if (['floor_drain', 'drain', 'water', 'electric', 'pipe', 'column', 'radiator'].includes(fixture.kind)) return true
   // `syncToiletWithDrain` creates a temporary product placeholder. The selected
   // catalog toilet replaces it while its measured drain remains untouched.
-  if (fixture.kind === 'toilet' && fixture.evidence_ids?.some((id) => id.startsWith('toilet-drain:'))) return false
+  if (isToiletDrainPlaceholder(fixture)) return false
   return true
 }
 

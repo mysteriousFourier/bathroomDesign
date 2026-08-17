@@ -139,6 +139,7 @@ export interface FixtureSpec {
   model_asset?: FixtureModelAsset | null
   // Layout runs may be replaced without discarding measured utility points.
   layout_generated?: boolean
+  position_status?: 'measured' | 'proposed'
 }
 
 export interface WallProfile {
@@ -299,6 +300,14 @@ export interface ImportedModelAsset {
   orientation_view: 'front' | 'top' | 'side' | null
   orientation_corrected: boolean
   orientation_source: 'auto' | 'manual' | null
+  library_scope: 'shared' | 'builtin'
+  deduplicated: boolean
+  category: string | null
+  dimensions_mm: { width: number; depth: number; height: number } | null
+  catalog_codes: string[]
+  product_ids: string[]
+  binding_status: 'bound' | 'unbound'
+  binding_note: string | null
 }
 
 export interface CaptureCheck {

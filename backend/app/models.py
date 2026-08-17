@@ -108,6 +108,7 @@ class FixtureSpec(BaseModel):
     width_mm: int = Field(gt=0)
     depth_mm: int = Field(gt=0)
     height_mm: int = Field(gt=0)
+    elevation_mm: int = Field(default=0, ge=0)
     rotation_deg: int = 0
     source: SourceKind = SourceKind.estimated
     confidence: float = Field(default=0.5, ge=0, le=1)
@@ -116,6 +117,7 @@ class FixtureSpec(BaseModel):
     point_usage: Literal["general", "toilet", "shower", "basin"] | None = None
     model_asset: ModelAsset | None = None
     layout_generated: bool = False
+    position_status: Literal["measured", "proposed"] | None = None
 
 
 class WallProfile(BaseModel):
@@ -890,6 +892,14 @@ class ModelAssetResponse(BaseModel):
     orientation_view: Literal["front", "top", "side"] | None = None
     orientation_corrected: bool = False
     orientation_source: Literal["auto", "manual"] | None = None
+    library_scope: Literal["shared", "builtin"] = "shared"
+    deduplicated: bool = False
+    category: str | None = None
+    dimensions_mm: dict[str, float] | None = None
+    catalog_codes: list[str] = Field(default_factory=list)
+    product_ids: list[str] = Field(default_factory=list)
+    binding_status: Literal["bound", "unbound"] = "unbound"
+    binding_note: str | None = None
 
 
 class ModelOrientationRequest(BaseModel):

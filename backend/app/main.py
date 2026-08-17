@@ -339,9 +339,16 @@ async def auto_correct_model_orientation(project_id: str, asset_id: str, request
 @app.get("/api/projects/{project_id}/model-assets/{asset_id}/files/{relative_path:path}")
 def model_asset_file(project_id: str, asset_id: str, relative_path: str) -> FileResponse:
     try:
-        path, media_type = resolve_model_asset_file(project_id, asset_id, relative_path)
+        project_or_404(project_id)
+        path, media_type = resolve_model_asset_file(asset_id, relative_path)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="项目不存在") from error
+    return FileResponse(path, media_type=media_type)
+
+
+@app.get("/api/model-assets/{asset_id}/files/{relative_path:path}")
+def shared_model_asset_file(asset_id: str, relative_path: str) -> FileResponse:
+    path, media_type = resolve_model_asset_file(asset_id, relative_path)
     return FileResponse(path, media_type=media_type)
 
 

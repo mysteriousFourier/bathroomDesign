@@ -163,6 +163,11 @@ def build_fixture_assets(catalog: list[dict[str, str]], dimensions: dict[str, di
             dimension = dimensions.get(relative, {})
             tier = price_tier(index, len(sources))
             assigned_codes = code_assignments[index]
+            # The single bundled washer mesh is a top-loader asset. Keep the
+            # front-loader SKU unbound until a matching model is supplied;
+            # the UI renders a proportional front-loader proxy in the meantime.
+            if category == "洗衣机":
+                assigned_codes = [code for code in assigned_codes if code != "XYJ2-1"]
             target = destination_dir / source.name
             assets.append({
                 "id": asset_id,

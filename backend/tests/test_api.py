@@ -672,4 +672,6 @@ async def test_shared_model_requires_exact_product_binding_for_layout(tmp_path) 
     from backend.app.design_chat import _model_lookup
     lookup = _model_lookup({"id": "8d29797a7862c52c3e74", "attributes": {"材料编号": "MT3", "材料名称": "马桶", "风格": "通用", "规格型号": "智能马桶"}}, {})
     assert lookup["model_asset_id"] == smart_toilet.json()["id"]
+    assert lookup["model_asset_src"].endswith("/%E6%99%BA%E8%83%BD%E5%9D%90%E4%BE%BF%E5%99%A8.fbx")
+    assert lookup["model_dimensions_mm"] == {"width": 380.0, "depth": 680.0, "height": 760.0}
     assert lookup["binding_status"] == "bound"

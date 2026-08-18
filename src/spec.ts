@@ -526,7 +526,11 @@ export function wallFinishBaseThickness(spec: RoomSpec) {
   return spec.wall_finish_thickness_mm ?? defaultWallFinishThicknessMm
 }
 
-export function wallFinishGap(spec: RoomSpec) {
+export function wallFinishGap(spec: RoomSpec, index?: number) {
+  if (index !== undefined) {
+    const profileGap = spec.wall_finish_profiles?.find((profile) => profile.wall_index === index)?.gap_mm
+    if (profileGap !== undefined && profileGap !== null) return profileGap
+  }
   return spec.wall_finish_gap_mm ?? defaultWallFinishGapMm
 }
 
@@ -568,7 +572,7 @@ export function structuralInnerBoundary(spec: RoomSpec) {
 
 export function finishedRoomBoundary(spec: RoomSpec) {
   const structural = structuralInnerBoundary(spec)
-  return offsetBoundaryByWall(structural, spec.boundary.map((_, index) => -(wallFinishGap(spec) + wallFinishThickness(spec, index))))
+  return offsetBoundaryByWall(structural, spec.boundary.map((_, index) => -(wallFinishGap(spec, index) + wallFinishThickness(spec, index))))
 }
 
 export function fixtureCanBindWall(kind: FixtureKind) {
@@ -815,13 +819,41 @@ export function generateDryWetZones(spec: RoomSpec): DryWetZone[] {
 }
 
 export function generateWallFinishProfiles(spec: RoomSpec): WallFinishProfile[] {
-  return spec.boundary.map((_, wallIndex) => ({
-    wall_index: wallIndex,
-    thickness_mm: wallFinishBaseThickness(spec),
-    source: 'derived',
-    confidence: 0.9,
-    generated_from_bound_point: false,
-  }))
+  const boundWalls = new Set(spec.fixtures
+    .filter((fixture) => fixtureCanBindWall(fixture.kind) && fixture.bound_wall_index !== undefined && fixture.bound_wall_index !== null)
+    .map((fixture) => fixture.bound_wall_index as number))
+  return spec.boundary.map((_, wallIndex) => {
+    const gap = wallFinishGap(spec, wallIndex)
+    return {
+      wall_index: wallIndex,
+      thickness_mm: wallFinishBaseThickness(spec),
+      ...(gap > 0 ? { gap_mm: gap } : {}),
+      source: 'derived' as const,
+      confidence: 0.9,
+      generated_from_bound_point: boundWalls.has(wallIndex),
+    }
+  })
+}
+
+export function ensureWallFinishGapsForBoundPoints(spec: RoomSpec, minimumGapMm = 35) {
+  const boundWalls = new Set(spec.fixtures
+    .filter((fixture) => fixtureCanBindWall(fixture.kind) && fixture.bound_wall_index !== undefined && fixture.bound_wall_index !== null)
+    .map((fixture) => fixture.bound_wall_index as number))
+  const profiles = spec.wall_finish_profiles ?? []
+  spec.wall_finish_profiles = spec.boundary.map((_, wallIndex) => {
+    const existing = profiles.find((profile) => profile.wall_index === wallIndex)
+    const gap = boundWalls.has(wallIndex) ? Math.max(minimumGapMm, wallFinishGap(spec, wallIndex)) : (existing?.gap_mm ?? wallFinishGap(spec, wallIndex))
+    return {
+      wall_index: wallIndex,
+      thickness_mm: existing?.thickness_mm ?? wallFinishBaseThickness(spec),
+      gap_mm: gap,
+      source: existing?.source ?? 'derived',
+      confidence: existing?.confidence ?? 0.9,
+      generated_from_bound_point: boundWalls.has(wallIndex) || existing?.generated_from_bound_point === true,
+      evidence_ids: existing?.evidence_ids,
+    }
+  })
+  return spec
 }
 
 type OffsetLine = { start: Point2D; end: Point2D }
@@ -880,11 +912,13 @@ export function wallLayerQuads(spec: RoomSpec) {
   const structuralInner = structuralInnerBoundary(spec)
   const finishedInner = finishedRoomBoundary(spec)
   const structuralOuter = offsetBoundaryByWall(structuralInner, spec.boundary.map((_, index) => wallThickness(spec, index)))
+  const panelBackBoundary = offsetBoundaryByWall(structuralInner, spec.boundary.map((_, index) => -wallFinishGap(spec, index)))
   return spec.boundary.map((_, index) => {
     const next = (index + 1) % spec.boundary.length
     return {
       wall_index: index,
-      finish: [finishedInner[index], finishedInner[next], structuralInner[next], structuralInner[index]],
+      finish: [finishedInner[index], finishedInner[next], panelBackBoundary[next], panelBackBoundary[index]],
+      cavity: [panelBackBoundary[index], panelBackBoundary[next], structuralInner[next], structuralInner[index]],
       wall: [structuralInner[index], structuralInner[next], structuralOuter[next], structuralOuter[index]],
     }
   })

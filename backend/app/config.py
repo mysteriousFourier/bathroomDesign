@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # Model responses can contain recognized room measurements. Keep response
     # tracing opt-in so normal runs do not persist that data outside the project DB.
     ai_trace_enabled: bool = False
+    # Bound the optional on-disk response trace store. Cleanup runs at startup
+    # and after each write, so enabling tracing cannot create an unbounded log.
+    ai_trace_retention_days: int = 30
+    ai_trace_max_files: int = 2000
+    ai_trace_max_bytes: int = 50_000_000
     ai_compare_topology_models: bool = False
     ai_wall_crop_concurrency: int = 4
     # Keep the refined OCR run as the canonical cache so wall-crop and

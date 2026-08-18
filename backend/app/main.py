@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
-from .ai import AIConfigurationError, AIResponseError, analyze_floorplan_fast as analyze_floorplan, analyze_photos, evidence_crop_png
+from .ai import AIConfigurationError, AIResponseError, analyze_floorplan_fast as analyze_floorplan, analyze_photos, cleanup_ai_traces, evidence_crop_png
 from .capture import assess_capture
 from .config import settings
 from .database import db
@@ -70,6 +70,7 @@ backend_config_version = hashlib.sha256(environment_path.read_bytes()).hexdigest
 @asynccontextmanager
 async def lifespan(_application: FastAPI):
     Image.MAX_IMAGE_PIXELS = settings.max_image_pixels
+    cleanup_ai_traces()
     db.initialize()
     # Ship the approved baseline catalog with the application. Subsequent XLSX/CSV
     # imports keep using the same stable material numbers and update it in place.

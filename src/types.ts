@@ -118,6 +118,8 @@ export interface FixtureModelAsset {
   source_asset_id?: string
   lifecycle?: ModelAssetLifecycle
   legacy_source_ids?: string[]
+  /** Which source face was promoted to the canonical front during import review. */
+  orientation_view?: 'front' | 'top' | 'side' | null
 }
 
 export interface FixtureSpec {
@@ -174,6 +176,7 @@ export interface DryWetZone {
 export interface WallFinishProfile {
   wall_index: number
   thickness_mm: number
+  gap_mm?: number
   source: SourceKind
   confidence: number
   generated_from_bound_point: boolean

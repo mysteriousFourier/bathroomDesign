@@ -1,4 +1,6 @@
 import json
+import os
+import time
 
 import pytest
 import httpx
@@ -2368,6 +2370,37 @@ def test_fixture_kind_from_model_is_normalized() -> None:
     assert fixture.kind == "floor_drain"
     heating = FixtureCandidate(kind="heating", label="暖气")
     assert heating.kind == "other"
+
+
+def test_ai_trace_cleanup_enforces_retention_count_and_size(monkeypatch, tmp_path) -> None:
+    trace_dir = tmp_path / "ai-traces"
+    trace_dir.mkdir()
+    monkeypatch.setattr(settings, "app_data_dir", tmp_path)
+    monkeypatch.setattr(settings, "ai_trace_retention_days", 1)
+    monkeypatch.setattr(settings, "ai_trace_max_files", 2)
+    monkeypatch.setattr(settings, "ai_trace_max_bytes", 10)
+
+    old = trace_dir / "old.json"
+    old.write_text("1234", encoding="utf-8")
+    old_time = time.time() - 3 * 86400
+    os.utime(old, (old_time, old_time))
+    current_time = time.time()
+    for index, name in enumerate(("new-a.json", "new-b.json", "new-c.json"), start=1):
+        path = trace_dir / name
+        path.write_text("123456", encoding="utf-8")
+        os.utime(path, (current_time + index, current_time + index))
+    (trace_dir / "keep.txt").write_text("not a trace", encoding="utf-8")
+    nested = trace_dir / "nested"
+    nested.mkdir()
+    (nested / "untouched.json").write_text("nested", encoding="utf-8")
+
+    deleted = ai.cleanup_ai_traces()
+
+    remaining = list(trace_dir.glob("*.json"))
+    assert deleted == 3
+    assert [path.name for path in remaining] == ["new-c.json"]
+    assert (trace_dir / "keep.txt").exists()
+    assert (nested / "untouched.json").exists()
 
 
 @pytest.mark.asyncio

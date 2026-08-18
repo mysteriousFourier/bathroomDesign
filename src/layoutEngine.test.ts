@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyLayoutSolution, blocksDoorEnvelope, blocksUseClearance, frontClearanceEnvelope, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
+import { applyLayoutSolution, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
 import { finishedRoomBoundary, fixtureLocalFootprint, manualRoom, projectPointToWall } from './spec'
 import { modelDimensions } from './modelDimensions'
 import graphOutput from './generated-layout-products.json'
@@ -24,11 +24,72 @@ describe('deterministic requirement layout engine', () => {
     expect(blocksDoorEnvelope(multi,{...floorFixture(2200,1700),elevation_mm:1500})).toBe(false)
   })
 
+  it('blocks furniture that intersects a window opening while allowing furniture below its sill', () => {
+    const roomWithWindow = manualRoom(3000, 2400, 2600)
+    roomWithWindow.openings.push({ id:'W1', kind:'window', wall_index:1, offset_mm:500, width_mm:1000, height_mm:1200, sill_mm:900, label:'W1', source:'measured', confidence:1 })
+    const inWindow = { id:'window-furniture', kind:'vanity' as const, label:'浴室柜', x_mm:2900, z_mm:1000, width_mm:300, depth_mm:300, height_mm:850, elevation_mm:0, rotation_deg:0, source:'derived' as const, confidence:1 }
+    const belowSill = { ...inWindow, id:'below-sill', elevation_mm:100, height_mm:800 }
+    expect(blocksWindowEnvelope(roomWithWindow, inWindow)).toBe(true)
+    expect(blocksWindowEnvelope(roomWithWindow, belowSill)).toBe(false)
+  })
+
   it('generates one measured-room constraint solution instead of fixed 3 by 3 templates', () => {
     expect(solutions).toHaveLength(1)
     expect(solutions[0]).toMatchObject({ id:'automatic-layout', title:'当前约束求解结果', layout_label:'量房约束自动布局' })
     expect(solutions[0].total_price).toBeGreaterThan(0)
     expect(solutions[0].product_lines.length).toBeGreaterThan(0)
+  })
+
+  it('provides three distinct deterministic alternatives for auto-layout fallback', () => {
+    const fallback = generateDeterministicLayoutSolutions(room, { style:'素雅' })
+    expect(fallback).toHaveLength(3)
+    expect(new Set(fallback.map((solution) => solution.id))).toEqual(new Set(['level1', 'level2', 'level3']))
+    expect(fallback.every((solution) => solution.checks.every((check) => check.passed || check.severity !== 'error'))).toBe(true)
+    expect(new Set(fallback.map((solution) => {
+      const vanity = solution.fixtures.find((fixture) => fixture.kind === 'vanity')!
+      return `${vanity.x_mm}:${vanity.z_mm}:${vanity.rotation_deg}`
+    })).size).toBe(3)
+    const toilets = fallback.map((solution) => solution.fixtures.find((fixture) => fixture.kind === 'toilet')!)
+    expect(toilets.every((toilet) => toilet.label.startsWith('MT3 马桶'))).toBe(true)
+    expect(toilets.every((toilet) => toilet.model_asset?.src.includes('/api/model-assets/ce23ef42c17da53def16083f77c3c0dd/'))).toBe(true)
+    expect(toilets.every((toilet) => [toilet.width_mm, toilet.depth_mm, toilet.height_mm].join(':') === '380:680:760')).toBe(true)
+  })
+
+  it('keeps local fallback layouts inside the finished boundary across room proportions', () => {
+    for (const [width, depth] of [[2800, 2400], [3600, 2200], [2400, 3200]] as const) {
+      const candidate = generateLayoutSolutions(manualRoom(width, depth, 2600))[0]
+      expect(candidate.checks.filter((check) => !check.passed && check.severity === 'error').map((check) => check.code)).toEqual([])
+      expect(candidate.wet_zone.width_mm).toBeGreaterThanOrEqual(800)
+      expect(candidate.wet_zone.depth_mm).toBeGreaterThanOrEqual(800)
+    }
+  })
+
+  it('prefers a wet-zone corner with two finished-wall contacts when plumbing is not fixed', () => {
+    const openRoom = manualRoom(3200, 2600, 2600)
+    const solution = generateLayoutSolutions(openRoom)[0]
+    const finished = finishedRoomBoundary({ ...openRoom, wall_finish_gap_mm:35 })
+    const minX = Math.min(...finished.map((point) => point.x_mm)), maxX = Math.max(...finished.map((point) => point.x_mm))
+    const minZ = Math.min(...finished.map((point) => point.z_mm)), maxZ = Math.max(...finished.map((point) => point.z_mm))
+    const wet = solution.wet_zone
+    const contacts = [
+      Math.abs(wet.x_mm - wet.width_mm / 2 - minX), Math.abs(wet.x_mm + wet.width_mm / 2 - maxX),
+      Math.abs(wet.z_mm - wet.depth_mm / 2 - minZ), Math.abs(wet.z_mm + wet.depth_mm / 2 - maxZ),
+    ].filter((distance) => distance <= 25).length
+    expect(contacts).toBeGreaterThanOrEqual(2)
+  })
+
+  it('treats measured non-toilet fixtures and utility points as movable evidence', () => {
+    const measured = manualRoom(3200, 2600, 2600)
+    measured.fixtures.push(
+      { id:'measured-vanity', kind:'vanity', label:'实测浴室柜', x_mm:300, z_mm:300, width_mm:800, depth_mm:500, height_mm:850, rotation_deg:0, source:'measured', confidence:1 },
+      { id:'measured-shower', kind:'shower', label:'实测淋浴区', x_mm:2900, z_mm:2200, width_mm:900, depth_mm:900, height_mm:2000, rotation_deg:0, source:'measured', confidence:1 },
+      { id:'basin-water', kind:'water', label:'台盆给水', point_usage:'basin', x_mm:150, z_mm:1200, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'measured', confidence:1 },
+    )
+    const solution = generateLayoutSolutions(measured)[0]
+    expect(solution.checks.filter((check) => !check.passed && check.severity === 'error').map((check) => check.code)).toEqual([])
+    const applied = applyLayoutSolution(measured, solution)
+    expect(applied.fixtures.some((fixture) => fixture.id === 'measured-vanity')).toBe(false)
+    expect(applied.fixtures.some((fixture) => fixture.id === 'basin-water')).toBe(true)
   })
 
   it('uses exact model-selected graph products for coordinates, quote lines, and 3D fixtures', () => {
@@ -174,6 +235,16 @@ describe('deterministic requirement layout engine', () => {
     expect(applied.fixtures.filter((fixture) => fixture.kind === 'floor_drain')).toHaveLength(1)
   })
 
+  it('fits a toilet near a finished-wall corner while keeping the drain within the 600 mm adjustment limit', () => {
+    const compact = manualRoom(1595, 1790, 2600)
+    compact.fixtures.push({ id:'corner-toilet-drain', kind:'drain', label:'马桶排水', point_usage:'toilet', x_mm:1304, z_mm:1428, width_mm:110, depth_mm:110, height_mm:10, rotation_deg:0, source:'user', confidence:1 })
+    const solution = generateLayoutSolutions(compact)[0]
+    const toilet = solution.fixtures.find((fixture) => fixture.kind === 'toilet')!
+    expect(solution.checks.find((check) => check.code === 'G01')).toMatchObject({ passed:true })
+    expect(solution.checks.find((check) => check.code === 'G02-CLEARANCE')).toMatchObject({ passed:true })
+    expect(Math.hypot(toilet.x_mm - 1304, toilet.z_mm - 1428)).toBeLessThanOrEqual(600)
+  })
+
   it('uses supplied model bounds for categories that have parsed geometry', () => {
     const laundryRoom = structuredClone(room)
     laundryRoom.fixtures.push({ id:'washer-water', kind:'water', label:'洗衣机给水', point_usage:'general', x_mm:200, z_mm:1800, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'measured', confidence:1 })
@@ -221,7 +292,7 @@ describe('deterministic requirement layout engine', () => {
     const vanity = generateLayoutSolutions(room, { levels:[level] }).at(0)!.fixtures.find((fixture) => fixture.kind === 'vanity')!
     const finished = finishedRoomBoundary({ ...room, wall_finish_gap_mm:35 })
     expect(vanity.bound_wall_index).toBe(3)
-    expect(vanity.x_mm - vanity.width_mm / 2).toBe(finished[3].x_mm + 5)
+    expect(vanity.x_mm - vanity.depth_mm / 2).toBe(finished[3].x_mm + 5)
   })
 
   it('resolves semantic walls against the actual segments of a non-rectangular room', () => {

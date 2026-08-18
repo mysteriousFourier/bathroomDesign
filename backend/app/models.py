@@ -152,6 +152,7 @@ class DryWetZone(BaseModel):
 class WallFinishProfile(BaseModel):
     wall_index: int = Field(ge=0)
     thickness_mm: int = Field(ge=0)
+    gap_mm: int | None = Field(default=None, ge=0)
     source: SourceKind = SourceKind.derived
     confidence: float = Field(default=0.5, ge=0, le=1)
     generated_from_bound_point: bool = False

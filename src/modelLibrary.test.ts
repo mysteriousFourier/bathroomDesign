@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { surfaceMaterialsForDesignQuote } from './modelLibrary'
+import { modelAssetForProduct, surfaceMaterialsForDesignQuote } from './modelLibrary'
 import type { DesignChatResponse } from './types'
 
 function quote(complete = true): DesignChatResponse {
@@ -26,5 +26,10 @@ describe('demand assistant surface application', () => {
 
   it('does not apply a partial requirement draft', () => {
     expect(surfaceMaterialsForDesignQuote(quote(false))).toEqual({})
+  })
+
+  it('does not reuse the top-loader asset for the front-loader SKU', () => {
+    expect(modelAssetForProduct('洗衣机', 'XYJ2-1')).toBeUndefined()
+    expect(modelAssetForProduct('洗衣机', 'XYJ1-1')).toMatchObject({ catalog_codes: ['XYJ1-1'] })
   })
 })

@@ -3699,6 +3699,53 @@ def _template_evidence_models() -> list[str]:
     return _vision_recognition_models()
 
 
+def cleanup_ai_traces() -> int:
+    """Delete expired/overflowing response traces and return deleted count.
+
+    Trace files are diagnostic artifacts, not application state. Only JSON files
+    directly under the configured trace directory are considered; malformed or
+    concurrently removed files are skipped so cleanup never breaks an AI run.
+    """
+    trace_dir = settings.app_data_dir / "ai-traces"
+    try:
+        files = [
+            path for path in trace_dir.iterdir()
+            if path.is_file() and path.suffix.lower() == ".json"
+        ]
+    except OSError:
+        return 0
+    try:
+        files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    except OSError:
+        files = [path for path in files if path.exists()]
+        files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    now = datetime.now(timezone.utc).timestamp()
+    cutoff = now - max(1, settings.ai_trace_retention_days) * 86400
+    max_files = max(1, settings.ai_trace_max_files)
+    max_bytes = max(1, settings.ai_trace_max_bytes)
+    deleted = 0
+    kept: list[tuple[Path, int]] = []
+    kept_bytes = 0
+    for path in files:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        remove = path.stat().st_mtime < cutoff or len(kept) >= max_files
+        if not remove and kept_bytes + size > max_bytes:
+            remove = True
+        if remove:
+            try:
+                path.unlink()
+                deleted += 1
+            except OSError:
+                pass
+        else:
+            kept.append((path, size))
+            kept_bytes += size
+    return deleted
+
+
 def _write_trace(stage: str, model: str, status: int | str, body: str) -> str | None:
     if not settings.ai_trace_enabled:
         return None
@@ -3715,6 +3762,7 @@ def _write_trace(stage: str, model: str, status: int | str, body: str) -> str | 
             "response": body[:100_000],
         }
         (trace_dir / f"{trace_id}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        cleanup_ai_traces()
     except OSError:
         return None
     return trace_id

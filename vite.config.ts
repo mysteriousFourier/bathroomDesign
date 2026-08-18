@@ -16,4 +16,19 @@ export default defineConfig(({ command }) => ({
       '/api': apiProxyTarget,
     },
   },
+  build: {
+    // The Three.js runtime is isolated behind lazy 3D routes and is not part of
+    // the initial page download. Keep the warning threshold aligned with it.
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.indexOf('node_modules') === -1) return undefined
+          if (id.indexOf('lucide-react') !== -1) return 'icons'
+          if (id.indexOf('/react/') !== -1 || id.indexOf('\\react\\') !== -1 || id.indexOf('react-dom') !== -1 || id.indexOf('scheduler') !== -1) return 'react'
+          return undefined
+        },
+      },
+    },
+  },
 }))

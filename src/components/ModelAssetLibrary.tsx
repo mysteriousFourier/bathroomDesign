@@ -255,7 +255,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
                 <button className="button primary compact" type="button" disabled={!canAddToRoom} onClick={() => onAddToRoom(selectedForRoom)}><Plus size={15} />加入房间</button>
               </div>
             </header>
-            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} onPreviewReady={(capture) => { previewCaptures.current[selected.id] = capture }} />
+            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} orientationView={selected.orientation_view} onDimensions={updateSelectedDimensions} onPreviewReady={(capture) => { previewCaptures.current[selected.id] = capture }} />
             <div className="model-browser-meta">
               <div><span>格式</span><strong>{selected.format.toUpperCase()}</strong></div>
               <div><span>文件</span><strong>{selected.fileCount}</strong></div>
@@ -263,7 +263,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '暂无'}</code></div>
               {!selected.builtIn && <div><span>产品绑定</span><strong>{selected.catalog_codes?.length ? selected.catalog_codes.join('、') : '未绑定，不参与自动报价布局'}</strong></div>}
             </div>
-            {!selected.builtIn && <div className="model-orientation-controls"><span>方向纠正</span>{(['front', 'top', 'side'] as const).map((view) => <button key={view} type="button" className={`button compact ${selected.orientation_view === view ? 'primary' : 'secondary'}`} onClick={() => void correctSelected(view)}>{{ front: '正面', top: '顶面', side: '侧面' }[view]}</button>)}<small>{selected.orientation_corrected ? `${selected.orientation_source === 'auto' ? '视觉自动' : '人工'}纠正完成` : '尚未纠正'}</small></div>}
+            {!selected.builtIn && <div className="model-orientation-controls"><span>将原模型的</span>{(['front', 'top', 'side'] as const).map((view) => <button key={view} type="button" className={`button compact ${selected.orientation_view === view ? 'primary' : 'secondary'}`} onClick={() => void correctSelected(view)}>{{ front: '正面', top: '顶面', side: '侧面' }[view]}</button>)}<span>设为标准正面</span><small>{selected.orientation_corrected ? `${selected.orientation_source === 'auto' ? '视觉自动' : '人工'}纠正完成；可点击其他面重新纠正` : '选择后预览会立即按固定 90° 轴变换更新'}</small></div>}
           </> : selected ? <>
             <header className="model-browser-header"><div><strong>{selected.label}</strong><span>{selected.filename} · 固定板块材质</span></div></header>
             <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} />

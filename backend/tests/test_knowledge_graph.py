@@ -5,7 +5,7 @@ import pytest
 
 import backend.app.design_chat as design_chat_module
 from backend.app.knowledge_graph import ProductKnowledgeGraph, equipment_rules
-from backend.app.design_chat import PROMPT, QUOTE_TOOL, REQUIREMENT_TOOL, _safe_model_message, calculate_design_quote, default_product_ids, design_chat, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, normalize_assistant_message, requirement_state, requirement_state_from_model, resolve_style, select_furniture_quotes, surface_estimate
+from backend.app.design_chat import PROMPT, QUOTE_TOOL, REQUIREMENT_TOOL, _layout_candidate_blockers, _safe_model_message, calculate_design_quote, default_product_ids, design_chat, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, normalize_assistant_message, requirement_state, requirement_state_from_model, resolve_style, select_furniture_quotes, surface_estimate
 
 
 def test_normalize_assistant_message_removes_markdown_marks():
@@ -307,6 +307,20 @@ def test_furniture_combination_price_range_uses_each_required_category():
     assert groups[0]["candidate_count"]==2
     assert (groups[0]["min_price"],groups[0]["max_price"])==(800,1600)
     assert furniture_price_range(groups)=={"min":970,"max":1990}
+
+def test_auto_layout_keeps_only_exactly_bound_toilet_model():
+    candidates=[
+        {"product_id":"mt1","家具名称":"马桶","家具小计":550,"材料编号":"MT1","model_lookup":{"catalog_code":"MT1","binding_status":"awaiting_model_asset"}},
+        {"product_id":"mt2","家具名称":"马桶","家具小计":800,"材料编号":"MT2","model_lookup":{"catalog_code":"MT2","binding_status":"awaiting_model_asset"}},
+        {"product_id":"mt3","家具名称":"马桶","家具小计":1200,"材料编号":"MT3","model_lookup":{"catalog_code":"MT3","binding_status":"bound","model_asset_src":"/api/model-assets/toilet.fbx","model_dimensions_mm":{"width":380,"depth":680,"height":760}}},
+    ]
+    groups=furniture_candidate_groups(candidates,{"必须设备":["马桶"],"不能有的设备":[]},require_bound_models=True)
+    assert groups[0]["candidate_count"]==1
+    assert groups[0]["candidates"][0]["材料编号"]=="MT3"
+
+def test_auto_layout_blocks_toilet_when_no_exact_model_is_bound():
+    groups=furniture_candidate_groups([{"product_id":"mt1","家具名称":"马桶","家具小计":550,"材料编号":"MT1","model_lookup":{"catalog_code":"MT1","binding_status":"awaiting_model_asset"}}],{"必须设备":["马桶"],"不能有的设备":[]},require_bound_models=True)
+    assert _layout_candidate_blockers(groups,{"必须设备":["马桶"],"不能有的设备":[]})==["必需品类缺少精确模型资产绑定：马桶"]
 
 def test_final_furniture_quote_selects_one_item_per_category_against_budget():
     groups=[

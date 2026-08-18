@@ -25,7 +25,28 @@ export type BuiltInModelRecord = {
   source: string
 }
 
-const records = manifest.assets as BuiltInModelRecord[]
+// The verified shared toilet asset is stored by FastAPI because it was imported
+// after the static builtin manifest was generated. Keep its exact SKU binding
+// available to local fallback layouts as well.
+const sharedModelRecords: BuiltInModelRecord[] = [{
+  id: 'ce23ef42c17da53def16083f77c3c0dd',
+  label: '智能坐便器',
+  category: '马桶',
+  asset_type: 'fixture',
+  format: 'fbx',
+  src: '/api/model-assets/ce23ef42c17da53def16083f77c3c0dd/files/%E6%99%BA%E8%83%BD%E5%9D%90%E4%BE%BF%E5%99%A8.fbx',
+  filename: '智能坐便器.fbx',
+  bytes: 135808,
+  sha256: 'ce23ef42c17da53def16083f77c3c0ddbb35c41a7fb68dbb49c3702e530c9b99',
+  file_count: 1,
+  dimensions_mm: { width: 380, depth: 680, height: 760 },
+  dimension_status: 'verified',
+  price_tier: 'premium',
+  catalog_codes: ['MT3'],
+  styles: ['通用'],
+  source: '共享模型资产库',
+}]
+const records = [...(manifest.assets as BuiltInModelRecord[]), ...sharedModelRecords]
 
 export const builtInModelRecords = records
 
@@ -55,6 +76,7 @@ export function modelAssetForProduct(category: string, code?: string, tier?: Bui
   const categories = category === '适老浴室柜' ? ['适老浴室柜', '浴室柜'] : [category]
   const candidates = records.filter((asset) => asset.asset_type === 'fixture' && categories.includes(asset.category))
   if (!candidates.length) return undefined
+  if (category === '洗衣机' && code === 'XYJ2-1') return undefined
   return candidates.find((asset) => code && asset.catalog_codes.includes(code))
     ?? candidates.find((asset) => tier && asset.price_tier === tier)
     ?? candidates[0]

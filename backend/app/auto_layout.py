@@ -170,7 +170,7 @@ async def generate_model_layout(
         forbidden=set(rules["不能有的设备"]),
         allowed_categories=set(rules["必须设备"]),
     )
-    groups = furniture_candidate_groups(furniture_quotes(products, style_match), rules)
+    groups = furniture_candidate_groups(furniture_quotes(products, style_match), rules, require_bound_models=True)
     blockers = _layout_candidate_blockers(groups, rules)
     if blockers:
         raise ValueError("；".join(blockers))

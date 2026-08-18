@@ -7,6 +7,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import type { ModelAssetFormat } from '../types'
+import { modelOrientation, type ModelOrientationView } from '../modelOrientation'
 
 type Dimensions = { width: number; depth: number; height: number }
 
@@ -34,7 +35,7 @@ function measuredDimensions(object: Group): Dimensions {
   return { width: normalize(size.x), depth: normalize(size.z), height: normalize(size.y) }
 }
 
-function PreparedModel({ object, onDimensions }: { object: Group; onDimensions?: (dimensions: Dimensions) => void }) {
+function PreparedModel({ object, orientationView, onDimensions }: { object: Group; orientationView: ModelOrientationView; onDimensions?: (dimensions: Dimensions) => void }) {
   const scene = useMemo(() => {
     const clone = object.clone(true)
     clone.traverse((child) => {
@@ -43,44 +44,47 @@ function PreparedModel({ object, onDimensions }: { object: Group; onDimensions?:
         child.receiveShadow = true
       }
     })
+    clone.rotation.copy(modelOrientation(orientationView))
+    clone.updateMatrixWorld(true)
     return clone
-  }, [object])
+  }, [object, orientationView])
   const dimensions = useMemo(() => measuredDimensions(scene), [scene])
   useEffect(() => onDimensions?.(dimensions), [dimensions, onDimensions])
   return <Center bottom><primitive object={scene} /></Center>
 }
 
-function GltfPreview({ src, onDimensions }: { src: string; onDimensions?: (dimensions: Dimensions) => void }) {
+function GltfPreview({ src, orientationView, onDimensions }: { src: string; orientationView: ModelOrientationView; onDimensions?: (dimensions: Dimensions) => void }) {
   const gltf = useGLTF(src)
-  return <PreparedModel object={gltf.scene} onDimensions={onDimensions} />
+  return <PreparedModel object={gltf.scene} orientationView={orientationView} onDimensions={onDimensions} />
 }
 
-function FbxPreview({ src, onDimensions }: { src: string; onDimensions?: (dimensions: Dimensions) => void }) {
+function FbxPreview({ src, orientationView, onDimensions }: { src: string; orientationView: ModelOrientationView; onDimensions?: (dimensions: Dimensions) => void }) {
   const object = useLoader(FBXLoader, src)
-  return <PreparedModel object={object} onDimensions={onDimensions} />
+  return <PreparedModel object={object} orientationView={orientationView} onDimensions={onDimensions} />
 }
 
-function TdsPreview({ src, onDimensions }: { src: string; onDimensions?: (dimensions: Dimensions) => void }) {
+function TdsPreview({ src, orientationView, onDimensions }: { src: string; orientationView: ModelOrientationView; onDimensions?: (dimensions: Dimensions) => void }) {
   const object = useLoader(TDSLoader, src)
-  return <PreparedModel object={object} onDimensions={onDimensions} />
+  return <PreparedModel object={object} orientationView={orientationView} onDimensions={onDimensions} />
 }
 
-function ObjPreview({ src, onDimensions }: { src: string; onDimensions?: (dimensions: Dimensions) => void }) {
+function ObjPreview({ src, orientationView, onDimensions }: { src: string; orientationView: ModelOrientationView; onDimensions?: (dimensions: Dimensions) => void }) {
   const object = useLoader(OBJLoader, src)
-  return <PreparedModel object={object} onDimensions={onDimensions} />
+  return <PreparedModel object={object} orientationView={orientationView} onDimensions={onDimensions} />
 }
 
-function PreviewModel({ src, format, onDimensions }: { src: string; format: ModelAssetFormat; onDimensions?: (dimensions: Dimensions) => void }) {
-  if (format === 'glb' || format === 'gltf') return <GltfPreview src={src} onDimensions={onDimensions} />
-  if (format === 'fbx') return <FbxPreview src={src} onDimensions={onDimensions} />
-  if (format === '3ds') return <TdsPreview src={src} onDimensions={onDimensions} />
-  return <ObjPreview src={src} onDimensions={onDimensions} />
+function PreviewModel({ src, format, orientationView, onDimensions }: { src: string; format: ModelAssetFormat; orientationView: ModelOrientationView; onDimensions?: (dimensions: Dimensions) => void }) {
+  if (format === 'glb' || format === 'gltf') return <GltfPreview src={src} orientationView={orientationView} onDimensions={onDimensions} />
+  if (format === 'fbx') return <FbxPreview src={src} orientationView={orientationView} onDimensions={onDimensions} />
+  if (format === '3ds') return <TdsPreview src={src} orientationView={orientationView} onDimensions={onDimensions} />
+  return <ObjPreview src={src} orientationView={orientationView} onDimensions={onDimensions} />
 }
 
-export function ModelAssetPreview({ assetKey, src, format, onDimensions, onPreviewReady }: {
+export function ModelAssetPreview({ assetKey, src, format, orientationView, onDimensions, onPreviewReady }: {
   assetKey: string
   src: string
   format: ModelAssetFormat
+  orientationView?: ModelOrientationView
   onDimensions?: (dimensions: Dimensions) => void
   onPreviewReady?: (capture: () => string) => void
 }) {
@@ -94,7 +98,7 @@ export function ModelAssetPreview({ assetKey, src, format, onDimensions, onPrevi
           <directionalLight position={[-3, 2, -2]} intensity={0.7} />
           <Suspense fallback={<Html center><div className="model-preview-loading"><LoaderCircle className="spin" size={18} />正在读取模型</div></Html>}>
             <Bounds fit clip observe margin={1.35}>
-              <PreviewModel src={src} format={format} onDimensions={onDimensions} />
+              <PreviewModel src={src} format={format} orientationView={orientationView ?? null} onDimensions={onDimensions} />
             </Bounds>
           </Suspense>
           <Grid position={[0, -0.002, 0]} args={[10, 10]} cellSize={0.1} cellThickness={0.45} cellColor="#b9bbb5" sectionSize={0.5} sectionThickness={0.8} sectionColor="#999d96" fadeDistance={7} infiniteGrid />

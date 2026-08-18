@@ -95,15 +95,27 @@ def furniture_quotes(products,style_match=None):
         quotes.append({"product_id":product["id"],"材料编号":attrs.get("材料编号",""),"家具名称":category,"规格型号":attrs.get("规格型号",""),"风格":attrs.get("风格","通用"),"匹配风格":(style_match or {}).get("catalog_style"),"风格匹配依据":(style_match or {}).get("user_terms",[]),"数量":1,"单位":attrs.get("数量单位") or "件","单价":price,"家具小计":price,"model_lookup":_model_lookup(product,style_match or {}),"来源":product.get("retrieval",{}).get("source",f"product_catalog:{product['id']}")})
     return quotes
 
-def furniture_candidate_groups(candidates,rules):
+MODEL_REQUIRED_CATEGORIES={"马桶"}
+
+def furniture_candidate_groups(candidates,rules,require_bound_models=False):
     """Expose all compliant options and deterministic per-category price bounds."""
     groups=[]
     for category in rules["必须设备"]:
         options=[x for x in candidates if x["家具名称"]==category]
+        if require_bound_models and category in MODEL_REQUIRED_CATEGORIES:
+            options=[x for x in options if _has_bound_model(x)]
+            if not options:
+                groups.append({"category":category,"selection_status":"blocked_model_binding","model_binding_required":True,"candidate_count":0,"min_price":0,"max_price":0,"candidates":[]})
+                continue
         if options:
             prices=[x["家具小计"] for x in options]
             groups.append({"category":category,"selection_status":"deferred_to_auto_layout","candidate_count":len(options),"min_price":round(min(prices),2),"max_price":round(max(prices),2),"candidates":options})
     return groups
+
+def _has_bound_model(candidate):
+    lookup=candidate.get("model_lookup") or {}
+    dimensions=lookup.get("model_dimensions_mm") or {}
+    return lookup.get("binding_status")=="bound" and bool(lookup.get("model_asset_src")) and all(float(dimensions.get(key,0) or 0)>0 for key in ("width","depth","height"))
 
 def furniture_price_range(groups):
     """Price one item from every required candidate group without selecting an SKU."""
@@ -213,7 +225,10 @@ def _layout_candidate_blockers(groups,rules):
     required=set(rules["必须设备"])
     if not required:return ["当前需求没有映射到可布局设备，请补充淋浴、坐便、洗漱、洗衣、收纳或适老需求"]
     missing=sorted(required-{group["category"] for group in groups})
-    return [f"产品目录缺少必需品类：{'、'.join(missing)}"] if missing else []
+    blockers=[f"产品目录缺少必需品类：{'、'.join(missing)}"] if missing else []
+    unbound=sorted(group["category"] for group in groups if group.get("model_binding_required") and not group.get("candidates"))
+    if unbound:blockers.append(f"必需品类缺少精确模型资产绑定：{'、'.join(unbound)}")
+    return blockers
 
 def build_layout_levels(arguments,groups,rules):
     required=set(rules["必须设备"]);blockers=_layout_candidate_blockers(groups,rules)
@@ -338,7 +353,7 @@ async def design_chat(messages,graph,room=None):
         quotes=material_quotes(material_products,surfaces)
         furniture_products=graph.search_constrained(" ".join(rules["必须设备"])+" "+normalized_text,limit=30,forbidden=set(rules["不能有的设备"]),allowed_categories=set(rules["必须设备"]))
         furniture=furniture_quotes(furniture_products,style_match)
-        furniture_groups=furniture_candidate_groups(furniture,rules);furniture_range=furniture_price_range(furniture_groups)
+        furniture_groups=furniture_candidate_groups(furniture,rules,require_bound_models=True);furniture_range=furniture_price_range(furniture_groups)
         layout_levels=[];layout_blockers=[]
         if state["complete"]:
             layout_blockers=_layout_candidate_blockers(furniture_groups,rules)

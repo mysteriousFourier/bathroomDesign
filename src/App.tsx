@@ -1,12 +1,11 @@
 import { Box, BoxSelect, FileSearch, Image as ImageIcon, LoaderCircle, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { studioApi } from './api'
 import { EmptyWorkspace } from './components/EmptyWorkspace'
 import { Header } from './components/Header'
 import { DesignChat } from './components/DesignChat'
 import { Inspector } from './components/Inspector'
-import { ModelCanvas, type ModelCanvasHandle } from './components/ModelCanvas'
-import { ModelAssetLibrary } from './components/ModelAssetLibrary'
+import type { ModelCanvasHandle } from './components/ModelCanvas'
 import { MeasurementImportDialog } from './components/MeasurementImportDialog'
 import { PlanReview } from './components/PlanReview'
 import { PhotoAnnotation } from './components/PhotoAnnotation'
@@ -16,14 +15,21 @@ import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { fixtureModelAssetFromLibrary, type RoomModelAsset } from './modelAssets'
-import { applyLayoutSolution, generateLayoutSolutions, type LayoutSolution } from './layoutEngine'
+import { applyLayoutSolution, generateDeterministicLayoutSolutions, generateLayoutSolutions, type LayoutSolution } from './layoutEngine'
 import { surfaceMaterialsForDesignQuote } from './modelLibrary'
 import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, updateOpeningFromLine, wallLength, wetZoneBoundaryValid } from './spec'
 import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
 
+const ModelCanvas = lazy(() => import('./components/ModelCanvas').then(({ ModelCanvas: component }) => ({ default: component })))
+const ModelAssetLibrary = lazy(() => import('./components/ModelAssetLibrary').then(({ ModelAssetLibrary: component }) => ({ default: component })))
+
 const MAX_AUTO_LAYOUT_ATTEMPTS = 4
+
+function ModelLoadingFallback() {
+  return <div className="loading-screen"><LoaderCircle className="spin" size={28} /><span>正在加载三维模块…</span></div>
+}
 
 const layoutGeometrySignature = (solution: LayoutSolution) => {
   const role = (label: string, kind: string) => {
@@ -56,6 +62,39 @@ const invalidLayoutSolutions = (solutions: LayoutSolution[]) => solutions.filter
 
 const layoutBatchReady = (solutions: LayoutSolution[]) =>
   solutions.length === 3 && invalidLayoutSolutions(solutions).length === 0 && duplicateLayoutGroups(solutions).length === 0
+
+const usableLayoutSolutions = (solutions: LayoutSolution[]) => {
+  const valid = solutions.filter((solution) => !solution.checks.some((check) => !check.passed && check.severity === 'error'))
+  const seen = new Set<string>()
+  return valid.filter((solution) => {
+    const signature = layoutGeometrySignature(solution)
+    if (seen.has(signature)) return false
+    seen.add(signature)
+    return true
+  })
+}
+
+const completeLayoutSolutions = (primary: LayoutSolution[], fallback: LayoutSolution[]) => {
+  const tierOrder: LayoutSolution['budget'][] = ['basic', 'comfort', 'premium']
+  const result: LayoutSolution[] = []
+  const signatures = new Set<string>()
+  const tiers = new Set<LayoutSolution['budget']>()
+  const add = (candidate: LayoutSolution | undefined) => {
+    if (!candidate || tiers.has(candidate.budget)) return
+    if (candidate.checks.some((check) => !check.passed && check.severity === 'error')) return
+    const signature = layoutGeometrySignature(candidate)
+    if (signatures.has(signature)) return
+    signatures.add(signature)
+    tiers.add(candidate.budget)
+    result.push(candidate)
+  }
+  for (const tier of tierOrder) add(primary.find((candidate) => candidate.budget === tier))
+  for (const tier of tierOrder) add(fallback.find((candidate) => candidate.budget === tier))
+  if (result.length !== tierOrder.length) {
+    throw new Error('三个价位档位未能全部生成无硬错误且互不重复的可应用方案')
+  }
+  return result
+}
 
 const layoutRetryFeedback = (solutions: LayoutSolution[], attempt: number) => ({
   status: 'layout_validation_failed',
@@ -149,10 +188,13 @@ export default function App() {
   const [measurementImportOpen, setMeasurementImportOpen] = useState(false)
   const [activeLayout, setActiveLayout] = useState<LayoutSolution | null>(null)
   const [layoutSolutions, setLayoutSolutions] = useState<LayoutSolution[]>([])
+  const [layoutError, setLayoutError] = useState<string | null>(null)
   const [designQuote, setDesignQuote] = useState<DesignChatResponse | null>(null)
   const modelRef = useRef<ModelCanvasHandle>(null)
   const projectRef = useRef<Project | null>(null)
+  const specRef = useRef<RoomSpec | null>(null)
   projectRef.current = project
+  specRef.current = spec
   const quotedSurfaces = surfaceMaterialsForDesignQuote(designQuote)
   const layoutSurfaces = activeLayout?.surface_materials
   const appliedSurfaces = (quotedSurfaces.wall || quotedSurfaces.floor)
@@ -536,44 +578,75 @@ export default function App() {
     showMessage('success', `${asset.label} 已加入房间`)
   }
 
-  const applyAutoLayout = (solution: LayoutSolution) => {
-    if (!spec) return
-    const next = applyLayoutSolution(cloneSpec(spec), solution)
+  const applyAutoLayout = (solution: LayoutSolution, baseSpec = spec, navigateToModel = true) => {
+    if (!baseSpec) return
+    const next = applyLayoutSolution(cloneSpec(baseSpec), solution)
     commitSpec(next)
     setActiveLayout(solution)
     setSelection({ type: 'room' })
-    setMode('model')
+    if (navigateToModel) setMode('model')
     showMessage('success', `已在三维房间显示“${solution.title}”，${solution.fixtures.length} 个实体按量房坐标和真实高度落地`)
   }
 
   const runModelAutoLayout = async () => {
-    if (!spec) return
+    if (!spec || busy === 'layout') return
+    const sourceSpec = cloneSpec(spec)
+    const sourceProjectId = project?.id
+    setBusy('layout')
+    setLayoutError(null)
+    try {
+    const localFallbackCandidates = generateDeterministicLayoutSolutions(sourceSpec, { style: designQuote?.style_match.catalog_style })
+    const localFallback = usableLayoutSolutions(localFallbackCandidates)
+    if (localFallback.length < 3) {
+      const diagnostic = generateDeterministicLayoutSolutions(sourceSpec, { style: designQuote?.style_match.catalog_style })[0]
+      const failed = diagnostic?.checks.filter((check) => !check.passed && check.severity === 'error').map((check) => `${check.code}: ${check.message}`).join('；')
+      throw new Error(`当前房型本地几何求解无法生成三档有效方案${failed ? `：${failed}` : ''}`)
+    }
     const requirements = designQuote?.requirements.collected ?? {
       使用人群: ['成人'],
       功能需求: ['淋浴', '坐便', '洗漱'],
       喜好风格: ['素雅'],
       预期价格区间: '常规卫浴',
     }
-    let response = await studioApi.autoLayout(spec, requirements)
-    let solutions = generateLayoutSolutions(spec, {
-      style: designQuote?.style_match.catalog_style,
-      levels: response.layout_levels,
-    })
-    const modelCalls = [response.model_call]
-    let attempts = 1
-    while (!layoutBatchReady(solutions) && attempts < MAX_AUTO_LAYOUT_ATTEMPTS) {
-      const feedback = layoutRetryFeedback(solutions, attempts)
-      response = await studioApi.autoLayout(spec, requirements, response.layout_levels, feedback)
+    let response: Awaited<ReturnType<typeof studioApi.autoLayout>> | null = null
+    let solutions: LayoutSolution[] = []
+    const modelCalls: NonNullable<LayoutSolution['model_call']>[] = []
+    try {
+      response = await studioApi.autoLayout(sourceSpec, requirements)
+      solutions = generateLayoutSolutions(sourceSpec, {
+        style: designQuote?.style_match.catalog_style,
+        levels: response.layout_levels,
+      })
       modelCalls.push(response.model_call)
-      solutions = generateLayoutSolutions(spec, { style: designQuote?.style_match.catalog_style, levels: response.layout_levels })
-      attempts++
+      let attempts = 1
+      while (!layoutBatchReady(solutions) && attempts < MAX_AUTO_LAYOUT_ATTEMPTS) {
+        const feedback = layoutRetryFeedback(solutions, attempts)
+        response = await studioApi.autoLayout(sourceSpec, requirements, response.layout_levels, feedback)
+        modelCalls.push(response.model_call)
+        solutions = generateLayoutSolutions(sourceSpec, { style: designQuote?.style_match.catalog_style, levels: response.layout_levels })
+        attempts++
+      }
+    } catch {
+      // A valid local solution was computed before the remote call. Keep it as
+      // the guaranteed geometry fallback for transport/schema/model failures.
+      solutions = []
     }
-    if (!layoutBatchReady(solutions)) throw new Error(`布局 Agent 连续 ${attempts} 轮未通过几何门禁，未展示或应用无效方案`)
-    solutions.forEach((solution) => { solution.model_call = response.model_call; solution.model_calls = modelCalls })
+    solutions = completeLayoutSolutions(solutions, localFallback)
+    if (response) solutions.forEach((solution) => { solution.model_call = response!.model_call; solution.model_calls = modelCalls })
     setLayoutSolutions(solutions)
     const selected = selectAutomaticLayoutSolution(solutions)
     if (!selected) throw new Error('布局结果未通过自动选择门禁，未展示或应用无效方案')
-    applyAutoLayout(selected)
+    if (projectRef.current?.id !== sourceProjectId || specRef.current !== spec) {
+      throw new Error('布局生成期间房间数据已改变，已保留当前编辑内容；请基于最新房型重新生成布局')
+    }
+    applyAutoLayout(selected, specRef.current ?? sourceSpec, false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setLayoutError(message)
+      throw error
+    } finally {
+      setBusy((current) => current === 'layout' ? null : current)
+    }
   }
 
   useEffect(() => {
@@ -613,11 +686,11 @@ export default function App() {
               <button className={mode === 'library' ? 'active' : ''} onClick={() => setMode('library')}><Box size={16} />模型库</button>
               <button className={mode === 'model' ? 'active' : ''} onClick={() => canPreview && setMode('model')} disabled={!canPreview}><BoxSelect size={16} />三维预览</button>
             </div>
-            {mode === 'review' && <SolutionList spec={spec} solutions={layoutSolutions} selectedSolution={activeLayout} onSelectSolution={applyAutoLayout} onOpenModel={() => canPreview && setMode('model')} onStartAutoLayout={runModelAutoLayout} />}
+            {mode === 'review' && <SolutionList spec={spec} solutions={layoutSolutions} selectedSolution={activeLayout} onSelectSolution={applyAutoLayout} onFocusSolution={(solution) => applyAutoLayout(solution, specRef.current ?? spec, false)} onOpenModel={() => canPreview && setMode('model')} onStartAutoLayout={runModelAutoLayout} layoutRunning={busy === 'layout'} layoutError={layoutError} />}
             {mode === 'annotation'
               ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
               : mode === 'library'
-                ? <ModelAssetLibrary projectId={project.id} canAddToRoom={!!spec && canPreview} usedAssetIds={spec.fixtures.flatMap((fixture) => fixture.model_asset?.id ? [fixture.model_asset.id] : [])} onAddToRoom={addModelAssetToRoom} onOpenRoom={() => canPreview && setMode('model')} />
+                ? <Suspense fallback={<ModelLoadingFallback />}><ModelAssetLibrary projectId={project.id} canAddToRoom={!!spec && canPreview} usedAssetIds={spec.fixtures.flatMap((fixture) => fixture.model_asset?.id ? [fixture.model_asset.id] : [])} onAddToRoom={addModelAssetToRoom} onOpenRoom={() => canPreview && setMode('model')} /></Suspense>
               : mode === 'review' || !canPreview
                 ? <PlanReview
                   key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`}
@@ -696,7 +769,7 @@ export default function App() {
                     if (zone && wetZoneBoundaryValid(next, id, boundary)) { zone.boundary = boundary; zone.source = 'user'; zone.confidence = 1; commitSpec(next) }
                   }}
                 />
-                : <ModelCanvas ref={modelRef} spec={spec} selection={selection} onSelect={setSelection} layoutInfo={activeLayout ? { title: activeLayout.title, level: activeLayout.budget === 'basic' ? 'level1' : activeLayout.budget === 'comfort' ? 'level2' : 'level3', totalPrice: activeLayout.total_price, lines: [...activeLayout.product_lines.map((line) => ({ name: line.category, quantity: line.quantity, unit: line.unit, price: line.price, spec: `${line.code} ${line.spec}` })), ...activeLayout.material_lines.map((line) => ({ name: line.category, quantity: line.quantity, unit: line.unit, price: line.subtotal, spec: `${line.code} ${line.spec}` }))] } : null} surfaceMaterials={appliedSurfaces ? { wall: appliedSurfaces.wall?.texture_src ? { textureSrc: appliedSurfaces.wall.texture_src, widthMm: appliedSurfaces.wall.dimensions_mm.width, heightMm: appliedSurfaces.wall.dimensions_mm.height } : undefined, floor: appliedSurfaces.floor?.texture_src ? { textureSrc: appliedSurfaces.floor.texture_src, widthMm: appliedSurfaces.floor.dimensions_mm.width, depthMm: appliedSurfaces.floor.dimensions_mm.depth, rotationDeg: activeLayout?.floor_layout.rotation_deg, offsetXmm: activeLayout?.floor_layout.offset_x_mm, offsetZmm: activeLayout?.floor_layout.offset_z_mm, layoutDescription: activeLayout?.floor_layout.description } : undefined } : undefined} />}
+                : <Suspense fallback={<ModelLoadingFallback />}><ModelCanvas ref={modelRef} spec={spec} selection={selection} onSelect={setSelection} layoutInfo={activeLayout ? { title: activeLayout.title, level: activeLayout.budget === 'basic' ? 'level1' : activeLayout.budget === 'comfort' ? 'level2' : 'level3', totalPrice: activeLayout.total_price, lines: [...activeLayout.product_lines.map((line) => ({ name: line.category, quantity: line.quantity, unit: line.unit, price: line.price, spec: `${line.code} ${line.spec}` })), ...activeLayout.material_lines.map((line) => ({ name: line.category, quantity: line.quantity, unit: line.unit, price: line.subtotal, spec: `${line.code} ${line.spec}` }))] } : null} surfaceMaterials={appliedSurfaces ? { wall: appliedSurfaces.wall?.texture_src ? { textureSrc: appliedSurfaces.wall.texture_src, widthMm: appliedSurfaces.wall.dimensions_mm.width, heightMm: appliedSurfaces.wall.dimensions_mm.height } : undefined, floor: appliedSurfaces.floor?.texture_src ? { textureSrc: appliedSurfaces.floor.texture_src, widthMm: appliedSurfaces.floor.dimensions_mm.width, depthMm: appliedSurfaces.floor.dimensions_mm.depth, rotationDeg: activeLayout?.floor_layout.rotation_deg, offsetXmm: activeLayout?.floor_layout.offset_x_mm, offsetZmm: activeLayout?.floor_layout.offset_z_mm, layoutDescription: activeLayout?.floor_layout.description } : undefined } : undefined} /></Suspense>}
           </>
         )}
       </main>

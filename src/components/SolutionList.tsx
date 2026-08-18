@@ -1,5 +1,5 @@
 import { BoxSelect, CheckCircle2, ChevronDown, ChevronUp, FileWarning, LoaderCircle, Ruler, ShieldAlert, Wand2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { LayoutSolution } from '../layoutEngine'
 import { roomBounds, structuralInnerBoundary } from '../spec'
 import type { RoomSpec } from '../types'
@@ -37,38 +37,48 @@ function LayoutPlan({ spec, solution }: { spec: RoomSpec; solution: LayoutSoluti
   </svg>
 }
 
-export function SolutionList({ spec, solutions, selectedSolution, onSelectSolution, onOpenModel, onStartAutoLayout }: {
+export function SolutionList({ spec, solutions, selectedSolution, onSelectSolution, onOpenModel, onStartAutoLayout, onFocusSolution, layoutRunning, layoutError }: {
   spec: RoomSpec
   solutions: LayoutSolution[]
   selectedSolution: LayoutSolution | null
   onSelectSolution: (solution: LayoutSolution) => void
   onOpenModel: () => void
   onStartAutoLayout: () => Promise<void>
+  onFocusSolution?: (solution: LayoutSolution) => void
+  layoutRunning?: boolean
+  layoutError?: string | null
 }) {
   const [expanded, setExpanded] = useState(false)
   const [focusedId, setFocusedId] = useState<string | null>(null)
-  const [running, setRunning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [localError, setLocalError] = useState<string | null>(null)
+  const running = layoutRunning ?? false
+  const error = layoutError ?? localError
   const errorCount = spec.issues.filter((issue) => issue.severity === 'error').length
+  useEffect(() => {
+    if (!solutions.length) {
+      setFocusedId(null)
+      return
+    }
+    if (focusedId && solutions.some((item) => item.id === focusedId)) return
+    setFocusedId(selectedSolution?.id ?? solutions[0].id)
+  }, [focusedId, selectedSolution?.id, solutions])
   const solution = solutions.find((item) => item.id === focusedId) ?? selectedSolution ?? solutions[0] ?? null
   const blockingCount = solution ? hardErrorCount(solution) : 0
 
   async function start() {
     if (running) return
-    setRunning(true); setError(null)
+    setLocalError(null)
     try {
       await onStartAutoLayout()
     } catch (reason) {
-      setError((reason as Error).message)
-    } finally {
-      setRunning(false)
+      setLocalError((reason as Error).message)
     }
   }
 
   if (errorCount) return <section className="solution-list no-solution"><div className="solution-title"><span>大模型自动布局</span><strong>三维暂不可用</strong></div><p><FileWarning size={15} />请先修正量房阻断错误。</p></section>
   return <section className="solution-list auto-layout" aria-label="大模型自动布局">
     <div className="layout-header">
-      <div className="solution-title"><span>大模型自动布局</span><strong>{formatFootprint(spec)}</strong></div>
+      <div className="solution-title"><span>大模型自动布局</span><strong>{formatFootprint(spec)}{solutions.length ? ` · ${solutions.length} 档` : ''}</strong></div>
       <div className="layout-entry-actions">
         <button className="button primary" disabled={running} onClick={() => void start()}>
           {running ? <LoaderCircle className="spin" size={14} /> : <Wand2 size={14} />}{running ? '正在调用大模型' : '开始自动布局'}
@@ -80,8 +90,11 @@ export function SolutionList({ spec, solutions, selectedSolution, onSelectSoluti
     {error && <p className="layout-run-error"><FileWarning size={15} />{error}</p>}
     {solution && expanded && <div id="auto-layout-details" className="layout-options">
       <div className="layout-grid">
-        {solutions.map((item, index) => <button className={`layout-card${item.id === solution.id ? ' selected' : ''}`} key={item.id} onClick={() => setFocusedId(item.id)}>
-          <span>LEVEL {index + 1} · {item.title}</span><strong>¥{item.total_price.toLocaleString('zh-CN')}</strong><small>硬校验通过 · {item.fixtures.length} 个实体</small>
+        {solutions.map((item, index) => <button className={`layout-card${item.id === solution.id ? ' selected' : ''}${hardErrorCount(item) ? ' invalid' : ''}`} key={item.id} onClick={() => {
+          setFocusedId(item.id)
+          if (hardErrorCount(item) === 0) onFocusSolution?.(item)
+        }}>
+          <span>LEVEL {index + 1} · {item.title}</span><strong>¥{item.total_price.toLocaleString('zh-CN')}</strong><small>{hardErrorCount(item) ? `存在 ${hardErrorCount(item)} 个硬错误，不可应用` : '硬校验通过'} · {item.fixtures.length} 个实体</small>
         </button>)}
       </div>
       <div className="layout-detail">

@@ -6,8 +6,10 @@ import { Box3, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
+import { modelOrientation } from '../modelOrientation'
+import { uniformModelScale } from '../modelScale'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
-import { finishedRoomBoundary, fixtureLocalFootprint, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerQuads, wallLength } from '../spec'
+import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerQuads, wallLength } from '../spec'
 import { physicalTextureTransform, physicalWorldTextureTransform } from '../surfaceTexture'
 import type { FixtureModelAsset, FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
 
@@ -16,7 +18,7 @@ export interface ModelCanvasHandle {
 }
 
 type WallPart = { start: number; end: number; y: number; height: number }
-type WallLayers = { finish: Point2D[]; wall: Point2D[] }
+type WallLayers = { finish: Point2D[]; cavity: Point2D[]; wall: Point2D[] }
 type SurfaceMaterials = { wall?: { textureSrc: string; widthMm: number; heightMm: number }; floor?: { textureSrc: string; widthMm: number; depthMm: number; rotationDeg?:0|90; offsetXmm?:number; offsetZmm?:number; layoutDescription?:string } }
 
 function wallPrismGeometry(quad: Point2D[], minY: number, maxY: number) {
@@ -65,12 +67,12 @@ function TexturedMaterial({ src, repeatX, repeatY, offsetX = 0, offsetY = 0, col
   return <meshStandardMaterial color={color} map={texture} roughness={0.82} side={DoubleSide} transparent={opacity < 1} opacity={opacity} />
 }
 
-function WallPrism({ quad, part, color, edge, onSelect, surface, emphasizeJoints }: { quad: Point2D[]; part: WallPart; color: string; edge: string; onSelect: () => void; surface?: SurfaceMaterials['wall']; emphasizeJoints?: boolean }) {
+function WallPrism({ quad, part, color, edge, onSelect, surface, emphasizeJoints, opacity = 1 }: { quad: Point2D[]; part: WallPart; color: string; edge: string; onSelect: () => void; surface?: SurfaceMaterials['wall']; emphasizeJoints?: boolean; opacity?: number }) {
   const geometry = useMemo(() => wallPrismGeometry(quad, part.y - part.height / 2, part.y + part.height / 2), [quad, part])
   const lengthMm = Math.hypot(quad[1].x_mm - quad[0].x_mm, quad[1].z_mm - quad[0].z_mm)
   const textureTransform = surface ? physicalTextureTransform(lengthMm, part.height, surface.widthMm, surface.heightMm, part.start, part.y - part.height / 2) : null
   return <mesh geometry={geometry} castShadow receiveShadow onClick={(event) => { event.stopPropagation(); onSelect() }}>
-    {surface && textureTransform ? <TexturedMaterial src={surface.textureSrc} {...textureTransform} color={color} emphasizeJoints={emphasizeJoints} /> : <meshStandardMaterial color={color} roughness={0.84} side={DoubleSide} />}
+    {surface && textureTransform ? <TexturedMaterial src={surface.textureSrc} {...textureTransform} color={color} opacity={opacity} emphasizeJoints={emphasizeJoints} /> : <meshStandardMaterial color={color} roughness={0.84} side={DoubleSide} transparent={opacity < 1} opacity={opacity} />}
     <Edges color={edge} threshold={20} />
   </mesh>
 }
@@ -98,6 +100,9 @@ function Wall({ spec, index, layers, selected, onSelect, surface, emphasizeJoint
     <group>
       {parts.map((part, partIndex) => (
         <WallPrism key={partIndex} quad={sliceWallQuadByDistance(layers.wall, wallStart, wallEnd, part.start, part.end)} part={part} color={selected ? '#d8c8a5' : '#e7e5df'} edge={selected ? '#8a6725' : '#b9bcb4'} onSelect={onSelect} />
+      ))}
+      {parts.map((part, partIndex) => (
+        <WallPrism key={`cavity-${partIndex}`} quad={sliceWallQuadByDistance(layers.cavity, wallStart, wallEnd, part.start, part.end)} part={part} color="#8e9898" edge="#5d6969" onSelect={onSelect} opacity={0.28} />
       ))}
       {parts.map((part, partIndex) => (
         <WallPrism key={`finish-${partIndex}`} quad={sliceWallQuadByDistance(layers.finish, wallStart, wallEnd, part.start, part.end)} part={part} color={selected ? '#eee2c5' : '#ffffff'} edge={selected ? '#8a6725' : '#c8c1b2'} onSelect={onSelect} surface={surface} emphasizeJoints={emphasizeJoints} />
@@ -129,9 +134,10 @@ function modelAssetFormat(asset: FixtureModelAsset) {
 }
 
 function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: FixtureSpec; selected: boolean; object: Group }) {
-  const footprint = fixtureLocalFootprint(fixture)
   const { scene, scale, position } = useMemo(() => {
     const scene = object.clone(true)
+    scene.rotation.copy(modelOrientation(fixture.model_asset?.orientation_view ?? null))
+    scene.updateMatrixWorld(true)
     scene.traverse((child) => {
       if ('castShadow' in child) {
         child.castShadow = true
@@ -143,23 +149,21 @@ function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: Fixtur
     const center = new Vector3()
     box.getSize(size)
     box.getCenter(center)
-    const target = new Vector3(footprint.width_mm / 1000, fixture.height_mm / 1000, footprint.depth_mm / 1000)
-    const scale = Math.min(
-      target.x / Math.max(size.x, 0.001),
-      target.y / Math.max(size.y, 0.001),
-      target.z / Math.max(size.z, 0.001),
-    )
+    // The outer fixture group applies rotation exactly once. Keep the model's
+    // native proportions and use one scale only for unit/envelope fitting.
+    const target = new Vector3(fixture.width_mm / 1000, fixture.height_mm / 1000, fixture.depth_mm / 1000)
+    const scale = uniformModelScale(size, target)
     return {
       scene,
       scale,
       position: new Vector3(-center.x * scale, -box.min.y * scale, -center.z * scale),
     }
-  }, [fixture.height_mm, footprint.depth_mm, footprint.width_mm, object])
+  }, [fixture.depth_mm, fixture.height_mm, fixture.width_mm, object])
 
   return <>
     <primitive object={scene} position={position} scale={scale} />
     <mesh position={[0, 0.01, 0]} visible={selected}>
-      <boxGeometry args={[footprint.width_mm / 1000, 0.02, footprint.depth_mm / 1000]} />
+      <boxGeometry args={[fixture.width_mm / 1000, 0.02, fixture.depth_mm / 1000]} />
       <meshStandardMaterial color="#c89638" transparent opacity={0.22} />
       <Edges color="#8a6725" />
     </mesh>
@@ -186,6 +190,39 @@ function ObjFixtureAsset({ fixture, selected, src }: { fixture: FixtureSpec; sel
   return <NormalizedFixtureAsset fixture={fixture} selected={selected} object={object} />
 }
 
+function WasherProxy({ fixture, selected, onSelect }: { fixture: FixtureSpec; selected: boolean; onSelect: (event: ThreeEvent<MouseEvent>) => void }) {
+  const width = fixture.width_mm / 1000
+  const depth = fixture.depth_mm / 1000
+  const height = fixture.height_mm / 1000
+  const outline = selected ? '#a46d13' : '#5d6668'
+  const body = selected ? '#b9c3c5' : '#8f9a9d'
+  return <>
+    <mesh position={[0, height / 2, 0]} castShadow receiveShadow onClick={onSelect}>
+      <boxGeometry args={[width, height, depth]} />
+      <meshStandardMaterial color={body} metalness={0.2} roughness={0.38} />
+      <Edges color={outline} />
+    </mesh>
+    <mesh position={[0, height * 0.82, depth / 2 + 0.006]} castShadow receiveShadow onClick={onSelect}>
+      <boxGeometry args={[width * 0.88, height * 0.12, 0.012]} />
+      <meshStandardMaterial color="#626d70" roughness={0.34} />
+      <Edges color={outline} />
+    </mesh>
+    <mesh position={[0, height * 0.43, depth / 2 + 0.012]} rotation={[Math.PI / 2, 0, 0]} castShadow receiveShadow onClick={onSelect}>
+      <cylinderGeometry args={[Math.min(width, height) * 0.29, Math.min(width, height) * 0.29, 0.018, 40]} />
+      <meshStandardMaterial color="#263236" metalness={0.35} roughness={0.22} />
+      <Edges color={outline} />
+    </mesh>
+    <mesh position={[0, height * 0.43, depth / 2 + 0.023]} rotation={[Math.PI / 2, 0, 0]} onClick={onSelect}>
+      <torusGeometry args={[Math.min(width, height) * 0.25, Math.min(width, height) * 0.025, 12, 40]} />
+      <meshStandardMaterial color="#c4ced0" metalness={0.5} roughness={0.2} />
+    </mesh>
+    <mesh position={[width * 0.29, height * 0.85, depth / 2 + 0.018]} onClick={onSelect}>
+      <cylinderGeometry args={[Math.min(width, height) * 0.045, Math.min(width, height) * 0.045, 0.026, 24]} />
+      <meshStandardMaterial color="#d9e0df" metalness={0.45} roughness={0.24} />
+    </mesh>
+  </>
+}
+
 function FixtureAssetModel({ fixture, selected }: { fixture: FixtureSpec; selected: boolean }) {
   const asset = fixture.model_asset
   if (!asset) return null
@@ -197,12 +234,11 @@ function FixtureAssetModel({ fixture, selected }: { fixture: FixtureSpec; select
   return null
 }
 
-class FixtureAssetBoundary extends Component<{fixture:FixtureSpec;children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(){}render(){if(!this.state.failed)return this.props.children;const f=this.props.fixture,footprint=fixtureLocalFootprint(f);return <mesh position={[0,f.height_mm/2000,0]}><boxGeometry args={[footprint.width_mm/1000,f.height_mm/1000,footprint.depth_mm/1000]}/><meshStandardMaterial color="#c9cbc5" roughness={0.82}/><Edges color="#6f756c"/></mesh>}}
+class FixtureAssetBoundary extends Component<{fixture:FixtureSpec;children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(){}render(){return this.state.failed ? null : this.props.children}}
 
 function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; selected: boolean; onSelect: () => void }) {
-  const footprint = fixtureLocalFootprint(fixture)
-  const width = footprint.width_mm / 1000
-  const depth = footprint.depth_mm / 1000
+  const width = fixture.width_mm / 1000
+  const depth = fixture.depth_mm / 1000
   const height = fixture.height_mm / 1000
   const select = (event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); onSelect() }
   const outline = selected ? '#a46d13' : '#6f756c'
@@ -210,26 +246,27 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
   const common = { castShadow: true, receiveShadow: true, onClick: select }
   return (
     <group position={[fixture.x_mm / 1000, (fixture.elevation_mm ?? 0) / 1000, fixture.z_mm / 1000]} rotation={[0, -fixture.rotation_deg * Math.PI / 180, 0]} userData={{ id: fixture.id, kind: fixture.kind, source: fixture.source, model_asset: fixture.model_asset?.id }} onClick={select}>
+      {!fixture.model_asset && /洗衣机/.test(fixture.label) && <WasherProxy fixture={fixture} selected={selected} onSelect={select} />}
       {fixture.model_asset && <FixtureAssetBoundary fixture={fixture}><FixtureAssetModel fixture={fixture} selected={selected} /></FixtureAssetBoundary>}
       {!fixture.model_asset && fixture.kind === 'toilet' && <>
         <mesh {...common} position={[0, height * 0.28, depth * 0.08]} scale={[width, height * 0.55, depth * 0.7]}><sphereGeometry args={[0.5, 28, 20]} /><meshStandardMaterial color={ceramic} roughness={0.25} /><Edges color={outline} threshold={35} /></mesh>
         <mesh {...common} position={[0, height * 0.65, -depth * 0.3]}><boxGeometry args={[width * 0.9, height * 0.62, depth * 0.25]} /><meshStandardMaterial color={ceramic} roughness={0.25} /><Edges color={outline} /></mesh>
       </>}
-      {fixture.kind === 'vanity' && <>
+      {!fixture.model_asset && fixture.kind === 'vanity' && <>
         <mesh {...common} position={[0, height * 0.45, 0]}><boxGeometry args={[width, height * 0.9, depth]} /><meshStandardMaterial color={selected ? '#b28757' : '#8b6241'} roughness={0.65} /><Edges color={outline} /></mesh>
         <mesh {...common} position={[0, height * 0.93, 0]} scale={[width * 0.72, 0.08, depth * 0.65]}><sphereGeometry args={[0.5, 24, 14]} /><meshStandardMaterial color={ceramic} roughness={0.2} /><Edges color={outline} threshold={30} /></mesh>
       </>}
-      {fixture.kind === 'shower' && <>
+      {!fixture.model_asset && fixture.kind === 'shower' && <>
         <mesh {...common} position={[0, height / 2, -depth / 2]}><boxGeometry args={[width, height, 0.018]} /><meshPhysicalMaterial color="#c7d7d3" transparent opacity={0.34} roughness={0.05} transmission={0.35} /><Edges color={outline} /></mesh>
         <mesh {...common} position={[-width / 2, height / 2, 0]}><boxGeometry args={[0.018, height, depth]} /><meshPhysicalMaterial color="#c7d7d3" transparent opacity={0.34} roughness={0.05} transmission={0.35} /><Edges color={outline} /></mesh>
         <mesh {...common} position={[0, 0.025, 0]}><boxGeometry args={[width, 0.05, depth]} /><meshStandardMaterial color="#d9dcd5" roughness={0.7} /><Edges color={outline} /></mesh>
       </>}
-      {fixture.kind === 'floor_drain' && <mesh {...common} position={[0, 0.012, 0]}><boxGeometry args={[Math.max(width, depth), 0.024, Math.max(width, depth)]} /><meshStandardMaterial color={selected ? '#c89638' : '#777d79'} metalness={0.75} roughness={0.25} /><Edges color={outline} /></mesh>}
-      {fixture.kind === 'drain' && <mesh {...common} position={[0, 0.018, 0]}><cylinderGeometry args={[Math.max(width / 2, 0.025), Math.max(width / 2, 0.025), 0.036, 24]} /><meshStandardMaterial color={selected ? '#c89638' : '#4f7180'} metalness={0.65} roughness={0.28} /><Edges color={outline} /></mesh>}
-      {fixture.kind === 'water' && <mesh {...common} position={[0, Math.max(height / 2, 0.04), 0]}><sphereGeometry args={[Math.max(width / 2, 0.025), 20, 14]} /><meshStandardMaterial color={selected ? '#d0a54e' : '#287d9c'} metalness={0.35} roughness={0.3} /><Edges color={outline} /></mesh>}
-      {fixture.kind === 'electric' && <mesh {...common} position={[0, Math.max(height / 2, 0.04), 0]}><boxGeometry args={[Math.max(width, 0.05), Math.max(height, 0.05), Math.max(depth, 0.018)]} /><meshStandardMaterial color={selected ? '#d0a54e' : '#bf8a26'} roughness={0.45} /><Edges color={outline} /></mesh>}
-      {fixture.kind === 'pipe' && <mesh {...common} position={[0, height / 2, 0]}><cylinderGeometry args={[width / 2, width / 2, height, 24]} /><meshStandardMaterial color={selected ? '#d4a650' : '#90958e'} metalness={0.35} roughness={0.4} /><Edges color={outline} /></mesh>}
-      {fixture.kind === 'radiator' && <mesh {...common} position={[0, height / 2, 0]}><boxGeometry args={[width, height, depth]} /><meshStandardMaterial color={ceramic} metalness={0.2} roughness={0.35} /><Edges color={outline} /></mesh>}
+      {!fixture.model_asset && fixture.kind === 'floor_drain' && <mesh {...common} position={[0, 0.012, 0]}><boxGeometry args={[Math.max(width, depth), 0.024, Math.max(width, depth)]} /><meshStandardMaterial color={selected ? '#c89638' : '#777d79'} metalness={0.75} roughness={0.25} /><Edges color={outline} /></mesh>}
+      {!fixture.model_asset && fixture.kind === 'drain' && <mesh {...common} position={[0, 0.018, 0]}><cylinderGeometry args={[Math.max(width / 2, 0.025), Math.max(width / 2, 0.025), 0.036, 24]} /><meshStandardMaterial color={selected ? '#c89638' : '#4f7180'} metalness={0.65} roughness={0.28} /><Edges color={outline} /></mesh>}
+      {!fixture.model_asset && fixture.kind === 'water' && <mesh {...common} position={[0, Math.max(height / 2, 0.04), 0]}><sphereGeometry args={[Math.max(width / 2, 0.025), 20, 14]} /><meshStandardMaterial color={selected ? '#d0a54e' : '#287d9c'} metalness={0.35} roughness={0.3} /><Edges color={outline} /></mesh>}
+      {!fixture.model_asset && fixture.kind === 'electric' && <mesh {...common} position={[0, Math.max(height / 2, 0.04), 0]}><boxGeometry args={[Math.max(width, 0.05), Math.max(height, 0.05), Math.max(depth, 0.018)]} /><meshStandardMaterial color={selected ? '#d0a54e' : '#bf8a26'} roughness={0.45} /><Edges color={outline} /></mesh>}
+      {!fixture.model_asset && fixture.kind === 'pipe' && <mesh {...common} position={[0, height / 2, 0]}><cylinderGeometry args={[width / 2, width / 2, height, 24]} /><meshStandardMaterial color={selected ? '#d4a650' : '#90958e'} metalness={0.35} roughness={0.4} /><Edges color={outline} /></mesh>}
+      {!fixture.model_asset && fixture.kind === 'radiator' && <mesh {...common} position={[0, height / 2, 0]}><boxGeometry args={[width, height, depth]} /><meshStandardMaterial color={ceramic} metalness={0.2} roughness={0.35} /><Edges color={outline} /></mesh>}
       {!fixture.model_asset && (fixture.kind === 'column' || fixture.kind === 'other') && <mesh {...common} position={[0, height / 2, 0]}><boxGeometry args={[width, height, depth]} /><meshStandardMaterial color={selected ? '#d8c8a5' : '#c9cbc5'} roughness={0.82} /><Edges color={outline} /></mesh>}
     </group>
   )

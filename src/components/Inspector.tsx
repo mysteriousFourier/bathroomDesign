@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallFinishGap, wallLength, wetZoneBoundaryValid } from '../spec'
+import { cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallFinishGap, wallLength, wetZoneBoundaryValid } from '../spec'
 import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -181,12 +181,27 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             <div className="finish-editor">
               <button className="button secondary wide" onClick={() => edit((draft) => { draft.dry_wet_zones = generateDryWetZones(draft) })}>按淋浴地漏生成湿区</button>
               <button className="button secondary wide" disabled={(spec.dry_wet_zones ?? []).some((zone) => zone.kind === 'wet')} title={(spec.dry_wet_zones ?? []).some((zone) => zone.kind === 'wet') ? '当前房间已有湿区' : undefined} onClick={addZone}><Plus size={15} />添加湿区</button>
-              <button className="button secondary wide" onClick={() => edit((draft) => { draft.wall_finish_profiles = generateWallFinishProfiles(draft) })}>生成逐墙饰面</button>
+              <button className="button secondary wide" onClick={() => edit((draft) => {
+                draft.wall_finish_profiles = generateWallFinishProfiles(draft).map((profile) => ({
+                  ...profile,
+                  gap_mm: Math.max(35, profile.gap_mm ?? wallFinishGap(draft, profile.wall_index)),
+                }))
+                ensureWallFinishGapsForBoundPoints(draft)
+                draft.fixtures.forEach((fixture) => {
+                  if (!fixtureCanBindWall(fixture.kind) || fixture.bound_wall_index === undefined || fixture.bound_wall_index === null) return
+                  const projection = projectPointToWall(finishedRoomBoundary(draft), fixture.bound_wall_index, fixture)
+                  if (projection) { fixture.x_mm = projection.point.x_mm; fixture.z_mm = projection.point.z_mm }
+                })
+              })}>生成逐墙饰面</button>
               {(spec.wall_finish_profiles ?? []).map((finish) => <div className="finish-row" key={`finish-row-${finish.wall_index}`}>
                 <span>W{finish.wall_index + 1}{finish.generated_from_bound_point ? ' 绑定点' : ' 默认'}</span>
                 <NumberField label="厚度" value={finish.thickness_mm} min={0} onChange={(value) => edit((draft) => {
                   const item = draft.wall_finish_profiles?.find((candidate) => candidate.wall_index === finish.wall_index)
                   if (item) { item.thickness_mm = value; item.source = 'user'; item.confidence = 1 }
+                })} />
+                <NumberField label="空腔" value={finish.gap_mm ?? wallFinishGap(spec, finish.wall_index)} min={0} onChange={(value) => edit((draft) => {
+                  const item = draft.wall_finish_profiles?.find((candidate) => candidate.wall_index === finish.wall_index)
+                  if (item) { item.gap_mm = value; item.source = 'user'; item.confidence = 1 }
                 })} />
               </div>)}
             </div>

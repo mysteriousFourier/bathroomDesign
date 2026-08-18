@@ -761,6 +761,9 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
     const product = (graphOutput.scenarios[demand].products as GraphProduct[]).find((item) => item.code === code)
     return { code, category: product?.category ?? f.label.split(' ')[1] ?? '设备', spec: product?.spec ?? '规格待确认', price: product?.price ?? 0, quantity: 1, unit: '件' }
   })
+  const selectedProductIds = productLines.map((line) =>
+    (graphOutput.scenarios[demand].products as GraphProduct[]).find((product) => product.code === line.code)?.graph_id,
+  ).filter((id): id is string => Boolean(id))
   const quantities = surfaceQuantities(spec)
   const wallProduct = materialProduct('墙板', quality, style)
   const floorProduct = materialProduct('地砖', quality, style)
@@ -782,7 +785,7 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
   const score = Math.max(0, Math.min(100, 100 - checks.filter((c) => !c.passed && c.severity === 'error').length * 25 - checks.filter((c) => !c.passed && c.severity === 'warning').length * 5 + quality * 2))
   const summaries = ['湿区靠排水端，设备沿外围布置，保留纵向通道', '湿区与洁具分居两侧，形成左右功能分区', '湿区居中组织动线，洁具分散到不同墙面']
   checks.push(check('FLOOR-CUT',floorLayout.narrow_cut_count===0,'warning','地砖排版优化器',floorLayout.description))
-  return { id: `${demand}-${budget}`, demand, budget, title: `${demandLabels[demand]} · ${budgetLabels[budget]}`, budget_label: budgetLabels[budget], layout_label: layoutLabels[budget], layout_summary: `依据量房基础设施与几何约束求解；${summaries[variant]}；${floorLayout.description}`, product_lines: productLines, material_lines: materialLines, surface_materials: { wall: surfaceAssetForProduct(wallProduct.材料编号), floor: floorAsset }, equipment_price: equipmentPrice, material_price: materialPrice, total_price: totalPrice, score, fixtures, anchors, checks, wet_zone: { x_mm: shower.x_mm, z_mm: shower.z_mm, width_mm: shower.width_mm, depth_mm: shower.depth_mm },floor_layout:floorLayout,layout_script:layoutScript,solver_trace:{candidates_evaluated:solverTrace.evaluated,feasible_candidates:solverTrace.feasible,reachable},selected_product_ids:[] }
+  return { id: `${demand}-${budget}`, demand, budget, title: `${demandLabels[demand]} · ${budgetLabels[budget]}`, budget_label: budgetLabels[budget], layout_label: layoutLabels[budget], layout_summary: `依据量房基础设施与几何约束求解；${summaries[variant]}；${floorLayout.description}`, product_lines: productLines, material_lines: materialLines, surface_materials: { wall: surfaceAssetForProduct(wallProduct.材料编号), floor: floorAsset }, equipment_price: equipmentPrice, material_price: materialPrice, total_price: totalPrice, score, fixtures, anchors, checks, wet_zone: { x_mm: shower.x_mm, z_mm: shower.z_mm, width_mm: shower.width_mm, depth_mm: shower.depth_mm },floor_layout:floorLayout,layout_script:layoutScript,solver_trace:{candidates_evaluated:solverTrace.evaluated,feasible_candidates:solverTrace.feasible,reachable},selected_product_ids:selectedProductIds }
 }
 
 function levelGraphProduct(product:LayoutProductInput):GraphProduct{return{graph_id:product.product_id,code:product.catalog_code,category:product.category,spec:product.spec,price:product.unit_price}}
@@ -871,11 +874,11 @@ export function generateLayoutSolutions(spec: RoomSpec, preference?: LayoutPrefe
 
 /** Generate three local, product-backed alternatives for remote layout fallback. */
 export function generateDeterministicLayoutSolutions(spec: RoomSpec, preference?: Omit<LayoutPreference, 'levels'>) {
-  const demand: DemandProfile = spec.fixtures.some((fixture) => /娲楄。/.test(fixture.label)) ? 'laundry' : 'standard_shower'
+  const demand: DemandProfile = spec.fixtures.some((fixture) => /洗衣/.test(fixture.label)) ? 'laundry' : 'standard_shower'
   return budgets.map((budget, index) => ({
     ...makeSolution(spec, demand, budget, preference),
     id: `level${index + 1}`,
-    title: `${budgetLabels[budget]}绾︽潫姹傝В鏂规`,
+    title: `${budgetLabels[budget]}约束求解方案`,
     budget_label: budgetLabels[budget],
     layout_label: layoutLabels[budget],
   }))

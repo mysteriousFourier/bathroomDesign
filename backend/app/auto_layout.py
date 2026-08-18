@@ -304,6 +304,15 @@ async def generate_model_layout(
             },
         })
     levels.sort(key=lambda item: item["id"])
+    product_signatures = {tuple(sorted(item["product_ids"])) for item in levels}
+    if len(product_signatures) != 3:
+        raise ValueError("经济、舒适、品质三档必须使用三套不同的真实产品组合")
+    equipment_totals = [
+        sum(float(product["unit_price"]) for product in item["products"])
+        for item in levels
+    ]
+    if not equipment_totals[0] < equipment_totals[1] < equipment_totals[2]:
+        raise ValueError("三档真实产品总价必须按经济、舒适、品质严格递增")
     return {
         "layout_levels": levels,
         "model_call": {

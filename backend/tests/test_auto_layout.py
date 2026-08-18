@@ -1,4 +1,5 @@
 import json
+from itertools import product
 from pathlib import Path
 
 import pytest
@@ -43,13 +44,21 @@ async def test_auto_layout_requires_and_audits_real_model_tool_call(tmp_path, mo
         def json(self):
             payload = calls[0]
             context = json.loads(payload["messages"][1]["content"])
-            product_ids = [group["products"][0]["product_id"] for group in context["candidates"]]
             instructions = []
             for role in context["required_roles"]:
                 instructions.append({"fixture_role": role, "wall": "nearest_plumbing" if role == "toilet" else "east", "zone": "wet" if role == "wet_zone" else "service" if role == "heater" else "dry", "near": "toilet_drain" if role == "toilet" else "", "min_clearance_mm": 0 if role in ("wet_zone", "heater") else 600})
+            combinations = sorted(
+                (
+                    sum(float(item["price"]) for item in selection),
+                    [item["product_id"] for item in selection],
+                )
+                for selection in product(*(group["products"] for group in context["candidates"]))
+            )
+            assert len(combinations) >= 3
+            selected_combinations = [combinations[0], combinations[len(combinations) // 2], combinations[-1]]
             arguments = {"levels": [
-                {"id": f"level{index + 1}", "name": f"模型直出布局 {index + 1}", "reason": "量房与产品约束推理", "product_ids": product_ids, "instructions": instructions}
-                for index in range(3)
+                {"id": f"level{index + 1}", "name": f"模型直出布局 {index + 1}", "reason": "量房与产品约束推理", "product_ids": combination[1], "instructions": instructions}
+                for index, combination in enumerate(selected_combinations)
             ]}
             return {"id": "chatcmpl-layout-1", "usage": {"total_tokens": 321}, "choices": [{"message": {"tool_calls": [{"id": "call-layout-1", "function": {"name": "create_room_layout", "arguments": json.dumps(arguments, ensure_ascii=False)}}]}}]}
 

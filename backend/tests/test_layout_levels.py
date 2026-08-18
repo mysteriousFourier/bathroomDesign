@@ -32,6 +32,29 @@ def test_invalid_model_result_falls_back_to_three_complete_product_snapshots():
     assert all(level["layout_script"]["source"] == "deterministic-rule-engine" for level in levels)
 
 
+def test_same_products_with_different_geometry_do_not_pass_as_three_price_tiers():
+    groups = _groups()
+    product_ids = [group["candidates"][0]["product_id"] for group in groups]
+    raw_levels = []
+    for index, tier in enumerate(("basic", "comfort", "premium")):
+        raw_levels.append({
+            "name": f"伪分档 {index + 1}",
+            "reason": "只改变语义墙面",
+            "product_tier": tier,
+            "product_ids": product_ids,
+            "instructions": [],
+        })
+    levels, blockers = build_layout_levels(
+        {"levels": raw_levels}, groups,
+        {"必须设备": [group["category"] for group in groups], "不能有的设备": []},
+    )
+    assert blockers == []
+    assert all(level["layout_script"]["source"] == "deterministic-rule-engine" for level in levels)
+    assert len({tuple(level["product_ids"]) for level in levels}) == 3
+    totals = [sum(product["unit_price"] for product in level["products"]) for level in levels]
+    assert totals[0] < totals[1] < totals[2]
+
+
 def test_missing_required_candidate_blocks_layout_instead_of_claiming_compliance():
     levels, blockers = build_layout_levels({}, _groups(("马桶",)), {"必须设备": ["马桶", "浴室柜"], "不能有的设备": []})
     assert levels == []

@@ -61,7 +61,10 @@ const invalidLayoutSolutions = (solutions: LayoutSolution[]) => solutions.filter
 )
 
 const layoutBatchReady = (solutions: LayoutSolution[]) =>
-  solutions.length === 3 && invalidLayoutSolutions(solutions).length === 0 && duplicateLayoutGroups(solutions).length === 0
+  solutions.length === 3 && invalidLayoutSolutions(solutions).length === 0 && duplicateLayoutGroups(solutions).length === 0 &&
+  new Set(solutions.map((solution) => [...solution.selected_product_ids].sort().join('|'))).size === 3 &&
+  [...solutions].sort((left, right) => ['basic', 'comfort', 'premium'].indexOf(left.budget) - ['basic', 'comfort', 'premium'].indexOf(right.budget))
+    .every((solution, index, ordered) => index === 0 || ordered[index - 1].equipment_price < solution.equipment_price)
 
 const usableLayoutSolutions = (solutions: LayoutSolution[]) => {
   const valid = solutions.filter((solution) => !solution.checks.some((check) => !check.passed && check.severity === 'error'))
@@ -92,6 +95,11 @@ const completeLayoutSolutions = (primary: LayoutSolution[], fallback: LayoutSolu
   for (const tier of tierOrder) add(fallback.find((candidate) => candidate.budget === tier))
   if (result.length !== tierOrder.length) {
     throw new Error('三个价位档位未能全部生成无硬错误且互不重复的可应用方案')
+  }
+  const productSignatures = new Set(result.map((solution) => [...solution.selected_product_ids].sort().join('|')))
+  const ordered = [...result].sort((left, right) => tierOrder.indexOf(left.budget) - tierOrder.indexOf(right.budget))
+  if (productSignatures.size !== 3 || !ordered.every((solution, index) => index === 0 || ordered[index - 1].equipment_price < solution.equipment_price)) {
+    throw new Error('三档方案必须使用不同真实产品组合，且设备价格按经济、舒适、品质递增')
   }
   return result
 }

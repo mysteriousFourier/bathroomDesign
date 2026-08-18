@@ -1,5 +1,6 @@
 import json, math, re, httpx
 from functools import lru_cache
+from itertools import product
 from pathlib import Path
 from .config import settings
 from .knowledge_graph import equipment_rules
@@ -242,14 +243,27 @@ def build_layout_levels(arguments,groups,rules):
         instructions=_safe_layout_instructions(item.get("instructions"),profile,tier,categories)
         validated.append({"id":f"level{index+1}","name":str(item.get("name") or f"方案 {index+1}"),"reason":str(item.get("reason") or "需求模型与规则引擎共同决策"),"demand_profile":profile,"product_tier":tier,"product_ids":ids,"products":[_layout_product_snapshot(x) for x in selected],"layout_script":{"version":"layout-script-v1","demand":profile,"budget":tier,"instructions":instructions,"source":"model-assisted-rule-engine"}})
     signatures={(x["product_tier"],tuple(x["product_ids"]),tuple((i["fixture_role"],i["wall"],i["zone"]) for i in x["layout_script"]["instructions"])) for x in validated}
-    if len(validated)==3 and len(signatures)==3:return validated,[]
+    product_signatures={tuple(sorted(x["product_ids"])) for x in validated}
+    equipment_totals=[sum(float(product["unit_price"]) for product in x["products"]) for x in validated]
+    tier_order=[x["product_tier"] for x in validated]
+    if len(validated)==3 and len(signatures)==3 and len(product_signatures)==3 and tier_order==["basic","comfort","premium"] and equipment_totals[0]<equipment_totals[1]<equipment_totals[2]:return validated,[]
+    combinations=[]
+    candidate_lists=[sorted(group["candidates"],key=lambda x:(x["家具小计"],x["product_id"])) for group in groups]
+    for selected in product(*candidate_lists):
+        combinations.append((sum(float(item["家具小计"]) for item in selected), list(selected)))
+    combinations.sort(key=lambda item:(item[0],tuple(item[1][index]["product_id"] for index in range(len(item[1])))))
+    middle=next((index for index in range(1,len(combinations)) if combinations[index][0]>combinations[0][0]),None) if combinations else None
+    high=next((index for index in range(len(combinations)-1,0,-1) if middle is not None and combinations[index][0]>combinations[middle][0]),None) if combinations else None
+    selected_combinations=[combinations[0],combinations[middle],combinations[high]] if middle is not None and high is not None else []
     fallback=[]
     for index,tier in enumerate(("basic","comfort","premium")):
-        selected=[]
-        for group in groups:
-            candidates=sorted(group["candidates"],key=lambda x:(x["家具小计"],x["product_id"]));selected.append(candidates[min(index,len(candidates)-1)])
+        selected=selected_combinations[index][1] if index < len(selected_combinations) else []
         categories={x["家具名称"] for x in selected};ids=[x["product_id"] for x in selected]
         fallback.append({"id":f"level{index+1}","name":f"{('经济','舒适','品质')[index]}布局","reason":"模型布局结果未通过完整性校验，采用确定性产品与空间策略","demand_profile":profile,"product_tier":tier,"product_ids":ids,"products":[_layout_product_snapshot(x) for x in selected],"layout_script":{"version":"layout-script-v1","demand":profile,"budget":tier,"instructions":_default_layout_instructions(profile,tier,categories),"source":"deterministic-rule-engine"}})
+    fallback_signatures={tuple(sorted(x["product_ids"])) for x in fallback}
+    fallback_totals=[sum(float(product["unit_price"]) for product in x["products"]) for x in fallback]
+    if len(fallback_signatures)!=3 or not fallback_totals[0]<fallback_totals[1]<fallback_totals[2]:
+        return [],["真实模型产品候选不足以组成价格严格递增且互不相同的经济、舒适、品质三档"]
     return fallback,[]
 
 REQUIREMENT_CAPTURE_PROMPT="""首先调用 capture_design_requirements，不要直接回复用户。

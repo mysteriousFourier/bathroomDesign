@@ -38,6 +38,20 @@ class ProductKnowledgeGraph:
     _embedding_cache={}
     def __init__(self,path:Path):self.path=path
     def load(self):return json.loads(self.path.read_text("utf-8")) if self.path.is_file() else {"version":2,"products":{},"entities":{},"relations":[]}
+    def product_by_code(self, code:str):
+        normalized=code.strip()
+        return next((p for p in self.load()["products"].values() if p.get("active",True) and p.get("attributes",{}).get("材料编号")==normalized),None)
+    def create_product(self, attributes:dict[str,str]):
+        record={str(k).strip():str(v).strip() for k,v in attributes.items() if str(k).strip() and str(v).strip()}
+        code=record.get("材料编号","");category=record.get("材料名称","")
+        if not code or not category:raise ValueError("新增产品必须提供材料编号和材料名称")
+        if self.product_by_code(code):raise ValueError("该 SKU 已存在，请直接绑定")
+        graph=self.load();pid=hashlib.sha256(f"{code}|{category}".encode()).hexdigest()[:20]
+        digest=hashlib.sha256(json.dumps(record,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+        graph["products"][pid]={"id":pid,"digest":digest,"active":True,"attributes":record}
+        self._rebuild_relations(graph);self.path.parent.mkdir(parents=True,exist_ok=True)
+        self.path.write_text(json.dumps(graph,ensure_ascii=False,indent=2),"utf-8")
+        return graph["products"][pid]
     @staticmethod
     def _terms(text:str):
         chunks=[x.lower() for x in re.findall(r"[\w\u4e00-\u9fff]+",text) if len(x)>1]

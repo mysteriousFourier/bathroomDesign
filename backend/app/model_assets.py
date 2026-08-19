@@ -163,15 +163,7 @@ def _binding_for_label(label: str, category: str | None) -> dict[str, object]:
 
 
 def _backfill_binding(metadata_path: Path, metadata: dict[str, object]) -> dict[str, object]:
-    binding = _binding_for_label(str(metadata.get("label") or ""), str(metadata.get("category") or "") or None)
-    if all(metadata.get(key) == value for key, value in binding.items()):
-        return metadata
-    metadata.update(binding)
-    response = _response_from_metadata(metadata)
-    temporary = metadata_path.with_suffix(".json.tmp")
-    temporary.write_text(response.model_dump_json(indent=2), encoding="utf-8")
-    temporary.replace(metadata_path)
-    return response.model_dump(mode="json")
+    return metadata
 
 
 def list_shared_model_assets() -> list[ModelAssetResponse]:
@@ -256,7 +248,8 @@ async def store_model_asset(
             src=f"/api/model-assets/{asset_id}/files/{encoded_path}",
             category=category,
             dimensions_mm=CATEGORY_DIMENSIONS.get(category or ""),
-            **_binding_for_label(label, category),
+            catalog_codes=[], product_ids=[], binding_status="unbound",
+            binding_note=(f"文件名提示可能属于“{category}”；请用目录 SKU 显式绑定" if category else "请选择目录 SKU 显式绑定"),
         )
         with _STORE_LOCK:
             existing_path = final_root / "asset.json"
@@ -302,6 +295,24 @@ def set_model_orientation(project_id: str, asset_id: str, view: str, source: str
         raise HTTPException(status_code=404, detail="模型资产不存在")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     metadata.update(orientation_view=view, orientation_corrected=True, orientation_source=source)
+    response = _response_from_metadata(metadata)
+    temporary = metadata_path.with_suffix(".json.tmp")
+    temporary.write_text(response.model_dump_json(indent=2), encoding="utf-8")
+    temporary.replace(metadata_path)
+    return response
+
+
+def bind_model_asset(project_id: str, asset_id: str, product: dict) -> ModelAssetResponse:
+    db.get_project(project_id)
+    metadata_path = _metadata_path(asset_id)
+    if not metadata_path.is_file():
+        raise HTTPException(status_code=404, detail="模型资产不存在")
+    attrs = product["attributes"]
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    category = str(attrs.get("材料名称") or "")
+    if metadata.get("category") and metadata["category"] != category:
+        raise HTTPException(status_code=422, detail="模型提示品类与 SKU 品类不一致，请先人工复核模型")
+    metadata.update(category=category, catalog_codes=[attrs["材料编号"]], product_ids=[product["id"]], binding_status="bound", binding_note="人工按目录 SKU 确认绑定")
     response = _response_from_metadata(metadata)
     temporary = metadata_path.with_suffix(".json.tmp")
     temporary.write_text(response.model_dump_json(indent=2), encoding="utf-8")

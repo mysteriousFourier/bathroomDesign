@@ -61,7 +61,8 @@ def _supports_style(attrs,style):
 @lru_cache(maxsize=1)
 def _model_library_assets():
     path=Path(__file__).resolve().parents[1]/"data"/"model_library.json"
-    try:return json.loads(path.read_text(encoding="utf-8")).get("assets",[])
+    verified_shared={"id":"ce23ef42c17da53def16083f77c3c0dd","label":"智能坐便器","category":"马桶","format":"fbx","src":"/api/model-assets/ce23ef42c17da53def16083f77c3c0dd/files/%E6%99%BA%E8%83%BD%E5%9D%90%E4%BE%BF%E5%99%A8.fbx","dimensions_mm":{"width":380,"depth":680,"height":760},"catalog_codes":["MT3"]}
+    try:return [*json.loads(path.read_text(encoding="utf-8")).get("assets",[]),verified_shared]
     except (OSError,ValueError,TypeError):return []
 
 def _model_lookup(product,style_match):

@@ -15,6 +15,8 @@ type DisplayModelAsset = RoomModelAsset & {
   orientation_view?: 'front' | 'top' | 'side' | null
   orientation_corrected?: boolean
   orientation_source?: 'auto' | 'manual' | null
+  binding_status?: 'bound' | 'unbound'
+  binding_note?: string | null
 }
 
 const defaultDimensions: Dimensions = { width: 600, depth: 600, height: 600 }
@@ -43,6 +45,8 @@ function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
     orientation_view: asset.orientation_view,
     orientation_corrected: asset.orientation_corrected,
     orientation_source: asset.orientation_source,
+    binding_status: asset.binding_status,
+    binding_note: asset.binding_note,
   }
 }
 
@@ -72,6 +76,8 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const [correcting, setCorrecting] = useState(false)
   const [error, setError] = useState('')
   const [correctionNotice, setCorrectionNotice] = useState('')
+  const [bindingSku, setBindingSku] = useState('')
+  const [newProductCategory, setNewProductCategory] = useState('')
 
   useEffect(() => {
     folderInputRef.current?.setAttribute('webkitdirectory', '')
@@ -165,6 +171,15 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }
 
   const replaceAsset = (updated: ImportedModelAsset) => setUploadedAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
+  const bindSelected = async (createProduct = false) => {
+    if (!selected || selected.builtIn || !bindingSku.trim()) return
+    try {
+      setError('')
+      const newProduct = createProduct ? { '材料名称': newProductCategory.trim(), '物品名称': selected.label } : undefined
+      replaceAsset(await studioApi.bindModelAsset(projectId, selected.id, bindingSku.trim(), newProduct))
+      setCorrectionNotice(`已按 SKU ${bindingSku.trim()} 完成产品绑定`)
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'SKU 绑定失败') }
+  }
   const correctSelected = async (view: 'front' | 'top' | 'side') => {
     if (!selected || selected.builtIn) return
     try { setError(''); setCorrectionNotice(''); replaceAsset(await studioApi.correctModelOrientation(projectId, selected.id, view)) }
@@ -263,6 +278,13 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '暂无'}</code></div>
               {!selected.builtIn && <div><span>产品绑定</span><strong>{selected.catalog_codes?.length ? selected.catalog_codes.join('、') : '未绑定，不参与自动报价布局'}</strong></div>}
             </div>
+            {!selected.builtIn && selected.binding_status === 'unbound' && <div className="model-orientation-controls">
+              <span>{selected.binding_note ?? '文件名只作提示，请按 SKU 绑定'}</span>
+              <input aria-label="产品 SKU" value={bindingSku} onChange={(event) => setBindingSku(event.target.value)} placeholder="目录 SKU" />
+              <button type="button" className="button primary compact" disabled={!bindingSku.trim()} onClick={() => void bindSelected(false)}>绑定已有 SKU</button>
+              <input aria-label="新产品品类" value={newProductCategory} onChange={(event) => setNewProductCategory(event.target.value)} placeholder="新产品品类" />
+              <button type="button" className="button secondary compact" disabled={!bindingSku.trim() || !newProductCategory.trim()} onClick={() => void bindSelected(true)}>新增产品并绑定</button>
+            </div>}
             {!selected.builtIn && <div className="model-orientation-controls"><span>将原模型的</span>{(['front', 'top', 'side'] as const).map((view) => <button key={view} type="button" className={`button compact ${selected.orientation_view === view ? 'primary' : 'secondary'}`} onClick={() => void correctSelected(view)}>{{ front: '正面', top: '顶面', side: '侧面' }[view]}</button>)}<span>设为标准正面</span><small>{selected.orientation_corrected ? `${selected.orientation_source === 'auto' ? '视觉自动' : '人工'}纠正完成；可点击其他面重新纠正` : '选择后预览会立即按固定 90° 轴变换更新'}</small></div>}
           </> : selected ? <>
             <header className="model-browser-header"><div><strong>{selected.label}</strong><span>{selected.filename} · 固定板块材质</span></div></header>

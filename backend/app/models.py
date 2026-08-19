@@ -907,6 +907,11 @@ class ModelOrientationRequest(BaseModel):
     view: Literal["front", "top", "side"]
 
 
+class ModelAssetBindingRequest(BaseModel):
+    catalog_code: str = Field(min_length=1, max_length=120)
+    new_product: dict[str, str] | None = None
+
+
 class ModelOrientationAutoRequest(BaseModel):
     preview_data_url: str
 

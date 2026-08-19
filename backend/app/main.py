@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import csv
 import json
 import shutil
 import uuid
@@ -26,7 +27,7 @@ from .auto_layout import generate_model_layout
 from .knowledge_graph import ProductKnowledgeGraph
 from .measurement import measurement_contract_export, measurement_from_spec, validate_measurement
 from .measurement_import import MeasurementImportError, import_measurement_file, inspect_measurement_file
-from .model_assets import delete_model_asset, list_model_assets, resolve_model_asset_file, set_model_orientation, store_model_asset
+from .model_assets import bind_model_asset, delete_model_asset, list_model_assets, resolve_model_asset_file, set_model_orientation, store_model_asset
 from .models import (
     AnalysisResponse,
     AutoLayoutRequest,
@@ -44,6 +45,7 @@ from .models import (
     MeasurementImportResponse,
     MeasurementValidationResponse,
     ModelAssetResponse,
+    ModelAssetBindingRequest,
     ModelOrientationAutoRequest,
     ModelOrientationRequest,
     ProjectCreate,
@@ -64,7 +66,8 @@ backend_source_version = max(
     default=0,
 )
 environment_path = project_root / ".env"
-backend_config_version = hashlib.sha256(environment_path.read_bytes()).hexdigest()[:16] if environment_path.is_file() else None
+configuration_source = environment_path if environment_path.is_file() else project_root / ".env.example"
+backend_config_version = hashlib.sha256(configuration_source.read_bytes()).hexdigest()[:16] if configuration_source.is_file() else None
 
 
 @asynccontextmanager
@@ -296,6 +299,26 @@ async def upload_model_asset(
         return await store_model_asset(project_id, files, relative_paths)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="项目不存在") from error
+
+
+@app.put("/api/projects/{project_id}/model-assets/{asset_id}/binding", response_model=ModelAssetResponse)
+def bind_project_model_asset(project_id: str, asset_id: str, request: ModelAssetBindingRequest) -> ModelAssetResponse:
+    code = request.catalog_code.strip()
+    product = product_graph.product_by_code(code)
+    if product is None and default_product_catalog.is_file():
+        with default_product_catalog.open("r", encoding="utf-8-sig", newline="") as source:
+            row = next((item for item in csv.DictReader(source) if (item.get("材料编号") or "").strip() == code), None)
+        if row:
+            attributes = {key: value.strip() for key, value in row.items() if key and value and value.strip()}
+            category = attributes["材料名称"]
+            product = {"id": hashlib.sha256(f"{code}|{category}".encode()).hexdigest()[:20], "attributes": attributes, "active": True}
+    if product is None and request.new_product is not None:
+        attributes = {**request.new_product, "材料编号": code}
+        try: product = product_graph.create_product(attributes)
+        except ValueError as error: raise HTTPException(status_code=422, detail=str(error)) from error
+    if product is None:
+        raise HTTPException(status_code=404, detail="产品目录中不存在该 SKU；请补充新产品资料后再绑定")
+    return bind_model_asset(project_id, asset_id, product)
 
 
 @app.delete("/api/projects/{project_id}/model-assets/{asset_id}", status_code=204)

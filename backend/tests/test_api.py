@@ -663,9 +663,13 @@ async def test_shared_model_requires_exact_product_binding_for_layout(tmp_path) 
             files={"files": ("普通模型.fbx", b"generic-model", "application/octet-stream")},
         )
 
-    assert smart_toilet.json()["catalog_codes"] == ["MT3"]
-    assert smart_toilet.json()["product_ids"] == ["8d29797a7862c52c3e74"]
-    assert smart_toilet.json()["binding_status"] == "bound"
+        assert smart_toilet.json()["catalog_codes"] == []
+        assert smart_toilet.json()["binding_status"] == "unbound"
+        bound = await client.put(f"/api/projects/{project_id}/model-assets/{smart_toilet.json()['id']}/binding", json={"catalog_code":"MT3"})
+
+    assert bound.json()["catalog_codes"] == ["MT3"]
+    assert bound.json()["product_ids"] == ["8d29797a7862c52c3e74"]
+    assert bound.json()["binding_status"] == "bound"
     assert generic.json()["catalog_codes"] == []
     assert generic.json()["binding_status"] == "unbound"
 
@@ -675,3 +679,20 @@ async def test_shared_model_requires_exact_product_binding_for_layout(tmp_path) 
     assert lookup["model_asset_src"].endswith("/%E6%99%BA%E8%83%BD%E5%9D%90%E4%BE%BF%E5%99%A8.fbx")
     assert lookup["model_dimensions_mm"] == {"width": 380.0, "depth": 680.0, "height": 760.0}
     assert lookup["binding_status"] == "bound"
+
+
+@pytest.mark.asyncio
+async def test_model_binding_can_create_product_and_rejects_category_mismatch(tmp_path, monkeypatch) -> None:
+    configure_temp_database(tmp_path)
+    monkeypatch.setattr(main_module.product_graph, "path", tmp_path / "product-graph.json")
+    db.initialize()
+    code = f"NEW-{tmp_path.name}"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name":"新增 SKU"})).json()["id"]
+        asset = await client.post(f"/api/projects/{project_id}/model-assets", data={"relative_paths":"普通模型.fbx"}, files={"files":("普通模型.fbx",b"new-basin-model","application/octet-stream")})
+        missing = await client.put(f"/api/projects/{project_id}/model-assets/{asset.json()['id']}/binding", json={"catalog_code":code})
+        assert missing.status_code == 404
+        created = await client.put(f"/api/projects/{project_id}/model-assets/{asset.json()['id']}/binding", json={"catalog_code":code,"new_product":{"材料名称":"浴室柜","规格型号":"600mm","单价":"999","数量单位":"件"}})
+        assert created.status_code == 200
+        assert created.json()["catalog_codes"] == [code]
+        assert main_module.product_graph.product_by_code(code)["id"] == created.json()["product_ids"][0]

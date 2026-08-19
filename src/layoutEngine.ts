@@ -205,6 +205,7 @@ const BODY_GAP_MM = 50
 const WASHER_REAR_GAP_MM = 50
 const WALL_ATTACHMENT_CLEARANCE_MM = 5
 const placementClearances = new WeakMap<FixtureSpec, FixtureSpec>()
+const relaxedPlacementClearances = new WeakSet<FixtureSpec>()
 
 function requiredRearWallGap(item: FixtureSpec) {
   if (item.kind === 'water' || item.kind === 'electric') return undefined
@@ -538,6 +539,8 @@ function placementPriority(item: FixtureSpec) {
   return 0
 }
 
+type PlacementCandidate = { x:number; z:number; rotation:number; width:number; depth:number; score:number; wallIndex:number; clearance?:FixtureSpec }
+
 function retainFixtureAcrossLayouts(fixture: FixtureSpec) {
   if (fixture.layout_generated) return false
   // Utility points and structural obstacles survive a layout replacement;
@@ -559,7 +562,8 @@ function searchPlacement(spec: RoomSpec, item: FixtureSpec, occupied: FixtureSpe
       : semanticTarget(spec, instruction, item.width_mm, item.depth_mm)
   const finishBoundary = layoutBoundary(spec)
   const primaryWallIndex = wallIndexForSemantic(spec, hostWall, { x_mm:target.x, z_mm:target.z })
-  let best: { x:number; z:number; rotation:number; width:number; depth:number; score:number; wallIndex:number; clearance?:FixtureSpec } | null = null
+  let best: PlacementCandidate | null = null
+  let relaxedBest: PlacementCandidate | null = null
   for (const hostWallIndex of placementWallIndices(spec, item, hostWall, target, rearGap, anchor)) {
     const hostStart = finishBoundary[hostWallIndex]
     const hostEnd = finishBoundary[(hostWallIndex + 1) % finishBoundary.length]
@@ -585,8 +589,21 @@ function searchPlacement(spec: RoomSpec, item: FixtureSpec, occupied: FixtureSpe
       // only valid position in compact rooms by a few millimetres.
       const fitX = [b.minX + width / 2 + 1, b.maxX - width / 2 - 1]
       const fitZ = [b.minZ + depth / 2 + 1, b.maxZ - depth / 2 - 1]
-      const baseX = anchor?.locked ? [anchor.x_mm] : [...new Set([anchor?.x_mm,target.x,...fitX,...gridX].filter((value): value is number => value !== undefined))]
-      const baseZ = anchor?.locked ? [anchor.z_mm] : [...new Set([anchor?.z_mm,target.z,...fitZ,...gridZ].filter((value): value is number => value !== undefined))]
+      // A coarse Cartesian grid can skip the only usable point on a short or
+      // concave wall segment. Add a 50 mm sweep along the host wall so model
+      // dimensions and finished-wall offsets are evaluated continuously.
+      const wallSweep = (start: number, end: number, spacing = 50) => {
+        const values: number[] = []
+        const direction = end >= start ? 1 : -1
+        for (let value = start; direction > 0 ? value <= end : value >= end; value += direction * spacing) values.push(Math.round(value))
+        if (!values.includes(Math.round(end))) values.push(Math.round(end))
+        return values
+      }
+      const tangentStart = hostIsVertical ? segmentMinZ : segmentMinX
+      const tangentEnd = hostIsVertical ? segmentMaxZ : segmentMaxX
+      const wallSweepValues = rearGap === undefined ? [] : wallSweep(tangentStart, tangentEnd)
+      const baseX = anchor?.locked ? [anchor.x_mm] : [...new Set([anchor?.x_mm,target.x,...fitX,...gridX,...(!hostIsVertical ? wallSweepValues : [])].filter((value): value is number => value !== undefined))]
+      const baseZ = anchor?.locked ? [anchor.z_mm] : [...new Set([anchor?.z_mm,target.z,...fitZ,...gridZ,...(hostIsVertical ? wallSweepValues : [])].filter((value): value is number => value !== undefined))]
       const xValues = wallX === undefined ? (rearGap !== undefined && !hostIsVertical ? baseX.filter((value)=>value>=segmentMinX&&value<=segmentMaxX) : baseX) : [wallX]
       const zValues = wallZ === undefined ? (rearGap !== undefined && hostIsVertical ? baseZ.filter((value)=>value>=segmentMinZ&&value<=segmentMaxZ) : baseZ) : [wallZ]
       for (const x of xValues) {
@@ -604,7 +621,27 @@ function searchPlacement(spec: RoomSpec, item: FixtureSpec, occupied: FixtureSpe
             || blocksFurnitureOpeningEnvelope(spec, clearance)
             || occupied.some((other) => blocksUseClearance(candidate, clearance, other))
           )
-          if (!fixtureInsideRoom(candidate, boundary) || blocksFurnitureOpeningEnvelope(spec, candidate) || occupiedConflict || clearanceConflict) continue
+          if (!fixtureInsideRoom(candidate, boundary) || blocksFurnitureOpeningEnvelope(spec, candidate) || occupiedConflict) continue
+          if (clearanceConflict) {
+            // A standard 600 mm vanity clearance can be physically impossible
+            // in a narrow measured room even when the cabinet itself fits. Try
+            // a documented 300 mm fallback for the cabinet only; oversized or
+            // stricter scripts remain hard failures.
+            if (item.kind === 'vanity' && instruction.min_clearance_mm <= 600) {
+              const relaxedInstruction = { ...instruction, min_clearance_mm: 300 }
+              const relaxedClearance = frontClearanceEnvelope(candidate, relaxedInstruction)
+              const relaxedConflict = !relaxedClearance || !fixtureInsideRoom(relaxedClearance, boundary) || blocksFurnitureOpeningEnvelope(spec, relaxedClearance) || occupied.some((other) => blocksUseClearance(candidate, relaxedClearance, other))
+              if (!relaxedConflict) {
+                trace.feasible++
+                const wallDistance = Math.min(x - b.minX - width / 2, b.maxX - x - width / 2, z - b.minZ - depth / 2, b.maxZ - z - depth / 2)
+                const plumbingDistance = plumbing ? Math.hypot(x - plumbing.x_mm, z - plumbing.z_mm) : 0
+                const semanticDistance = Math.hypot(x - target.x, z - target.z)
+                const score = -wallDistance * 2 - plumbingDistance * 8 - semanticDistance * 8
+                if (!relaxedBest || score > relaxedBest.score) relaxedBest = { x, z, rotation, width, depth, score, wallIndex:hostWallIndex, clearance:relaxedClearance }
+              }
+            }
+            continue
+          }
           trace.feasible++
           const wallDistance = Math.min(x - b.minX - width / 2, b.maxX - x - width / 2, z - b.minZ - depth / 2, b.maxZ - z - depth / 2)
           const plumbingDistance = plumbing ? Math.hypot(x - plumbing.x_mm, z - plumbing.z_mm) : 0
@@ -616,6 +653,14 @@ function searchPlacement(spec: RoomSpec, item: FixtureSpec, occupied: FixtureSpe
       }
     }
     if (best) break
+  }
+  if (!best && relaxedBest) {
+    const solved = relaxedBest
+    Object.assign(item, { x_mm:solved.x, z_mm:solved.z, rotation_deg:solved.rotation })
+    if (rearGap !== undefined) item.bound_wall_index = solved.wallIndex ?? primaryWallIndex
+    if (solved.clearance) placementClearances.set(item, solved.clearance)
+    relaxedPlacementClearances.add(item)
+    return true
   }
   if (!best) {
     // Keep attached fixtures inside the wall-panel boundary even when a
@@ -738,6 +783,7 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
     check('G01', inside, 'error', '几何', inside ? '全部设备实体位于房间边界内' : `设备越界：${outsideFixtures.map((f) => f.label).join('、')}`),
     check('G01-COLLISION', collisions.length === 0, 'error', '几何', collisions.length ? `设备实体碰撞：${collisions.join('、')}` : '设备实体包围盒无碰撞（30mm 容差）'),
     check('G02-CLEARANCE', placementFailures.length === 0, 'error', '几何净空', placementFailures.length ? `没有满足完成面、门区和前向净空的候选位置：${placementFailures.join('、')}` : '全部落地设备满足完成面、门区和前向净空'),
+    check('G02-CLEARANCE-RELAXED', !fixtures.some((fixture) => relaxedPlacementClearances.has(fixture)), 'warning', '几何净空', fixtures.some((fixture) => relaxedPlacementClearances.has(fixture)) ? '浴室柜在当前房型采用 300mm 前向净空降级，需现场复核使用空间' : '未使用净空降级'),
     check('C01', frontClearance >= 800, 'warning', 'D', `主要通路估算净宽 ${frontClearance}mm（建议 ≥800mm）`),
     check('G04', doorClear, 'error', '几何', doorClear ? '门窗洞口及门扇开启包络未被设备占用' : '设备侵入门窗洞口或门扇开启包络'),
     check('G06-WALL-ATTACH', rearWallFailures.length===0, 'warning', '安装约束', rearWallFailures.length?`设备未满足墙板吸附或插电预留：${rearWallFailures.map(item=>item.label).join('、')}`:'墙板距墙 35mm；壁挂设备吸附完成面，洗衣机背后预留 50mm'),

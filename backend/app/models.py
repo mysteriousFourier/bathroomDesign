@@ -87,6 +87,8 @@ class FixtureSpec(BaseModel):
         source_asset_id: str | None = Field(default=None, max_length=120)
         lifecycle: Literal["approved", "needs_conversion", "deprecated"] | None = None
         legacy_source_ids: list[str] = Field(default_factory=list)
+        orientation_view: Literal["front", "back", "top", "bottom", "left", "right"] | None = None
+        orientation_mapping: dict[str, str] | None = None
 
     id: str
     kind: Literal[

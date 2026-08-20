@@ -7,7 +7,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import type { ModelAssetFormat } from '../types'
-import { orientationCubePlacement, type ModelOrientationView, type OrientationFace, type OrientationMapping } from '../modelOrientation'
+import { orientationCubePlacement, resolvedModelOrientation, type ModelOrientationView, type OrientationFace, type OrientationMapping } from '../modelOrientation'
 
 type Dimensions = { width: number; depth: number; height: number }
 const faceNames: Record<OrientationFace, string> = { front: '正面', back: '背面', top: '上面', bottom: '下面', left: '左面', right: '右面' }
@@ -84,12 +84,15 @@ function PreparedModel({ object, orientationView, orientationMapping = {}, onDim
         child.receiveShadow = true
       }
     })
+    // Apply the saved mapping, or a valid in-progress three-face mapping, so
+    // the preview provides immediate visual confirmation before it is saved.
+    clone.rotation.copy(resolvedModelOrientation(orientationMapping, orientationView))
     clone.updateMatrixWorld(true)
     const bounds = new Box3().setFromObject(clone)
     const center = bounds.getCenter(new Vector3())
     clone.position.set(clone.position.x - center.x, clone.position.y - bounds.min.y, clone.position.z - center.z)
     return clone
-  }, [object])
+  }, [object, orientationMapping, orientationView])
   const dimensions = useMemo(() => measuredDimensions(scene), [scene])
   useEffect(() => onDimensions?.(dimensions), [dimensions, onDimensions])
   const modelSize = useMemo(() => {

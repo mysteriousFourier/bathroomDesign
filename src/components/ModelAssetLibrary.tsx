@@ -196,7 +196,9 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const assignOrientationFace = (physical: OrientationFace) => {
     if (!orientationTarget) { setError('请先在右上角选择目标正确面'); return }
     setError('')
-    setOrientationMapping((current) => ({ ...Object.fromEntries(Object.entries(current).filter(([, semantic]) => semantic !== orientationTarget)), [physical]: orientationTarget }))
+    const target = orientationTarget
+    setOrientationMapping((current) => ({ ...Object.fromEntries(Object.entries(current).filter(([, semantic]) => semantic !== target)), [physical]: target }))
+    setCorrectionNotice(`已配对：模型${physical === 'front' ? '前' : physical === 'back' ? '后' : physical === 'top' ? '上' : physical === 'bottom' ? '下' : physical === 'left' ? '左' : '右'}面 → ${target === 'front' ? '正面' : target === 'back' ? '背面' : target === 'top' ? '上面' : target === 'bottom' ? '下面' : target === 'left' ? '左面' : '右面'}`)
     setOrientationTarget(null)
   }
   const correctSelected = async () => {
@@ -277,7 +279,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <button className={`model-asset-row${selected?.id === asset.id ? ' active' : ''}`} key={asset.id} onClick={() => setSelectedId(asset.id)}>
                 <span className="model-asset-icon"><BoxSelect size={19} /></span>
                 <span className="model-asset-copy"><strong>{asset.label}</strong><span>{asset.format.toUpperCase()} · {fileSize(asset.bytes)}</span></span>
-                <span className={`model-origin ${asset.builtIn ? 'builtin' : 'uploaded'}`}>{asset.builtIn ? asset.asset_type === 'surface' ? '板块' : '内置' : asset.orientation_corrected ? '已纠正' : '待纠正'}</span>
+                <span className={`model-origin ${asset.asset_type === 'surface' ? 'builtin' : 'uploaded'}`}>{asset.asset_type === 'surface' ? '板块' : asset.orientation_corrected ? '已纠正' : '待纠正'}</span>
               </button>
             ))}
           </div>

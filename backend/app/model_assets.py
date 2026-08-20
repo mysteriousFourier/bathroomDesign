@@ -80,6 +80,18 @@ def _metadata_path(asset_id: str) -> Path:
     return _asset_root() / asset_id / "asset.json"
 
 
+def _orientation_overrides_path() -> Path:
+    return _asset_root() / "builtin-orientation-overrides.json"
+
+
+def _orientation_overrides() -> dict[str, dict[str, object]]:
+    try:
+        payload = json.loads(_orientation_overrides_path().read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
 def _response_from_metadata(metadata: dict[str, object]) -> ModelAssetResponse:
     if metadata.get("orientation_view") == "side":
         metadata = {**metadata, "orientation_view": "left"}
@@ -134,6 +146,23 @@ def _builtin_duplicate(project_id: str, sha256: str) -> ModelAssetResponse | Non
         product_ids=[products[code][1] for code in codes if code in products],
         binding_status="bound" if codes else "unbound",
         binding_note="内置模型库产品编号绑定",
+    )
+
+
+def _builtin_response(project_id: str, asset: dict[str, object]) -> ModelAssetResponse:
+    codes = list(asset.get("catalog_codes") or [])
+    products = _catalog_products()
+    orientation = _orientation_overrides().get(str(asset["id"]), {})
+    return ModelAssetResponse(
+        id=str(asset["id"]), project_id=project_id, label=str(asset["label"]),
+        filename=str(asset["filename"]), format=str(asset["format"]),
+        bytes=int(asset["bytes"]), sha256=str(asset["sha256"]),
+        file_count=int(asset.get("file_count") or 1), created_at="1970-01-01T00:00:00+00:00",
+        src=str(asset["src"]), library_scope="builtin", category=str(asset.get("category") or "") or None,
+        dimensions_mm=asset.get("dimensions_mm"), catalog_codes=codes,
+        product_ids=[products[code][1] for code in codes if code in products],
+        binding_status="bound" if codes else "unbound", binding_note="内置模型库产品编号绑定",
+        **orientation,
     )
 
 
@@ -273,7 +302,10 @@ async def store_model_asset(
 
 def list_model_assets(project_id: str) -> list[ModelAssetResponse]:
     db.get_project(project_id)
-    return list_shared_model_assets()
+    shared = list_shared_model_assets()
+    shared_ids = {asset.id for asset in shared}
+    builtins = [_builtin_response(project_id, asset) for asset in _builtin_assets() if asset.get("asset_type") == "fixture"]
+    return shared + [asset for asset in builtins if asset.id not in shared_ids]
 
 
 def delete_model_asset(project_id: str, asset_id: str) -> None:
@@ -292,6 +324,17 @@ def delete_model_asset(project_id: str, asset_id: str) -> None:
 
 def set_model_orientation(project_id: str, asset_id: str, view: str, source: str, mapping: dict[str, str] | None = None) -> ModelAssetResponse:
     db.get_project(project_id)
+    builtin = next((item for item in _builtin_assets() if item.get("asset_type") == "fixture" and item.get("id") == asset_id), None)
+    if builtin:
+        with _STORE_LOCK:
+            overrides = _orientation_overrides()
+            overrides[asset_id] = {"orientation_view": view, "orientation_mapping": mapping, "orientation_corrected": True, "orientation_source": source}
+            path = _orientation_overrides_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".json.tmp")
+            temporary.write_text(json.dumps(overrides, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.replace(path)
+        return _builtin_response(project_id, builtin)
     metadata_path = _metadata_path(asset_id)
     if not metadata_path.is_file():
         raise HTTPException(status_code=404, detail="模型资产不存在")

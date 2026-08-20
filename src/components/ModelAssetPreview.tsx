@@ -1,8 +1,8 @@
 import { Bounds, Edges, Grid, Html, OrbitControls, useGLTF } from '@react-three/drei'
 import { Canvas, useLoader } from '@react-three/fiber'
 import { LoaderCircle, Rotate3d } from 'lucide-react'
-import { Component, Suspense, useEffect, useMemo, type ReactNode } from 'react'
-import { Box3, DoubleSide, Group, Vector3 } from 'three'
+import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Box3, DoubleSide, Group, Quaternion, Vector3 } from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
@@ -11,7 +11,6 @@ import { orientationCubePlacement, type ModelOrientationView, type OrientationFa
 
 type Dimensions = { width: number; depth: number; height: number }
 const faceNames: Record<OrientationFace, string> = { front: '正面', back: '背面', top: '上面', bottom: '下面', left: '左面', right: '右面' }
-const orientationFaces: OrientationFace[] = ['top', 'left', 'front', 'right', 'back', 'bottom']
 const orientationCubeFaces: { face: OrientationFace; position: [number, number, number]; rotation: [number, number, number] }[] = [
   { face: 'front', position: [0, 0, 1], rotation: [0, 0, 0] }, { face: 'back', position: [0, 0, -1], rotation: [0, Math.PI, 0] },
   { face: 'top', position: [0, 1, 0], rotation: [-Math.PI / 2, 0, 0] }, { face: 'bottom', position: [0, -1, 0], rotation: [Math.PI / 2, 0, 0] },
@@ -31,15 +30,24 @@ function OrientationCube({ mapping, onSelect, modelSize }: { mapping: Orientatio
   </group>
 }
 
-function OrientationPicker({ target, mapping, onSelect }: { target: OrientationFace | null; mapping: OrientationMapping; onSelect: (view: OrientationFace) => void }) {
+function OrientationPicker({ target, mapping, cameraQuaternion, onSelect }: { target: OrientationFace | null; mapping: OrientationMapping; cameraQuaternion: [number, number, number, number]; onSelect: (view: OrientationFace) => void }) {
   const assigned = new Set(Object.values(mapping))
+  const rotation = useMemo(() => new Quaternion().fromArray(cameraQuaternion).invert(), [cameraQuaternion])
   return <div className="orientation-picker" aria-label="选择目标正确面">
-    <span className="orientation-picker-title">① 选择目标正确面</span>
-    <div className="orientation-picker-faces">
-      {orientationFaces.map((face) => <button key={face} type="button" className={`orientation-picker-face face-${face}${target === face ? ' selected' : ''}${assigned.has(face) ? ' assigned' : ''}`} aria-pressed={target === face} title={`选择目标${faceNames[face]}`} onClick={() => onSelect(face)}>
-        <strong>{faceNames[face]}</strong><small>{assigned.has(face) ? '已配对' : '待选择'}</small>
-      </button>)}
-    </div>
+    <span className="orientation-picker-title">① 点击立方体文字面</span>
+    <Canvas orthographic camera={{ position: [0, 0, 4], zoom: 42 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: true }}>
+      <group quaternion={rotation}>
+        <mesh><boxGeometry args={[2, 2, 2]} /><meshBasicMaterial color="#e8eee9" transparent opacity={0.82} /><Edges color="#315f49" lineWidth={2} /></mesh>
+        {orientationCubeFaces.map(({ face, position, rotation: faceRotation }) => <group key={face} position={position} rotation={faceRotation}>
+          <mesh onClick={(event) => { event.stopPropagation(); onSelect(face) }}>
+            <planeGeometry args={[1.82, 1.82]} />
+            <meshBasicMaterial color={target === face ? '#315f49' : assigned.has(face) ? '#d6922b' : '#f4f6f2'} transparent opacity={0.92} side={DoubleSide} />
+          </mesh>
+          <Html transform center position={[0, 0, 0.012]} distanceFactor={4.2} style={{ pointerEvents: 'none' }}><strong className={`orientation-cube-label${target === face ? ' selected' : ''}`}>{faceNames[face]}</strong></Html>
+        </group>)}
+      </group>
+    </Canvas>
+    <small>{target ? `已选择${faceNames[target]}，请点击模型真实面` : '随模型视角转动'}</small>
   </div>
 }
 
@@ -133,6 +141,7 @@ export function ModelAssetPreview({ assetKey, src, format, orientationView, orie
   onPreviewReady?: (capture: () => string) => void
   onOrientationSelect?: (view: OrientationFace) => void
 }) {
+  const [cameraQuaternion, setCameraQuaternion] = useState<[number, number, number, number]>([0, 0, 0, 1])
   return (
     <div className="model-preview-stage">
       <PreviewErrorBoundary key={assetKey}>
@@ -147,10 +156,13 @@ export function ModelAssetPreview({ assetKey, src, format, orientationView, orie
             </Bounds>
           </Suspense>
           <Grid position={[0, -0.002, 0]} args={[10, 10]} cellSize={0.1} cellThickness={0.45} cellColor="#b9bbb5" sectionSize={0.5} sectionThickness={0.8} sectionColor="#999d96" fadeDistance={7} infiniteGrid />
-          <OrbitControls makeDefault enableDamping dampingFactor={0.08} minDistance={0.4} maxDistance={12} />
+          <OrbitControls makeDefault enableDamping dampingFactor={0.08} minDistance={0.4} maxDistance={12} onChange={(event) => {
+            const quaternion = event?.target?.object?.quaternion
+            if (quaternion) setCameraQuaternion([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+          }} />
         </Canvas>
       </PreviewErrorBoundary>
-      {onOrientationTargetSelect && <OrientationPicker target={orientationTarget ?? null} mapping={orientationMapping ?? {}} onSelect={onOrientationTargetSelect} />}
+      {onOrientationTargetSelect && <OrientationPicker target={orientationTarget ?? null} mapping={orientationMapping ?? {}} cameraQuaternion={cameraQuaternion} onSelect={onOrientationTargetSelect} />}
       <div className="model-preview-hint"><Rotate3d size={14} />{onOrientationSelect ? '右上角选目标面，再点击模型外框对应面' : '拖动旋转 · 滚轮缩放'}</div>
     </div>
   )

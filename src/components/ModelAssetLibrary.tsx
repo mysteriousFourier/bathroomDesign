@@ -107,14 +107,14 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }, [projectId])
 
   const assets = useMemo(() => [
-    ...builtInRoomAssets.map((asset): DisplayModelAsset => ({ ...asset, filename: asset.label, fileCount: 1, builtIn: true })),
+    ...builtInRoomAssets.filter((asset) => !uploadedAssets.some((uploaded) => uploaded.id === asset.id)).map((asset): DisplayModelAsset => ({ ...asset, filename: asset.label, fileCount: 1, builtIn: true })),
     ...uploadedAssets.map(uploadedDisplayAsset),
   ], [uploadedAssets])
   const selected = assets.find((asset) => asset.id === selectedId) ?? assets[0]
   const selectedDimensions = selected ? dimensions[selected.id] ?? selected.dimensions_mm : defaultDimensions
   const selectedForRoom = selected && selected.asset_type !== 'surface' ? { ...selected, dimensions_mm: selectedDimensions } : null
   const selectedInUse = !!selected && usedAssetIds.includes(selected.id)
-  const orientationEditable = !!selected && selected.asset_type !== 'surface' && uploadedAssets.some((asset) => asset.id === selected.id)
+  const orientationEditable = !!selected && selected.asset_type !== 'surface'
 
   useEffect(() => {
     setOrientationTarget(null)

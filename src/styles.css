@@ -723,6 +723,9 @@ p, h1, h2, figure { margin: 0; }
 @media (max-width: 640px) { .layout-header { align-items: stretch; flex-direction: column; } .layout-entry-actions { display: grid; grid-template-columns: 1fr 1fr; } .layout-entry-actions > :only-child { grid-column: 1 / -1; } }
 .model-orientation-controls{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--line,#ddd)}
 .model-orientation-controls small{margin-left:auto;color:#66706a}
+.orientation-face-label{pointer-events:none!important;user-select:none;white-space:nowrap}
+.orientation-face-label span{display:block;padding:3px 6px;border:1px solid #315f49;border-radius:3px;background:rgba(250,249,246,.88);color:#315f49;font:700 10px/1.2 sans-serif;box-shadow:0 1px 4px rgba(25,32,27,.2)}
+.orientation-face-label.selected span{background:#315f49;color:#fff}
 .model-knowledge-product{padding:10px 16px;border-top:1px solid var(--line);font-size:10px}
 .model-knowledge-product summary{color:var(--green);font-weight:700;cursor:pointer}
 .model-knowledge-product dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px 14px;margin:10px 0 0}

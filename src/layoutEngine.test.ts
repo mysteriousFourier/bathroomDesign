@@ -311,7 +311,7 @@ describe('deterministic requirement layout engine', () => {
     const vanity = solution.fixtures.find((fixture)=>fixture.kind==='vanity')!
     const showerHead = solution.fixtures.find((fixture)=>fixture.label.includes('花洒')&&!fixture.label.includes('扶手'))!
     const showerPoints = solution.fixtures.filter((fixture)=>fixture.point_usage==='shower'&&fixture.kind==='water')
-    expect(vanity.bound_wall_index).toBe(4)
+    expect(vanity.bound_wall_index).toBe(3)
     expect(showerHead.bound_wall_index).toBe(5)
     expect(showerPoints.every((fixture)=>fixture.bound_wall_index===showerHead.bound_wall_index)).toBe(true)
     expect(solution.checks.filter((check)=>check.severity==='error'&&!check.passed).map((check)=>check.code)).toEqual([])

@@ -210,11 +210,12 @@ def _default_layout_instructions(profile,tier,categories):
 
 def _safe_layout_instructions(items,profile,tier,categories):
     defaults=_default_layout_instructions(profile,tier,categories);required_roles={x["fixture_role"] for x in defaults};result=[]
+    minimum_clearance={item["fixture_role"]:item["min_clearance_mm"] for item in defaults}
     for item in items if isinstance(items,list) else []:
         if not isinstance(item,dict):continue
         role=item.get("fixture_role");wall=item.get("wall");zone=item.get("zone")
         if role not in required_roles or wall not in LAYOUT_WALLS or zone not in LAYOUT_ZONES or any(x["fixture_role"]==role for x in result):continue
-        try:clearance=max(0,min(2000,round(float(item.get("min_clearance_mm",0)))))
+        try:clearance=max(minimum_clearance.get(role,0),min(2000,round(float(item.get("min_clearance_mm",0)))))
         except (TypeError,ValueError):continue
         result.append({"fixture_role":role,"wall":wall,"zone":zone,"near":str(item.get("near") or ""),"min_clearance_mm":clearance})
     return result if {x["fixture_role"] for x in result}==required_roles else defaults

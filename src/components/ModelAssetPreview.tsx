@@ -1,7 +1,7 @@
-import { Bounds, Edges, Grid, Html, OrbitControls, useGLTF } from '@react-three/drei'
+import { Bounds, Edges, Grid, Html, OrbitControls, useBounds, useGLTF } from '@react-three/drei'
 import { Canvas, useLoader } from '@react-three/fiber'
 import { LoaderCircle, Rotate3d } from 'lucide-react'
-import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 import { Box3, DoubleSide, Group, Quaternion, Vector3 } from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
@@ -10,7 +10,7 @@ import type { ModelAssetFormat } from '../types'
 import { orientationCubePlacement, resolvedModelOrientation, type ModelOrientationView, type OrientationFace, type OrientationMapping } from '../modelOrientation'
 
 type Dimensions = { width: number; depth: number; height: number }
-const faceNames: Record<OrientationFace, string> = { front: '正面', back: '背面', top: '上面', bottom: '下面', left: '左面', right: '右面' }
+const faceNames: Record<OrientationFace, string> = { front: '前', back: '后', top: '上', bottom: '下', left: '左', right: '右' }
 const orientationCubeFaces: { face: OrientationFace; position: [number, number, number]; rotation: [number, number, number] }[] = [
   { face: 'front', position: [0, 0, 1], rotation: [0, 0, 0] }, { face: 'back', position: [0, 0, -1], rotation: [0, Math.PI, 0] },
   { face: 'top', position: [0, 1, 0], rotation: [-Math.PI / 2, 0, 0] }, { face: 'bottom', position: [0, -1, 0], rotation: [Math.PI / 2, 0, 0] },
@@ -31,19 +31,19 @@ function OrientationCube({ mapping, onSelect, modelSize }: { mapping: Orientatio
 }
 
 function OrientationPicker({ target, mapping, cameraQuaternion, onSelect }: { target: OrientationFace | null; mapping: OrientationMapping; cameraQuaternion: [number, number, number, number]; onSelect: (view: OrientationFace) => void }) {
-  const assigned = new Set(Object.values(mapping))
+  const corrected = Object.keys(mapping).length === 6
   const rotation = useMemo(() => new Quaternion().fromArray(cameraQuaternion).invert(), [cameraQuaternion])
   return <div className="orientation-picker" aria-label="选择目标正确面">
     <span className="orientation-picker-title">① 点击立方体文字面</span>
     <Canvas orthographic camera={{ position: [0, 0, 4], zoom: 42 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: true }}>
       <group quaternion={rotation}>
-        <mesh><boxGeometry args={[2, 2, 2]} /><meshBasicMaterial color="#e8eee9" transparent opacity={0.82} /><Edges color="#315f49" lineWidth={2} /></mesh>
+        <mesh><boxGeometry args={[2, 2, 2]} /><meshBasicMaterial color={corrected ? '#4f9b66' : '#ffffff'} /><Edges color={corrected ? '#287440' : '#68736d'} lineWidth={2} /></mesh>
         {orientationCubeFaces.map(({ face, position, rotation: faceRotation }) => <group key={face} position={position} rotation={faceRotation}>
           <mesh onClick={(event) => { event.stopPropagation(); onSelect(face) }}>
-            <planeGeometry args={[1.82, 1.82]} />
-            <meshBasicMaterial color={target === face ? '#315f49' : assigned.has(face) ? '#d6922b' : '#f4f6f2'} transparent opacity={0.92} side={DoubleSide} />
+            <planeGeometry args={[1.9, 1.9]} />
+            <meshBasicMaterial color={corrected ? '#4f9b66' : target === face ? '#f2c94c' : '#ffffff'} side={DoubleSide} polygonOffset polygonOffsetFactor={-1} />
           </mesh>
-          <Html transform center position={[0, 0, 0.012]} distanceFactor={4.2} style={{ pointerEvents: 'none' }}><strong className={`orientation-cube-label${target === face ? ' selected' : ''}`}>{faceNames[face]}</strong></Html>
+          <Html transform center position={[0, 0, 0.025]} distanceFactor={4.2} style={{ pointerEvents: 'none' }}><strong className={`orientation-cube-label${target === face ? ' selected' : ''}${corrected ? ' corrected' : ''}`}>{faceNames[face]}</strong></Html>
         </group>)}
       </group>
     </Canvas>
@@ -76,6 +76,7 @@ function measuredDimensions(object: Group): Dimensions {
 }
 
 function PreparedModel({ object, orientationView, orientationMapping = {}, onDimensions, onOrientationSelect }: { object: Group; orientationView: ModelOrientationView; orientationMapping?: OrientationMapping; onDimensions?: (dimensions: Dimensions) => void; onOrientationSelect?: (view: OrientationFace) => void }) {
+  const boundsApi = useBounds()
   const scene = useMemo(() => {
     const clone = object.clone(true)
     clone.traverse((child) => {
@@ -100,6 +101,9 @@ function PreparedModel({ object, orientationView, orientationMapping = {}, onDim
     new Box3().setFromObject(scene).getSize(size)
     return [size.x, size.y, size.z] as [number, number, number]
   }, [scene])
+  useLayoutEffect(() => {
+    boundsApi.refresh(scene).fit().clip()
+  }, [boundsApi, scene])
   return <><primitive object={scene} />{onOrientationSelect && <OrientationCube mapping={orientationMapping} onSelect={onOrientationSelect} modelSize={modelSize} />}</>
 }
 

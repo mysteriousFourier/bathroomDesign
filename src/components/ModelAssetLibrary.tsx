@@ -6,17 +6,19 @@ import { droppedModelFiles, inputFiles, validateModelImport, type ModelImportFil
 import { builtInRoomAssets } from '../modelLibrary'
 import type { ImportedModelAsset } from '../types'
 import { ModelAssetPreview } from './ModelAssetPreview'
+import type { ModelOrientationView } from '../modelOrientation'
 
 type Dimensions = { width: number; depth: number; height: number }
 type DisplayModelAsset = RoomModelAsset & {
   filename: string
   fileCount: number
   builtIn?: boolean
-  orientation_view?: 'front' | 'top' | 'side' | null
+  orientation_view?: ModelOrientationView
   orientation_corrected?: boolean
   orientation_source?: 'auto' | 'manual' | null
   binding_status?: 'bound' | 'unbound'
   binding_note?: string | null
+  product_attributes?: Record<string, string> | null
 }
 
 const defaultDimensions: Dimensions = { width: 600, depth: 600, height: 600 }
@@ -47,6 +49,7 @@ function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
     orientation_source: asset.orientation_source,
     binding_status: asset.binding_status,
     binding_note: asset.binding_note,
+    product_attributes: asset.product_attributes,
   }
 }
 
@@ -180,7 +183,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
       setCorrectionNotice(`已按 SKU ${bindingSku.trim()} 完成产品绑定`)
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'SKU 绑定失败') }
   }
-  const correctSelected = async (view: 'front' | 'top' | 'side') => {
+  const correctSelected = async (view: Exclude<ModelOrientationView, null>) => {
     if (!selected || selected.builtIn) return
     try { setError(''); setCorrectionNotice(''); replaceAsset(await studioApi.correctModelOrientation(projectId, selected.id, view)) }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : '人工方向纠正失败') }
@@ -270,7 +273,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
                 <button className="button primary compact" type="button" disabled={!canAddToRoom} onClick={() => onAddToRoom(selectedForRoom)}><Plus size={15} />加入房间</button>
               </div>
             </header>
-            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} orientationView={selected.orientation_view} onDimensions={updateSelectedDimensions} onPreviewReady={(capture) => { previewCaptures.current[selected.id] = capture }} />
+            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} orientationView={selected.orientation_view} onOrientationSelect={selected.builtIn ? undefined : (view) => void correctSelected(view)} onDimensions={updateSelectedDimensions} onPreviewReady={(capture) => { previewCaptures.current[selected.id] = capture }} />
             <div className="model-browser-meta">
               <div><span>格式</span><strong>{selected.format.toUpperCase()}</strong></div>
               <div><span>文件</span><strong>{selected.fileCount}</strong></div>
@@ -278,6 +281,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '暂无'}</code></div>
               {!selected.builtIn && <div><span>产品绑定</span><strong>{selected.catalog_codes?.length ? selected.catalog_codes.join('、') : '未绑定，不参与自动报价布局'}</strong></div>}
             </div>
+            {!selected.builtIn && selected.product_attributes && <details className="model-knowledge-product"><summary>查看知识图谱物品</summary><dl>{Object.entries(selected.product_attributes).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl></details>}
             {!selected.builtIn && selected.binding_status === 'unbound' && <div className="model-orientation-controls">
               <span>{selected.binding_note ?? '文件名只作提示，请按 SKU 绑定'}</span>
               <input aria-label="产品 SKU" value={bindingSku} onChange={(event) => setBindingSku(event.target.value)} placeholder="目录 SKU" />
@@ -285,7 +289,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <input aria-label="新产品品类" value={newProductCategory} onChange={(event) => setNewProductCategory(event.target.value)} placeholder="新产品品类" />
               <button type="button" className="button secondary compact" disabled={!bindingSku.trim() || !newProductCategory.trim()} onClick={() => void bindSelected(true)}>新增产品并绑定</button>
             </div>}
-            {!selected.builtIn && <div className="model-orientation-controls"><span>将原模型的</span>{(['front', 'top', 'side'] as const).map((view) => <button key={view} type="button" className={`button compact ${selected.orientation_view === view ? 'primary' : 'secondary'}`} onClick={() => void correctSelected(view)}>{{ front: '正面', top: '顶面', side: '侧面' }[view]}</button>)}<span>设为标准正面</span><small>{selected.orientation_corrected ? `${selected.orientation_source === 'auto' ? '视觉自动' : '人工'}纠正完成；可点击其他面重新纠正` : '选择后预览会立即按固定 90° 轴变换更新'}</small></div>}
+            {!selected.builtIn && <div className="model-orientation-controls"><span>旋转模型后，点击外侧线框的正确正面</span><small>{selected.orientation_corrected ? `${selected.orientation_source === 'auto' ? '视觉自动' : '人工'}纠正完成；可点击其他面重新纠正` : '六个面分别对应前、后、上、下、左、右方向'}</small></div>}
           </> : selected ? <>
             <header className="model-browser-header"><div><strong>{selected.label}</strong><span>{selected.filename} · 固定板块材质</span></div></header>
             <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} />

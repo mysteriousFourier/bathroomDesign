@@ -119,7 +119,7 @@ export interface FixtureModelAsset {
   lifecycle?: ModelAssetLifecycle
   legacy_source_ids?: string[]
   /** Which source face was promoted to the canonical front during import review. */
-  orientation_view?: 'front' | 'top' | 'side' | null
+  orientation_view?: 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right' | null
 }
 
 export interface FixtureSpec {
@@ -300,7 +300,7 @@ export interface ImportedModelAsset {
   file_count: number
   created_at: string
   src: string
-  orientation_view: 'front' | 'top' | 'side' | null
+  orientation_view: 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right' | null
   orientation_corrected: boolean
   orientation_source: 'auto' | 'manual' | null
   library_scope: 'shared' | 'builtin'
@@ -311,6 +311,7 @@ export interface ImportedModelAsset {
   product_ids: string[]
   binding_status: 'bound' | 'unbound'
   binding_note: string | null
+  product_attributes: Record<string, string> | null
 }
 
 export interface CaptureCheck {

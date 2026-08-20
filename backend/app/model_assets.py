@@ -81,6 +81,8 @@ def _metadata_path(asset_id: str) -> Path:
 
 
 def _response_from_metadata(metadata: dict[str, object]) -> ModelAssetResponse:
+    if metadata.get("orientation_view") == "side":
+        metadata = {**metadata, "orientation_view": "left"}
     return ModelAssetResponse.model_validate(metadata)
 
 
@@ -312,7 +314,9 @@ def bind_model_asset(project_id: str, asset_id: str, product: dict) -> ModelAsse
     category = str(attrs.get("材料名称") or "")
     if metadata.get("category") and metadata["category"] != category:
         raise HTTPException(status_code=422, detail="模型提示品类与 SKU 品类不一致，请先人工复核模型")
-    metadata.update(category=category, catalog_codes=[attrs["材料编号"]], product_ids=[product["id"]], binding_status="bound", binding_note="人工按目录 SKU 确认绑定")
+    code = str(attrs["材料编号"])
+    product_name = str(attrs.get("物品名称") or category).strip()
+    metadata.update(label=f"{product_name} {code}", category=category, catalog_codes=[code], product_ids=[product["id"]], product_attributes={str(key): str(value) for key, value in attrs.items()}, binding_status="bound", binding_note="人工按目录 SKU 确认绑定")
     response = _response_from_metadata(metadata)
     temporary = metadata_path.with_suffix(".json.tmp")
     temporary.write_text(response.model_dump_json(indent=2), encoding="utf-8")

@@ -890,7 +890,7 @@ class ModelAssetResponse(BaseModel):
     file_count: int = Field(gt=0)
     created_at: str
     src: str
-    orientation_view: Literal["front", "top", "side"] | None = None
+    orientation_view: Literal["front", "back", "top", "bottom", "left", "right"] | None = None
     orientation_corrected: bool = False
     orientation_source: Literal["auto", "manual"] | None = None
     library_scope: Literal["shared", "builtin"] = "shared"
@@ -901,10 +901,11 @@ class ModelAssetResponse(BaseModel):
     product_ids: list[str] = Field(default_factory=list)
     binding_status: Literal["bound", "unbound"] = "unbound"
     binding_note: str | None = None
+    product_attributes: dict[str, str] | None = None
 
 
 class ModelOrientationRequest(BaseModel):
-    view: Literal["front", "top", "side"]
+    view: Literal["front", "back", "top", "bottom", "left", "right"]
 
 
 class ModelAssetBindingRequest(BaseModel):

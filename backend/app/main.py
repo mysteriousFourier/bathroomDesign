@@ -341,8 +341,8 @@ async def auto_correct_model_orientation(project_id: str, asset_id: str, request
     if not settings.ai_configured:
         raise HTTPException(status_code=503, detail="视觉模型尚未配置，请人工选择方向")
     prompt = (
-        "你是3D家具模型入库质检员。观察等轴测预览，判断该模型当前最适合作为标准正视图、顶视图还是侧视图。"
-        "只返回 JSON，例如 {\"view\":\"front\"}；view 只能是 front、top、side。"
+        "你是3D家具模型入库质检员。观察等轴测预览，从前、后、上、下、左、右六个面判断哪个面应成为标准正面。"
+        "只返回 JSON，例如 {\"view\":\"front\"}；view 只能是 front、back、top、bottom、left、right。"
     )
     async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
         response = await client.post(
@@ -354,7 +354,7 @@ async def auto_correct_model_orientation(project_id: str, asset_id: str, request
     try:
         payload = json.loads(response.json()["choices"][0]["message"]["content"])
         view = payload["view"]
-        if view not in {"front", "top", "side"}: raise ValueError
+        if view not in {"front", "back", "top", "bottom", "left", "right"}: raise ValueError
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=502, detail="视觉模型未返回有效方向") from error
     return set_model_orientation(project_id, asset_id, view, "auto")

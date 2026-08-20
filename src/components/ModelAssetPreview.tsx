@@ -1,7 +1,7 @@
-import { Bounds, Center, Edges, Grid, Html, OrbitControls, useGLTF } from '@react-three/drei'
+import { Bounds, Edges, Grid, Html, OrbitControls, useGLTF } from '@react-three/drei'
 import { Canvas, useLoader } from '@react-three/fiber'
 import { LoaderCircle, Rotate3d } from 'lucide-react'
-import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Component, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Box3, DoubleSide, Group, Vector3 } from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
@@ -56,6 +56,9 @@ function PreparedModel({ object, orientationView, onDimensions, onModelSize }: {
     })
     clone.rotation.copy(modelOrientation(orientationView))
     clone.updateMatrixWorld(true)
+    const bounds = new Box3().setFromObject(clone)
+    const center = bounds.getCenter(new Vector3())
+    clone.position.set(clone.position.x - center.x, clone.position.y - bounds.min.y, clone.position.z - center.z)
     return clone
   }, [object, orientationView])
   const dimensions = useMemo(() => measuredDimensions(scene), [scene])
@@ -65,7 +68,7 @@ function PreparedModel({ object, orientationView, onDimensions, onModelSize }: {
     new Box3().setFromObject(scene).getSize(size)
     onModelSize?.([size.x, size.y, size.z])
   }, [scene, onModelSize])
-  return <Center bottom><primitive object={scene} /></Center>
+  return <primitive object={scene} />
 }
 
 function GltfPreview({ src, orientationView, onDimensions, onModelSize }: { src: string; orientationView: ModelOrientationView; onDimensions?: (dimensions: Dimensions) => void; onModelSize?: (size: [number, number, number]) => void }) {
@@ -104,8 +107,9 @@ export function ModelAssetPreview({ assetKey, src, format, orientationView, onDi
   onPreviewReady?: (capture: () => string) => void
   onOrientationSelect?: (view: OrientationFace) => void
 }) {
-  const [modelSize, setModelSize] = useState<[number, number, number] | null>(null)
-  useEffect(() => setModelSize(null), [assetKey])
+  const [measurement, setMeasurement] = useState<{ assetKey: string; size: [number, number, number] } | null>(null)
+  const handleModelSize = useCallback((size: [number, number, number]) => setMeasurement({ assetKey, size }), [assetKey])
+  const modelSize = measurement?.assetKey === assetKey ? measurement.size : null
   return (
     <div className="model-preview-stage">
       <PreviewErrorBoundary key={assetKey}>
@@ -116,7 +120,7 @@ export function ModelAssetPreview({ assetKey, src, format, orientationView, onDi
           <directionalLight position={[-3, 2, -2]} intensity={0.7} />
           <Suspense fallback={<Html center><div className="model-preview-loading"><LoaderCircle className="spin" size={18} />正在读取模型</div></Html>}>
             <Bounds fit clip observe margin={1.35}>
-              <PreviewModel src={src} format={format} orientationView={orientationView ?? null} onDimensions={onDimensions} onModelSize={setModelSize} />
+              <PreviewModel src={src} format={format} orientationView={orientationView ?? null} onDimensions={onDimensions} onModelSize={handleModelSize} />
               {onOrientationSelect && modelSize && <OrientationCube selected={orientationView ?? null} onSelect={onOrientationSelect} modelSize={modelSize} />}
             </Bounds>
           </Suspense>

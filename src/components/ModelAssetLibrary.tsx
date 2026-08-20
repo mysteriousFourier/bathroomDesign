@@ -289,7 +289,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <input aria-label="新产品品类" value={newProductCategory} onChange={(event) => setNewProductCategory(event.target.value)} placeholder="新产品品类" />
               <button type="button" className="button secondary compact" disabled={!bindingSku.trim() || !newProductCategory.trim()} onClick={() => void bindSelected(true)}>新增产品并绑定</button>
             </div>}
-            {!selected.builtIn && <div className="model-orientation-controls"><span>旋转模型检查方向，在右上角六面选择器中点击正确正面</span><small>{selected.orientation_corrected ? `${selected.orientation_source === 'auto' ? '视觉自动' : '人工'}纠正完成；可选择其他面重新纠正` : '待纠正模型也可直接选择任意一面'}</small></div>}
+            {!selected.builtIn && <div className="model-orientation-controls"><span>旋转模型后，点击外侧框线的正确正面；右上角六面展开用于方向参照</span><small>{selected.orientation_corrected ? `${selected.orientation_source === 'auto' ? '视觉自动' : '人工'}纠正完成；可点击其他框面重新纠正` : '待纠正模型加载后即可点击六个外框面'}</small></div>}
           </> : selected ? <>
             <header className="model-browser-header"><div><strong>{selected.label}</strong><span>{selected.filename} · 固定板块材质</span></div></header>
             <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} />

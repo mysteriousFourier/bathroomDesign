@@ -1,17 +1,36 @@
-import { Bounds, Grid, Html, OrbitControls, useGLTF } from '@react-three/drei'
+import { Bounds, Edges, Grid, Html, OrbitControls, useGLTF } from '@react-three/drei'
 import { Canvas, useLoader } from '@react-three/fiber'
 import { LoaderCircle, Rotate3d } from 'lucide-react'
 import { Component, Suspense, useEffect, useMemo, type ReactNode } from 'react'
-import { Box3, Group, Vector3 } from 'three'
+import { Box3, DoubleSide, Group, Vector3 } from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import type { ModelAssetFormat } from '../types'
-import { orientationFaceLabels, type ModelOrientationView, type OrientationFace } from '../modelOrientation'
+import { orientationCubePlacement, orientationFaceLabels, type ModelOrientationView, type OrientationFace } from '../modelOrientation'
 
 type Dimensions = { width: number; depth: number; height: number }
 const faceNames: Record<OrientationFace, string> = { front: '正面', back: '背面', top: '上面', bottom: '下面', left: '左面', right: '右面' }
 const orientationFaces: OrientationFace[] = ['top', 'left', 'front', 'right', 'back', 'bottom']
+const orientationCubeFaces: { face: OrientationFace; position: [number, number, number]; rotation: [number, number, number] }[] = [
+  { face: 'front', position: [0, 0, 1], rotation: [0, 0, 0] }, { face: 'back', position: [0, 0, -1], rotation: [0, Math.PI, 0] },
+  { face: 'top', position: [0, 1, 0], rotation: [-Math.PI / 2, 0, 0] }, { face: 'bottom', position: [0, -1, 0], rotation: [Math.PI / 2, 0, 0] },
+  { face: 'left', position: [-1, 0, 0], rotation: [0, -Math.PI / 2, 0] }, { face: 'right', position: [1, 0, 0], rotation: [0, Math.PI / 2, 0] },
+]
+
+function OrientationCube({ selected, onSelect, modelSize }: { selected: ModelOrientationView; onSelect: (view: OrientationFace) => void; modelSize: [number, number, number] }) {
+  const { side, centerY } = orientationCubePlacement(modelSize)
+  const labels = orientationFaceLabels(selected)
+  return <group position={[0, centerY, 0]} scale={side}>
+    <mesh><boxGeometry args={[1, 1, 1]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} /><Edges color="#315f49" lineWidth={2} /></mesh>
+    {orientationCubeFaces.map(({ face, position, rotation }) => <group key={face} position={position.map((value) => value * 0.5) as [number, number, number]} rotation={rotation}>
+      <mesh onClick={(event) => { event.stopPropagation(); onSelect(face) }} onPointerOver={(event) => { event.stopPropagation(); document.body.style.cursor = 'pointer' }} onPointerOut={() => { document.body.style.cursor = '' }}>
+        <planeGeometry args={[0.96, 0.96]} />
+        <meshBasicMaterial color={labels[face] === 'front' ? '#4f8068' : '#91aa9d'} transparent opacity={labels[face] === 'front' ? 0.22 : 0.055} side={DoubleSide} depthWrite={false} />
+      </mesh>
+    </group>)}
+  </group>
+}
 
 function OrientationPicker({ selected, onSelect }: { selected: ModelOrientationView; onSelect: (view: OrientationFace) => void }) {
   const labels = orientationFaceLabels(selected)
@@ -49,7 +68,7 @@ function measuredDimensions(object: Group): Dimensions {
   return { width: normalize(size.x), depth: normalize(size.z), height: normalize(size.y) }
 }
 
-function PreparedModel({ object, onDimensions }: { object: Group; onDimensions?: (dimensions: Dimensions) => void }) {
+function PreparedModel({ object, orientationView, onDimensions, onOrientationSelect }: { object: Group; orientationView: ModelOrientationView; onDimensions?: (dimensions: Dimensions) => void; onOrientationSelect?: (view: OrientationFace) => void }) {
   const scene = useMemo(() => {
     const clone = object.clone(true)
     clone.traverse((child) => {
@@ -66,27 +85,32 @@ function PreparedModel({ object, onDimensions }: { object: Group; onDimensions?:
   }, [object])
   const dimensions = useMemo(() => measuredDimensions(scene), [scene])
   useEffect(() => onDimensions?.(dimensions), [dimensions, onDimensions])
-  return <primitive object={scene} />
+  const modelSize = useMemo(() => {
+    const size = new Vector3()
+    new Box3().setFromObject(scene).getSize(size)
+    return [size.x, size.y, size.z] as [number, number, number]
+  }, [scene])
+  return <><primitive object={scene} />{onOrientationSelect && <OrientationCube selected={orientationView} onSelect={onOrientationSelect} modelSize={modelSize} />}</>
 }
 
-function GltfPreview({ src, onDimensions }: PreviewModelProps) {
+function GltfPreview({ src, orientationView, onDimensions, onOrientationSelect }: PreviewModelProps) {
   const gltf = useGLTF(src)
-  return <PreparedModel object={gltf.scene} onDimensions={onDimensions} />
+  return <PreparedModel object={gltf.scene} orientationView={orientationView} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} />
 }
 
-function FbxPreview({ src, onDimensions }: PreviewModelProps) {
+function FbxPreview({ src, orientationView, onDimensions, onOrientationSelect }: PreviewModelProps) {
   const object = useLoader(FBXLoader, src)
-  return <PreparedModel object={object} onDimensions={onDimensions} />
+  return <PreparedModel object={object} orientationView={orientationView} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} />
 }
 
-function TdsPreview({ src, onDimensions }: PreviewModelProps) {
+function TdsPreview({ src, orientationView, onDimensions, onOrientationSelect }: PreviewModelProps) {
   const object = useLoader(TDSLoader, src)
-  return <PreparedModel object={object} onDimensions={onDimensions} />
+  return <PreparedModel object={object} orientationView={orientationView} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} />
 }
 
-function ObjPreview({ src, onDimensions }: PreviewModelProps) {
+function ObjPreview({ src, orientationView, onDimensions, onOrientationSelect }: PreviewModelProps) {
   const object = useLoader(OBJLoader, src)
-  return <PreparedModel object={object} onDimensions={onDimensions} />
+  return <PreparedModel object={object} orientationView={orientationView} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} />
 }
 
 type PreviewModelProps = { src: string; format: ModelAssetFormat; orientationView: ModelOrientationView; onDimensions?: (dimensions: Dimensions) => void; onOrientationSelect?: (view: OrientationFace) => void }
@@ -125,7 +149,7 @@ export function ModelAssetPreview({ assetKey, src, format, orientationView, onDi
         </Canvas>
       </PreviewErrorBoundary>
       {onOrientationSelect && <OrientationPicker selected={orientationView ?? null} onSelect={onOrientationSelect} />}
-      <div className="model-preview-hint"><Rotate3d size={14} />{onOrientationSelect ? '右上角选择正确正面 · 拖动检查模型' : '拖动旋转 · 滚轮缩放'}</div>
+      <div className="model-preview-hint"><Rotate3d size={14} />{onOrientationSelect ? '点击模型外框面设为正面 · 右上角查看六面关系' : '拖动旋转 · 滚轮缩放'}</div>
     </div>
   )
 }

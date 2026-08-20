@@ -202,6 +202,11 @@ function overlaps(a: FixtureSpec, b: FixtureSpec, clearance = 0) {
 }
 
 const BODY_GAP_MM = 50
+const TOILET_FRONT_CLEARANCE_MM = 500
+const TOILET_REAR_GAP_MM = 20
+const VANITY_FRONT_CLEARANCE_MM = 600
+const WASHER_FRONT_CLEARANCE_MM = 600
+const SHOWER_SEAT_FRONT_CLEARANCE_MM = 600
 const WASHER_REAR_GAP_MM = 50
 const WALL_ATTACHMENT_CLEARANCE_MM = 5
 const placementClearances = new WeakMap<FixtureSpec, FixtureSpec>()
@@ -210,9 +215,19 @@ const relaxedPlacementClearances = new WeakSet<FixtureSpec>()
 function requiredRearWallGap(item: FixtureSpec) {
   if (item.kind === 'water' || item.kind === 'electric') return undefined
   if (item.kind === 'shower') return undefined
+  if (item.kind === 'toilet') return TOILET_REAR_GAP_MM
   if (/洗衣机/.test(item.label)) return WASHER_REAR_GAP_MM
   if (/(热水器|花洒|扶手|淋浴椅|适老椅|浴室柜)/.test(item.label)) return WALL_ATTACHMENT_CLEARANCE_MM
   return undefined
+}
+
+export function effectiveLayoutInstruction(item: FixtureSpec, instruction: LayoutInstruction): LayoutInstruction {
+  let minimum = 0
+  if (item.kind === 'toilet') minimum = TOILET_FRONT_CLEARANCE_MM
+  else if (item.kind === 'vanity' || /浴室柜/.test(item.label)) minimum = VANITY_FRONT_CLEARANCE_MM
+  else if (/洗衣机/.test(item.label)) minimum = WASHER_FRONT_CLEARANCE_MM
+  else if (/淋浴椅|适老椅/.test(item.label)) minimum = SHOWER_SEAT_FRONT_CLEARANCE_MM
+  return { ...instruction, min_clearance_mm: Math.max(instruction.min_clearance_mm, minimum) }
 }
 
 function wallFacingRotation(wall: Exclude<SemanticWall, 'nearest_plumbing'>) {
@@ -482,6 +497,7 @@ function infrastructureRule(spec: RoomSpec, instruction: LayoutInstruction, anch
 
 function nudgeVariantFixture(spec: RoomSpec, item: FixtureSpec, variantIndex: number, occupied: FixtureSpec[], instruction: LayoutInstruction) {
   if (variantIndex <= 0 || item.bound_wall_index === undefined || item.bound_wall_index === null) return
+  instruction = effectiveLayoutInstruction(item, instruction)
   const boundary = layoutBoundary(spec)
   const start = boundary[item.bound_wall_index]
   const end = boundary[(item.bound_wall_index + 1) % boundary.length]
@@ -551,6 +567,7 @@ function retainFixtureAcrossLayouts(fixture: FixtureSpec) {
 }
 
 function searchPlacement(spec: RoomSpec, item: FixtureSpec, occupied: FixtureSpec[], instruction: LayoutInstruction, plumbing?: FixtureSpec, trace = { evaluated: 0, feasible: 0 }, anchor?: PlacementAnchor) {
+  instruction = effectiveLayoutInstruction(item, instruction)
   const b = rectangleBounds(spec); const step = 100
   const rearGap = requiredRearWallGap(item)
   const boundary = layoutBoundary(spec)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyLayoutSolution, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
+import { applyLayoutSolution, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, effectiveLayoutInstruction, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
 import { finishedRoomBoundary, fixtureLocalFootprint, manualRoom, projectPointToWall } from './spec'
 import { modelDimensions } from './modelDimensions'
 import graphOutput from './generated-layout-products.json'
@@ -144,6 +144,19 @@ describe('deterministic requirement layout engine', () => {
     expect(clearance.z_mm).toBeLessThan(toilet.z_mm)
     expect(clearance.width_mm).toBe(toilet.width_mm)
     expect(clearance.depth_mm).toBe(400)
+  })
+
+  it('enforces category minimum front clearances even when a script asks for less', () => {
+    const rule = { fixture_role:'wet_zone', wall:'north' as const, zone:'wet' as const, min_clearance_mm:0 }
+    const makeFixture = (kind:'toilet'|'vanity'|'other', label:string) => ({ id:label, kind, label, x_mm:1500, z_mm:1200, width_mm:400, depth_mm:600, height_mm:800, rotation_deg:0, source:'derived', confidence:1 } as const)
+    expect(effectiveLayoutInstruction(makeFixture('toilet','马桶'), rule).min_clearance_mm).toBe(500)
+    expect(effectiveLayoutInstruction(makeFixture('vanity','浴室柜'), rule).min_clearance_mm).toBe(600)
+    expect(effectiveLayoutInstruction(makeFixture('other','洗衣机'), rule).min_clearance_mm).toBe(600)
+    expect(effectiveLayoutInstruction(makeFixture('other','淋浴椅'), rule).min_clearance_mm).toBe(600)
+    expect(effectiveLayoutInstruction(makeFixture('other','花洒'), rule).min_clearance_mm).toBe(0)
+    expect(effectiveLayoutInstruction(makeFixture('other','热水器'), rule).min_clearance_mm).toBe(0)
+    expect(effectiveLayoutInstruction(makeFixture('other','花洒扶手'), rule).min_clearance_mm).toBe(0)
+    expect(effectiveLayoutInstruction(makeFixture('other','马桶扶手'), rule).min_clearance_mm).toBe(0)
   })
 
   it('allows use clearance over an open wet floor zone but not over a solid fixture', () => {

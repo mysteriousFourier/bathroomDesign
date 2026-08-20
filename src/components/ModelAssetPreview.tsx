@@ -2,7 +2,7 @@ import { Bounds, Edges, Grid, Html, OrbitControls, useBounds, useGLTF } from '@r
 import { Canvas, useLoader } from '@react-three/fiber'
 import { LoaderCircle, Rotate3d } from 'lucide-react'
 import { Component, Suspense, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
-import { Box3, DoubleSide, Group, Quaternion, Vector3 } from 'three'
+import { Box3, CanvasTexture, DoubleSide, Group, LinearFilter, Quaternion, Vector3 } from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
@@ -30,21 +30,46 @@ function OrientationCube({ mapping, onSelect, modelSize }: { mapping: Orientatio
   </group>
 }
 
+function OrientationPickerFace({ face, position, rotation, color, onSelect }: { face: OrientationFace; position: [number, number, number]; rotation: [number, number, number]; color: string; onSelect: (view: OrientationFace) => void }) {
+  const texture = useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 256
+    canvas.height = 256
+    const context = canvas.getContext('2d')!
+    context.fillStyle = color
+    context.fillRect(0, 0, 256, 256)
+    context.strokeStyle = '#65716a'
+    context.lineWidth = 6
+    context.strokeRect(3, 3, 250, 250)
+    context.fillStyle = color === '#4f9b66' ? '#ffffff' : '#17201b'
+    context.font = '900 194px sans-serif'
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+    context.fillText(faceNames[face], 128, 137)
+    const result = new CanvasTexture(canvas)
+    result.minFilter = LinearFilter
+    result.magFilter = LinearFilter
+    return result
+  }, [color, face])
+  useEffect(() => () => texture.dispose(), [texture])
+  return <group position={position.map((value) => value * 1.01) as [number, number, number]} rotation={rotation}>
+    <mesh onClick={(event) => { event.stopPropagation(); onSelect(face) }} onPointerOver={(event) => { event.stopPropagation(); document.body.style.cursor = 'pointer' }} onPointerOut={() => { document.body.style.cursor = '' }}>
+      <planeGeometry args={[1.96, 1.96]} />
+      <meshBasicMaterial map={texture} side={DoubleSide} toneMapped={false} />
+    </mesh>
+  </group>
+}
+
 function OrientationPicker({ target, mapping, cameraQuaternion, onSelect }: { target: OrientationFace | null; mapping: OrientationMapping; cameraQuaternion: [number, number, number, number]; onSelect: (view: OrientationFace) => void }) {
   const corrected = Object.keys(mapping).length === 6
   const rotation = useMemo(() => new Quaternion().fromArray(cameraQuaternion).invert(), [cameraQuaternion])
   return <div className="orientation-picker" aria-label="选择目标正确面">
     <span className="orientation-picker-title">① 点击立方体文字面</span>
-    <Canvas orthographic camera={{ position: [0, 0, 4], zoom: 42 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: true }}>
+    <Canvas orthographic camera={{ position: [0, 0, 4], zoom: 52 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: false }}>
+      <color attach="background" args={['#ffffff']} />
       <group quaternion={rotation}>
-        <mesh><boxGeometry args={[2, 2, 2]} /><meshBasicMaterial color={corrected ? '#4f9b66' : '#ffffff'} /><Edges color={corrected ? '#287440' : '#68736d'} lineWidth={2} /></mesh>
-        {orientationCubeFaces.map(({ face, position, rotation: faceRotation }) => <group key={face} position={position} rotation={faceRotation}>
-          <mesh onClick={(event) => { event.stopPropagation(); onSelect(face) }}>
-            <planeGeometry args={[1.9, 1.9]} />
-            <meshBasicMaterial color={corrected ? '#4f9b66' : target === face ? '#f2c94c' : '#ffffff'} side={DoubleSide} polygonOffset polygonOffsetFactor={-1} />
-          </mesh>
-          <Html transform center position={[0, 0, 0.025]} distanceFactor={4.2} style={{ pointerEvents: 'none' }}><strong className={`orientation-cube-label${target === face ? ' selected' : ''}${corrected ? ' corrected' : ''}`}>{faceNames[face]}</strong></Html>
-        </group>)}
+        <mesh><boxGeometry args={[1.94, 1.94, 1.94]} /><meshBasicMaterial color={corrected ? '#4f9b66' : '#ffffff'} /><Edges color={corrected ? '#287440' : '#68736d'} lineWidth={2} /></mesh>
+        {orientationCubeFaces.map(({ face, position, rotation: faceRotation }) => <OrientationPickerFace key={face} face={face} position={position} rotation={faceRotation} color={corrected ? '#4f9b66' : target === face ? '#f2c94c' : '#ffffff'} onSelect={onSelect} />)}
       </group>
     </Canvas>
     <small>{target ? `已选择${faceNames[target]}，请点击模型真实面` : '随模型视角转动'}</small>

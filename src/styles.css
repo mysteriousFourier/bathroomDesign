@@ -723,9 +723,9 @@ p, h1, h2, figure { margin: 0; }
 @media (max-width: 640px) { .layout-header { align-items: stretch; flex-direction: column; } .layout-entry-actions { display: grid; grid-template-columns: 1fr 1fr; } .layout-entry-actions > :only-child { grid-column: 1 / -1; } }
 .model-orientation-controls{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--line,#ddd)}
 .model-orientation-controls small{margin-left:auto;color:#66706a}
-.orientation-picker{position:absolute;z-index:3;top:10px;right:10px;width:142px;height:174px;padding:8px;border:1px solid rgb(49 95 73 / 35%);border-radius:5px;background:rgb(250 249 246 / 92%);box-shadow:0 2px 10px rgb(25 32 27 / 16%);backdrop-filter:blur(3px)}
+.orientation-picker{position:absolute;z-index:3;top:10px;right:10px;width:178px;height:216px;padding:8px;border:1px solid rgb(49 95 73 / 35%);border-radius:5px;background:#fff;box-shadow:0 2px 10px rgb(25 32 27 / 16%)}
 .orientation-picker-title{display:block;margin-bottom:6px;color:#315f49;font:700 10px/1.2 sans-serif;text-align:center}
-.orientation-picker canvas{height:128px!important;cursor:pointer}
+.orientation-picker canvas{height:168px!important;cursor:pointer;background:#fff}
 .orientation-picker>small{position:absolute;right:6px;bottom:5px;left:6px;color:#66706a;font-size:8px;text-align:center}
 .orientation-cube-label{display:flex;width:42px;height:42px;align-items:center;justify-content:center;color:#18221d;font:900 34px/.95 sans-serif;text-align:center;white-space:nowrap;text-shadow:0 1px 0 rgb(255 255 255 / 65%)}
 .orientation-cube-label.selected{color:#4b3700}

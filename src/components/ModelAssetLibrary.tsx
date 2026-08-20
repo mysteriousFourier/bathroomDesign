@@ -318,7 +318,6 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
           </> : <div className="model-browser-empty"><HardDriveUpload size={28} /><strong>尚无模型</strong></div>}
         </section>
       </div>
-      <div className="orientation-preview-pool" aria-hidden="true">{uploadedAssets.filter((asset) => !asset.orientation_corrected && asset.id !== selected?.id).map((asset) => <ModelAssetPreview key={asset.id} assetKey={`orientation-${asset.id}`} src={asset.src} format={asset.format} onPreviewReady={(capture) => { previewCaptures.current[asset.id] = capture }} />)}</div>
     </div>
   )
 }

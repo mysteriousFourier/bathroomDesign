@@ -290,13 +290,13 @@ def delete_model_asset(project_id: str, asset_id: str) -> None:
     shutil.rmtree(metadata_path.parent)
 
 
-def set_model_orientation(project_id: str, asset_id: str, view: str, source: str) -> ModelAssetResponse:
+def set_model_orientation(project_id: str, asset_id: str, view: str, source: str, mapping: dict[str, str] | None = None) -> ModelAssetResponse:
     db.get_project(project_id)
     metadata_path = _metadata_path(asset_id)
     if not metadata_path.is_file():
         raise HTTPException(status_code=404, detail="模型资产不存在")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    metadata.update(orientation_view=view, orientation_corrected=True, orientation_source=source)
+    metadata.update(orientation_view=view, orientation_mapping=mapping, orientation_corrected=True, orientation_source=source)
     response = _response_from_metadata(metadata)
     temporary = metadata_path.with_suffix(".json.tmp")
     temporary.write_text(response.model_dump_json(indent=2), encoding="utf-8")

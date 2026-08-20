@@ -6,7 +6,7 @@ import { Box3, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
-import { modelOrientation } from '../modelOrientation'
+import { resolvedModelOrientation } from '../modelOrientation'
 import { uniformModelScale } from '../modelScale'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerQuads, wallLength } from '../spec'
@@ -136,7 +136,7 @@ function modelAssetFormat(asset: FixtureModelAsset) {
 function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: FixtureSpec; selected: boolean; object: Group }) {
   const { scene, scale, position } = useMemo(() => {
     const scene = object.clone(true)
-    scene.rotation.copy(modelOrientation(fixture.model_asset?.orientation_view ?? null))
+    scene.rotation.copy(resolvedModelOrientation(fixture.model_asset?.orientation_mapping, fixture.model_asset?.orientation_view ?? null))
     scene.updateMatrixWorld(true)
     scene.traverse((child) => {
       if ('castShadow' in child) {

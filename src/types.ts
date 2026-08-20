@@ -120,6 +120,7 @@ export interface FixtureModelAsset {
   legacy_source_ids?: string[]
   /** Which source face was promoted to the canonical front during import review. */
   orientation_view?: 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right' | null
+  orientation_mapping?: Partial<Record<'front' | 'back' | 'top' | 'bottom' | 'left' | 'right', 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right'>> | null
 }
 
 export interface FixtureSpec {
@@ -301,6 +302,7 @@ export interface ImportedModelAsset {
   created_at: string
   src: string
   orientation_view: 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right' | null
+  orientation_mapping: Partial<Record<'front' | 'back' | 'top' | 'bottom' | 'left' | 'right', 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right'>> | null
   orientation_corrected: boolean
   orientation_source: 'auto' | 'manual' | null
   library_scope: 'shared' | 'builtin'

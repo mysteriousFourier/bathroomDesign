@@ -63,7 +63,7 @@ export const studioApi = {
   },
   deleteModelAsset: (projectId: string, assetId: string) => request<void>(`/api/projects/${projectId}/model-assets/${assetId}`, { method: 'DELETE' }),
   bindModelAsset: (projectId: string, assetId: string, catalog_code: string, new_product?: Record<string,string>) => request<ImportedModelAsset>(`/api/projects/${projectId}/model-assets/${assetId}/binding`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ catalog_code, new_product }) }),
-  correctModelOrientation: (projectId: string, assetId: string, view: NonNullable<ImportedModelAsset['orientation_view']>) => request<ImportedModelAsset>(`/api/projects/${projectId}/model-assets/${assetId}/orientation`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ view }) }),
+  correctModelOrientation: (projectId: string, assetId: string, view: NonNullable<ImportedModelAsset['orientation_view']>, mapping?: ImportedModelAsset['orientation_mapping']) => request<ImportedModelAsset>(`/api/projects/${projectId}/model-assets/${assetId}/orientation`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ view, mapping }) }),
   autoCorrectModelOrientation: (projectId: string, assetId: string, preview_data_url: string) => request<ImportedModelAsset>(`/api/projects/${projectId}/model-assets/${assetId}/orientation/auto`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ preview_data_url }), timeoutMs: 120_000 }),
   captureAssessment: (assetId: string) => request<CaptureAssessment>(`/api/assets/${assetId}/capture-assessment`),
   analyzePlan: (id: string, rotationDegrees: number | null = null) => request<AnalysisResponse>(

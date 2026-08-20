@@ -28,5 +28,6 @@ export function fixtureModelAssetFromLibrary(asset: RoomModelAsset): FixtureMode
     lifecycle: asset.lifecycle,
     legacy_source_ids: asset.legacy_source_ids,
     orientation_view: asset.orientation_view,
+    orientation_mapping: asset.orientation_mapping,
   }
 }

@@ -6,7 +6,7 @@ import { droppedModelFiles, inputFiles, validateModelImport, type ModelImportFil
 import { builtInRoomAssets } from '../modelLibrary'
 import type { ImportedModelAsset } from '../types'
 import { ModelAssetPreview } from './ModelAssetPreview'
-import type { ModelOrientationView } from '../modelOrientation'
+import { completeOrientationMapping, mappingFromLegacyView, type ModelOrientationView, type OrientationFace, type OrientationMapping } from '../modelOrientation'
 
 type Dimensions = { width: number; depth: number; height: number }
 type DisplayModelAsset = RoomModelAsset & {
@@ -14,6 +14,7 @@ type DisplayModelAsset = RoomModelAsset & {
   fileCount: number
   builtIn?: boolean
   orientation_view?: ModelOrientationView
+  orientation_mapping?: OrientationMapping | null
   orientation_corrected?: boolean
   orientation_source?: 'auto' | 'manual' | null
   binding_status?: 'bound' | 'unbound'
@@ -45,6 +46,7 @@ function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
     fileCount: asset.file_count,
     builtIn: asset.library_scope === 'builtin',
     orientation_view: asset.orientation_view,
+    orientation_mapping: asset.orientation_mapping,
     orientation_corrected: asset.orientation_corrected,
     orientation_source: asset.orientation_source,
     binding_status: asset.binding_status,
@@ -81,6 +83,8 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const [correctionNotice, setCorrectionNotice] = useState('')
   const [bindingSku, setBindingSku] = useState('')
   const [newProductCategory, setNewProductCategory] = useState('')
+  const [orientationTarget, setOrientationTarget] = useState<OrientationFace | null>(null)
+  const [orientationMapping, setOrientationMapping] = useState<OrientationMapping>({})
 
   useEffect(() => {
     folderInputRef.current?.setAttribute('webkitdirectory', '')
@@ -110,6 +114,12 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const selectedDimensions = selected ? dimensions[selected.id] ?? selected.dimensions_mm : defaultDimensions
   const selectedForRoom = selected && selected.asset_type !== 'surface' ? { ...selected, dimensions_mm: selectedDimensions } : null
   const selectedInUse = !!selected && usedAssetIds.includes(selected.id)
+  const orientationEditable = !!selected && selected.asset_type !== 'surface' && uploadedAssets.some((asset) => asset.id === selected.id)
+
+  useEffect(() => {
+    setOrientationTarget(null)
+    setOrientationMapping(selected?.orientation_mapping ?? (selected?.orientation_corrected ? mappingFromLegacyView(selected.orientation_view ?? null) : {}))
+  }, [selected?.id, selected?.orientation_corrected, selected?.orientation_mapping, selected?.orientation_view])
 
   const updateSelectedDimensions = useCallback((next: Dimensions) => {
     if (!selectedId) return
@@ -183,9 +193,18 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
       setCorrectionNotice(`已按 SKU ${bindingSku.trim()} 完成产品绑定`)
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'SKU 绑定失败') }
   }
-  const correctSelected = async (view: Exclude<ModelOrientationView, null>) => {
-    if (!selected || selected.builtIn) return
-    try { setError(''); setCorrectionNotice(''); replaceAsset(await studioApi.correctModelOrientation(projectId, selected.id, view)) }
+  const assignOrientationFace = (physical: OrientationFace) => {
+    if (!orientationTarget) { setError('请先在右上角选择目标正确面'); return }
+    setError('')
+    setOrientationMapping((current) => ({ ...Object.fromEntries(Object.entries(current).filter(([, semantic]) => semantic !== orientationTarget)), [physical]: orientationTarget }))
+    setOrientationTarget(null)
+  }
+  const correctSelected = async () => {
+    if (!selected || !orientationEditable) return
+    const complete = completeOrientationMapping(orientationMapping)
+    if (!complete) { setError('至少配对三个互不冲突的面，且方向关系必须构成有效旋转'); return }
+    const front = (Object.entries(complete) as [OrientationFace, OrientationFace][]).find(([, semantic]) => semantic === 'front')?.[0] ?? 'front'
+    try { setError(''); setCorrectionNotice(''); replaceAsset(await studioApi.correctModelOrientation(projectId, selected.id, front, complete)); setCorrectionNotice('方向纠正已保存') }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : '人工方向纠正失败') }
   }
   const autoCorrectAll = async () => {
@@ -273,7 +292,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
                 <button className="button primary compact" type="button" disabled={!canAddToRoom} onClick={() => onAddToRoom(selectedForRoom)}><Plus size={15} />加入房间</button>
               </div>
             </header>
-            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} orientationView={selected.orientation_view} onOrientationSelect={selected.builtIn ? undefined : (view) => void correctSelected(view)} onDimensions={updateSelectedDimensions} onPreviewReady={(capture) => { previewCaptures.current[selected.id] = capture }} />
+            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} orientationView={selected.orientation_view} orientationMapping={orientationMapping} orientationTarget={orientationTarget} onOrientationTargetSelect={orientationEditable ? setOrientationTarget : undefined} onOrientationSelect={orientationEditable ? assignOrientationFace : undefined} onDimensions={updateSelectedDimensions} onPreviewReady={(capture) => { previewCaptures.current[selected.id] = capture }} />
             <div className="model-browser-meta">
               <div><span>格式</span><strong>{selected.format.toUpperCase()}</strong></div>
               <div><span>文件</span><strong>{selected.fileCount}</strong></div>
@@ -289,7 +308,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <input aria-label="新产品品类" value={newProductCategory} onChange={(event) => setNewProductCategory(event.target.value)} placeholder="新产品品类" />
               <button type="button" className="button secondary compact" disabled={!bindingSku.trim() || !newProductCategory.trim()} onClick={() => void bindSelected(true)}>新增产品并绑定</button>
             </div>}
-            {!selected.builtIn && <div className="model-orientation-controls"><span>旋转模型后，点击外侧框线的正确正面；右上角六面展开用于方向参照</span><small>{selected.orientation_corrected ? `${selected.orientation_source === 'auto' ? '视觉自动' : '人工'}纠正完成；可点击其他框面重新纠正` : '待纠正模型加载后即可点击六个外框面'}</small></div>}
+            {orientationEditable && <div className="model-orientation-controls"><span>先选右上角目标面，再点模型外框对应面；至少完成三个面</span><button type="button" className="button primary compact" disabled={!completeOrientationMapping(orientationMapping)} onClick={() => void correctSelected()}>完成纠正</button><button type="button" className="button secondary compact" onClick={() => { setOrientationMapping({}); setOrientationTarget(null) }}>重选</button><small>已配对 {Object.keys(orientationMapping).length}/3</small></div>}
           </> : selected ? <>
             <header className="model-browser-header"><div><strong>{selected.label}</strong><span>{selected.filename} · 固定板块材质</span></div></header>
             <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} />

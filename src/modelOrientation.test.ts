@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { modelOrientation, orientationCubePlacement, orientationFaceLabels } from './modelOrientation'
+import { completeOrientationMapping, modelOrientation, orientationCubePlacement, orientationFaceLabels, resolveOrientationMapping } from './modelOrientation'
 
 describe('model orientation correction', () => {
   it('uses only deterministic quarter-turns without compound rotation', () => {
@@ -23,5 +23,21 @@ describe('model orientation correction', () => {
     expect(orientationFaceLabels('top')).toEqual({
       front: 'bottom', back: 'top', top: 'front', bottom: 'back', left: 'left', right: 'right',
     })
+  })
+})
+
+describe('three-face orientation correction', () => {
+  it('rejects fewer than three face pairs', () => {
+    expect(resolveOrientationMapping({ front: 'right', top: 'top' })).toBeNull()
+  })
+
+  it('completes a valid three-face mapping to all six faces', () => {
+    expect(completeOrientationMapping({ front: 'right', left: 'front', top: 'top' })).toEqual({
+      front: 'right', back: 'left', top: 'top', bottom: 'bottom', left: 'front', right: 'back',
+    })
+  })
+
+  it('rejects contradictory face pairs', () => {
+    expect(completeOrientationMapping({ front: 'front', back: 'right', top: 'top' })).toBeNull()
   })
 })

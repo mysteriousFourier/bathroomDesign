@@ -331,7 +331,7 @@ def remove_model_asset(project_id: str, asset_id: str) -> None:
 
 @app.put("/api/projects/{project_id}/model-assets/{asset_id}/orientation", response_model=ModelAssetResponse)
 def correct_model_orientation(project_id: str, asset_id: str, request: ModelOrientationRequest) -> ModelAssetResponse:
-    return set_model_orientation(project_id, asset_id, request.view, "manual")
+    return set_model_orientation(project_id, asset_id, request.view, "manual", request.mapping)
 
 
 @app.post("/api/projects/{project_id}/model-assets/{asset_id}/orientation/auto", response_model=ModelAssetResponse)

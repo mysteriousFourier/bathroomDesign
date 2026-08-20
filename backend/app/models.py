@@ -891,6 +891,7 @@ class ModelAssetResponse(BaseModel):
     created_at: str
     src: str
     orientation_view: Literal["front", "back", "top", "bottom", "left", "right"] | None = None
+    orientation_mapping: dict[str, str] | None = None
     orientation_corrected: bool = False
     orientation_source: Literal["auto", "manual"] | None = None
     library_scope: Literal["shared", "builtin"] = "shared"
@@ -906,6 +907,7 @@ class ModelAssetResponse(BaseModel):
 
 class ModelOrientationRequest(BaseModel):
     view: Literal["front", "back", "top", "bottom", "left", "right"]
+    mapping: dict[str, str] | None = None
 
 
 class ModelAssetBindingRequest(BaseModel):

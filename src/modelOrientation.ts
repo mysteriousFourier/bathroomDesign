@@ -32,9 +32,9 @@ export function modelOrientation(view: ModelOrientationView) {
 const opposite: Record<OrientationFace, OrientationFace> = { front: 'back', back: 'front', top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
 
 /** Resolve three or more physical->semantic face pairs to one of the 24 legal cube rotations. */
-export function resolveOrientationMapping(mapping: OrientationMapping) {
+export function resolveOrientationMapping(mapping: OrientationMapping, minimumPairs = 3) {
   const pairs = Object.entries(mapping) as [OrientationFace, OrientationFace][]
-  if (pairs.length < 3) return null
+  if (pairs.length < minimumPairs) return null
   const quarterTurns = [0, Math.PI / 2, Math.PI, -Math.PI / 2]
   for (const x of quarterTurns) for (const y of quarterTurns) for (const z of quarterTurns) {
     const rotation = new Euler(x, y, z, 'XYZ')
@@ -44,8 +44,8 @@ export function resolveOrientationMapping(mapping: OrientationMapping) {
   return null
 }
 
-export function completeOrientationMapping(mapping: OrientationMapping) {
-  const rotation = resolveOrientationMapping(mapping)
+export function completeOrientationMapping(mapping: OrientationMapping, minimumPairs = 3) {
+  const rotation = resolveOrientationMapping(mapping, minimumPairs)
   if (!rotation) return null
   return Object.fromEntries((Object.entries(faceNormals) as [OrientationFace, Vector3][]).map(([physical, normal]) => {
     const rotated = normal.clone().applyEuler(rotation)

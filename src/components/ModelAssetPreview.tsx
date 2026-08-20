@@ -17,11 +17,11 @@ const orientationCubeFaces: { face: OrientationFace; position: [number, number, 
   { face: 'left', position: [-1, 0, 0], rotation: [0, -Math.PI / 2, 0] }, { face: 'right', position: [1, 0, 0], rotation: [0, Math.PI / 2, 0] },
 ]
 
-function OrientationCube({ mapping, onSelect, modelSize }: { mapping: OrientationMapping; onSelect: (view: OrientationFace) => void; modelSize: [number, number, number] }) {
+function OrientationCube({ mapping, onSelect, modelSize, allowedFaces }: { mapping: OrientationMapping; onSelect: (view: OrientationFace) => void; modelSize: [number, number, number]; allowedFaces: OrientationFace[] }) {
   const { side, centerY } = orientationCubePlacement(modelSize)
   return <group position={[0, centerY, 0]} scale={side}>
     <mesh><boxGeometry args={[1, 1, 1]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} /><Edges color="#315f49" lineWidth={2} /></mesh>
-    {orientationCubeFaces.map(({ face, position, rotation }) => <group key={face} position={position.map((value) => value * 0.5) as [number, number, number]} rotation={rotation}>
+    {orientationCubeFaces.filter(({ face }) => allowedFaces.includes(face)).map(({ face, position, rotation }) => <group key={face} position={position.map((value) => value * 0.5) as [number, number, number]} rotation={rotation}>
       <mesh onClick={(event) => { event.stopPropagation(); onSelect(face) }} onPointerOver={(event) => { event.stopPropagation(); document.body.style.cursor = 'pointer' }} onPointerOut={() => { document.body.style.cursor = '' }}>
         <planeGeometry args={[0.96, 0.96]} />
         <meshBasicMaterial color={mapping[face] ? '#b97816' : '#91aa9d'} transparent opacity={mapping[face] ? 0.26 : 0.075} side={DoubleSide} depthWrite={false} />
@@ -60,7 +60,7 @@ function OrientationPickerFace({ face, position, rotation, color, onSelect }: { 
   </group>
 }
 
-function OrientationPicker({ target, mapping, cameraQuaternion, onSelect }: { target: OrientationFace | null; mapping: OrientationMapping; cameraQuaternion: [number, number, number, number]; onSelect: (view: OrientationFace) => void }) {
+function OrientationPicker({ target, mapping, cameraQuaternion, onSelect, allowedFaces }: { target: OrientationFace | null; mapping: OrientationMapping; cameraQuaternion: [number, number, number, number]; onSelect: (view: OrientationFace) => void; allowedFaces: OrientationFace[] }) {
   const corrected = Object.keys(mapping).length === 6
   const rotation = useMemo(() => new Quaternion().fromArray(cameraQuaternion).invert(), [cameraQuaternion])
   return <div className="orientation-picker" aria-label="选择目标正确面">
@@ -69,7 +69,7 @@ function OrientationPicker({ target, mapping, cameraQuaternion, onSelect }: { ta
       <color attach="background" args={['#ffffff']} />
       <group quaternion={rotation}>
         <mesh><boxGeometry args={[1.94, 1.94, 1.94]} /><meshBasicMaterial color={corrected ? '#4f9b66' : '#ffffff'} /><Edges color={corrected ? '#287440' : '#68736d'} lineWidth={2} /></mesh>
-        {orientationCubeFaces.map(({ face, position, rotation: faceRotation }) => <OrientationPickerFace key={face} face={face} position={position} rotation={faceRotation} color={corrected ? '#4f9b66' : target === face ? '#f2c94c' : '#ffffff'} onSelect={onSelect} />)}
+        {orientationCubeFaces.filter(({ face }) => allowedFaces.includes(face)).map(({ face, position, rotation: faceRotation }) => <OrientationPickerFace key={face} face={face} position={position} rotation={faceRotation} color={corrected ? '#4f9b66' : target === face ? '#f2c94c' : '#ffffff'} onSelect={onSelect} />)}
       </group>
     </Canvas>
     <small>{target ? `已选择${faceNames[target]}，请点击模型真实面` : '随模型视角转动'}</small>
@@ -100,7 +100,7 @@ function measuredDimensions(object: Group): Dimensions {
   return { width: normalize(size.x), depth: normalize(size.z), height: normalize(size.y) }
 }
 
-function PreparedModel({ object, orientationView, orientationMapping = {}, onDimensions, onOrientationSelect }: { object: Group; orientationView: ModelOrientationView; orientationMapping?: OrientationMapping; onDimensions?: (dimensions: Dimensions) => void; onOrientationSelect?: (view: OrientationFace) => void }) {
+function PreparedModel({ object, orientationView, orientationMapping = {}, onDimensions, onOrientationSelect, allowedFaces = orientationCubeFaces.map(({ face }) => face) }: { object: Group; orientationView: ModelOrientationView; orientationMapping?: OrientationMapping; onDimensions?: (dimensions: Dimensions) => void; onOrientationSelect?: (view: OrientationFace) => void; allowedFaces?: OrientationFace[] }) {
   const boundsApi = useBounds()
   const scene = useMemo(() => {
     const clone = object.clone(true)
@@ -129,30 +129,30 @@ function PreparedModel({ object, orientationView, orientationMapping = {}, onDim
   useLayoutEffect(() => {
     boundsApi.refresh(scene).fit().clip()
   }, [boundsApi, scene])
-  return <><primitive object={scene} />{onOrientationSelect && <OrientationCube mapping={orientationMapping} onSelect={onOrientationSelect} modelSize={modelSize} />}</>
+  return <><primitive object={scene} />{onOrientationSelect && <OrientationCube mapping={orientationMapping} onSelect={onOrientationSelect} modelSize={modelSize} allowedFaces={allowedFaces} />}</>
 }
 
-function GltfPreview({ src, orientationView, orientationMapping, onDimensions, onOrientationSelect }: PreviewModelProps) {
+function GltfPreview({ src, orientationView, orientationMapping, onDimensions, onOrientationSelect, allowedFaces }: PreviewModelProps) {
   const gltf = useGLTF(src)
-  return <PreparedModel object={gltf.scene} orientationView={orientationView} orientationMapping={orientationMapping} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} />
+  return <PreparedModel object={gltf.scene} orientationView={orientationView} orientationMapping={orientationMapping} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} allowedFaces={allowedFaces} />
 }
 
-function FbxPreview({ src, orientationView, orientationMapping, onDimensions, onOrientationSelect }: PreviewModelProps) {
+function FbxPreview({ src, orientationView, orientationMapping, onDimensions, onOrientationSelect, allowedFaces }: PreviewModelProps) {
   const object = useLoader(FBXLoader, src)
-  return <PreparedModel object={object} orientationView={orientationView} orientationMapping={orientationMapping} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} />
+  return <PreparedModel object={object} orientationView={orientationView} orientationMapping={orientationMapping} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} allowedFaces={allowedFaces} />
 }
 
-function TdsPreview({ src, orientationView, orientationMapping, onDimensions, onOrientationSelect }: PreviewModelProps) {
+function TdsPreview({ src, orientationView, orientationMapping, onDimensions, onOrientationSelect, allowedFaces }: PreviewModelProps) {
   const object = useLoader(TDSLoader, src)
-  return <PreparedModel object={object} orientationView={orientationView} orientationMapping={orientationMapping} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} />
+  return <PreparedModel object={object} orientationView={orientationView} orientationMapping={orientationMapping} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} allowedFaces={allowedFaces} />
 }
 
-function ObjPreview({ src, orientationView, orientationMapping, onDimensions, onOrientationSelect }: PreviewModelProps) {
+function ObjPreview({ src, orientationView, orientationMapping, onDimensions, onOrientationSelect, allowedFaces }: PreviewModelProps) {
   const object = useLoader(OBJLoader, src)
-  return <PreparedModel object={object} orientationView={orientationView} orientationMapping={orientationMapping} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} />
+  return <PreparedModel object={object} orientationView={orientationView} orientationMapping={orientationMapping} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} allowedFaces={allowedFaces} />
 }
 
-type PreviewModelProps = { src: string; format: ModelAssetFormat; orientationView: ModelOrientationView; orientationMapping?: OrientationMapping; onDimensions?: (dimensions: Dimensions) => void; onOrientationSelect?: (view: OrientationFace) => void }
+type PreviewModelProps = { src: string; format: ModelAssetFormat; orientationView: ModelOrientationView; orientationMapping?: OrientationMapping; onDimensions?: (dimensions: Dimensions) => void; onOrientationSelect?: (view: OrientationFace) => void; allowedFaces?: OrientationFace[] }
 
 function PreviewModel(props: PreviewModelProps) {
   if (props.format === 'glb' || props.format === 'gltf') return <GltfPreview {...props} />
@@ -161,7 +161,7 @@ function PreviewModel(props: PreviewModelProps) {
   return <ObjPreview {...props} />
 }
 
-export function ModelAssetPreview({ assetKey, src, format, orientationView, orientationMapping, orientationTarget, onOrientationTargetSelect, onDimensions, onPreviewReady, onOrientationSelect }: {
+export function ModelAssetPreview({ assetKey, src, format, orientationView, orientationMapping, orientationTarget, onOrientationTargetSelect, onDimensions, onPreviewReady, onOrientationSelect, allowedFaces = orientationCubeFaces.map(({ face }) => face) }: {
   assetKey: string
   src: string
   format: ModelAssetFormat
@@ -172,6 +172,7 @@ export function ModelAssetPreview({ assetKey, src, format, orientationView, orie
   onDimensions?: (dimensions: Dimensions) => void
   onPreviewReady?: (capture: () => string) => void
   onOrientationSelect?: (view: OrientationFace) => void
+  allowedFaces?: OrientationFace[]
 }) {
   const [cameraQuaternion, setCameraQuaternion] = useState<[number, number, number, number]>([0, 0, 0, 1])
   return (
@@ -184,7 +185,7 @@ export function ModelAssetPreview({ assetKey, src, format, orientationView, orie
           <directionalLight position={[-3, 2, -2]} intensity={0.7} />
           <Suspense fallback={<Html center><div className="model-preview-loading"><LoaderCircle className="spin" size={18} />正在读取模型</div></Html>}>
             <Bounds fit clip observe margin={1.35}>
-              <PreviewModel src={src} format={format} orientationView={orientationView ?? null} orientationMapping={orientationMapping} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} />
+              <PreviewModel src={src} format={format} orientationView={orientationView ?? null} orientationMapping={orientationMapping} onDimensions={onDimensions} onOrientationSelect={onOrientationSelect} allowedFaces={allowedFaces} />
             </Bounds>
           </Suspense>
           <Grid position={[0, -0.002, 0]} args={[10, 10]} cellSize={0.1} cellThickness={0.45} cellColor="#b9bbb5" sectionSize={0.5} sectionThickness={0.8} sectionColor="#999d96" fadeDistance={7} infiniteGrid />
@@ -194,7 +195,7 @@ export function ModelAssetPreview({ assetKey, src, format, orientationView, orie
           }} />
         </Canvas>
       </PreviewErrorBoundary>
-      {onOrientationTargetSelect && <OrientationPicker target={orientationTarget ?? null} mapping={orientationMapping ?? {}} cameraQuaternion={cameraQuaternion} onSelect={onOrientationTargetSelect} />}
+      {onOrientationTargetSelect && <OrientationPicker target={orientationTarget ?? null} mapping={orientationMapping ?? {}} cameraQuaternion={cameraQuaternion} onSelect={onOrientationTargetSelect} allowedFaces={allowedFaces} />}
       <div className="model-preview-hint"><Rotate3d size={14} />{onOrientationSelect ? '右上角选目标面，再点击模型外框对应面' : '拖动旋转 · 滚轮缩放'}</div>
     </div>
   )

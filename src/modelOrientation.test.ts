@@ -40,4 +40,9 @@ describe('three-face orientation correction', () => {
   it('rejects contradictory face pairs', () => {
     expect(completeOrientationMapping({ front: 'front', back: 'right', top: 'top' })).toBeNull()
   })
+
+  it('completes a deterministic rotation for a two-sided asset tag', () => {
+    expect(completeOrientationMapping({ back: 'front' }, 1)?.back).toBe('front')
+    expect(completeOrientationMapping({ bottom: 'top' }, 1)?.bottom).toBe('top')
+  })
 })

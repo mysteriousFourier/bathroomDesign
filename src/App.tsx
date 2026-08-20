@@ -14,7 +14,7 @@ import { selectAutomaticLayoutSolution, SolutionList } from './components/Soluti
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
-import { fixtureModelAssetFromLibrary, type RoomModelAsset } from './modelAssets'
+import { fixtureModelAssetFromLibrary, modelAssetPointKind, type RoomModelAsset } from './modelAssets'
 import { applyLayoutSolution, generateDeterministicLayoutSolutions, generateLayoutSolutions, type LayoutSolution } from './layoutEngine'
 import { surfaceMaterialsForDesignQuote } from './modelLibrary'
 import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, updateOpeningFromLine, wallLength, wetZoneBoundaryValid } from './spec'
@@ -560,6 +560,27 @@ export default function App() {
 
   const addModelAssetToRoom = (asset: RoomModelAsset) => {
     if (!spec) return
+    const pointKind = modelAssetPointKind(asset)
+    if (pointKind) {
+      const next = cloneSpec(spec)
+      const targets = next.fixtures.filter((fixture) => fixture.kind === pointKind)
+      if (!targets.length) {
+        showMessage('error', pointKind === 'floor_drain' ? '房间中没有可应用模型的地漏点位' : '房间中没有可应用模型的电点')
+        return
+      }
+      const modelAsset = fixtureModelAssetFromLibrary(asset)
+      targets.forEach((fixture) => {
+        fixture.model_asset = modelAsset
+        fixture.width_mm = asset.dimensions_mm.width
+        fixture.depth_mm = asset.dimensions_mm.depth
+        fixture.height_mm = asset.dimensions_mm.height
+      })
+      commitSpec(next)
+      setSelection({ type: 'fixture', id: targets[0].id })
+      setMode('model')
+      showMessage('success', `${asset.label} 已应用到 ${targets.length} 个${pointKind === 'floor_drain' ? '地漏点位' : '电点'}`)
+      return
+    }
     const center = finishedRoomBoundary(spec).length ? projectPointToWall(finishedRoomBoundary(spec), 0, { x_mm: 700, z_mm: 305 })?.point : null
     const isToilet = !!asset.tags?.includes('toilet') || /toilet|马桶|坐便/i.test(asset.label)
     const id = `${isToilet ? 'toilet' : 'model'}-${crypto.randomUUID().slice(0, 8)}`

@@ -27,7 +27,7 @@ from .auto_layout import generate_model_layout
 from .knowledge_graph import ProductKnowledgeGraph
 from .measurement import measurement_contract_export, measurement_from_spec, validate_measurement
 from .measurement_import import MeasurementImportError, import_measurement_file, inspect_measurement_file
-from .model_assets import bind_model_asset, delete_model_asset, list_model_assets, resolve_model_asset_file, set_model_orientation, store_model_asset
+from .model_assets import bind_model_asset, delete_model_asset, list_model_assets, resolve_model_asset_file, set_model_asset_tag, set_model_orientation, store_model_asset
 from .models import (
     AnalysisResponse,
     AutoLayoutRequest,
@@ -45,6 +45,7 @@ from .models import (
     MeasurementImportResponse,
     MeasurementValidationResponse,
     ModelAssetResponse,
+    ModelAssetTagRequest,
     ModelAssetBindingRequest,
     ModelOrientationAutoRequest,
     ModelOrientationRequest,
@@ -332,6 +333,11 @@ def remove_model_asset(project_id: str, asset_id: str) -> None:
 @app.put("/api/projects/{project_id}/model-assets/{asset_id}/orientation", response_model=ModelAssetResponse)
 def correct_model_orientation(project_id: str, asset_id: str, request: ModelOrientationRequest) -> ModelAssetResponse:
     return set_model_orientation(project_id, asset_id, request.view, "manual", request.mapping)
+
+
+@app.put("/api/projects/{project_id}/model-assets/{asset_id}/tag", response_model=ModelAssetResponse)
+def update_model_asset_tag(project_id: str, asset_id: str, request: ModelAssetTagRequest) -> ModelAssetResponse:
+    return set_model_asset_tag(project_id, asset_id, request.tag)
 
 
 @app.post("/api/projects/{project_id}/model-assets/{asset_id}/orientation/auto", response_model=ModelAssetResponse)

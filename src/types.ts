@@ -305,6 +305,7 @@ export interface ImportedModelAsset {
   orientation_mapping: Partial<Record<'front' | 'back' | 'top' | 'bottom' | 'left' | 'right', 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right'>> | null
   orientation_corrected: boolean
   orientation_source: 'auto' | 'manual' | null
+  correction_tag: 'standard' | 'handrail' | 'drain' | 'socket' | 'switch'
   library_scope: 'shared' | 'builtin'
   deduplicated: boolean
   category: string | null

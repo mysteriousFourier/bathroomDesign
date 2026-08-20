@@ -166,6 +166,31 @@ def _builtin_response(project_id: str, asset: dict[str, object]) -> ModelAssetRe
     )
 
 
+def set_model_asset_tag(project_id: str, asset_id: str, tag: str) -> ModelAssetResponse:
+    db.get_project(project_id)
+    builtin = next((item for item in _builtin_assets() if item.get("asset_type") == "fixture" and item.get("id") == asset_id), None)
+    if builtin:
+        with _STORE_LOCK:
+            overrides = _orientation_overrides()
+            overrides[asset_id] = {**overrides.get(asset_id, {}), "correction_tag": tag}
+            path = _orientation_overrides_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".json.tmp")
+            temporary.write_text(json.dumps(overrides, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.replace(path)
+        return _builtin_response(project_id, builtin)
+    metadata_path = _metadata_path(asset_id)
+    if not metadata_path.is_file():
+        raise HTTPException(status_code=404, detail="模型资产不存在")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["correction_tag"] = tag
+    response = _response_from_metadata(metadata)
+    temporary = metadata_path.with_suffix(".json.tmp")
+    temporary.write_text(response.model_dump_json(indent=2), encoding="utf-8")
+    temporary.replace(metadata_path)
+    return response
+
+
 def _catalog_products() -> dict[str, tuple[str, str]]:
     path = Path(__file__).resolve().parents[1] / "data" / "product_catalog.csv"
     try:

@@ -9,6 +9,13 @@ export interface RoomModelAsset extends FixtureModelAsset {
   catalog_codes?: string[]
   styles?: string[]
   tags?: string[]
+  correction_tag?: 'standard' | 'handrail' | 'drain' | 'socket' | 'switch'
+}
+
+export function modelAssetPointKind(asset: Pick<RoomModelAsset, 'correction_tag'>) {
+  if (asset.correction_tag === 'drain') return 'floor_drain' as const
+  if (asset.correction_tag === 'socket' || asset.correction_tag === 'switch') return 'electric' as const
+  return null
 }
 
 export function fixtureModelAssetFromLibrary(asset: RoomModelAsset): FixtureModelAsset {

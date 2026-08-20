@@ -20,6 +20,7 @@ type DisplayModelAsset = RoomModelAsset & {
   binding_status?: 'bound' | 'unbound'
   binding_note?: string | null
   product_attributes?: Record<string, string> | null
+  correction_tag?: 'standard' | 'handrail' | 'drain' | 'socket' | 'switch'
 }
 
 const defaultDimensions: Dimensions = { width: 600, depth: 600, height: 600 }
@@ -52,6 +53,7 @@ function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
     binding_status: asset.binding_status,
     binding_note: asset.binding_note,
     product_attributes: asset.product_attributes,
+    correction_tag: asset.correction_tag,
   }
 }
 
@@ -115,6 +117,9 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const selectedForRoom = selected && selected.asset_type !== 'surface' ? { ...selected, dimensions_mm: selectedDimensions } : null
   const selectedInUse = !!selected && usedAssetIds.includes(selected.id)
   const orientationEditable = !!selected && selected.asset_type !== 'surface'
+  const correctionTag = selected?.correction_tag ?? 'standard'
+  const allowedFaces: OrientationFace[] = correctionTag === 'handrail' ? ['front', 'back'] : correctionTag === 'drain' ? ['top', 'bottom'] : ['front', 'back', 'top', 'bottom', 'left', 'right']
+  const requiredPairs = correctionTag === 'standard' ? 3 : 1
 
   useEffect(() => {
     setOrientationTarget(null)
@@ -184,6 +189,17 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }
 
   const replaceAsset = (updated: ImportedModelAsset) => setUploadedAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
+  const changeCorrectionTag = async (tag: ImportedModelAsset['correction_tag']) => {
+    if (!selected || selected.asset_type === 'surface') return
+    try {
+      setError('')
+      replaceAsset(await studioApi.setModelAssetTag(projectId, selected.id, tag))
+      setOrientationMapping({})
+      setOrientationTarget(null)
+      const labels = { standard: '普通模型', handrail: '扶手', drain: '地漏', socket: '插座', switch: '开关' } as const
+      setCorrectionNotice(`标签已设为“${labels[tag]}”`)
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : '标签保存失败') }
+  }
   const bindSelected = async (createProduct = false) => {
     if (!selected || selected.builtIn || !bindingSku.trim()) return
     try {
@@ -203,8 +219,8 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }
   const correctSelected = async () => {
     if (!selected || !orientationEditable) return
-    const complete = completeOrientationMapping(orientationMapping)
-    if (!complete) { setError('至少配对三个互不冲突的面，且方向关系必须构成有效旋转'); return }
+    const complete = completeOrientationMapping(orientationMapping, requiredPairs)
+    if (!complete) { setError(requiredPairs === 1 ? '请完成一个有效的方向面配对' : '至少配对三个互不冲突的面，且方向关系必须构成有效旋转'); return }
     const front = (Object.entries(complete) as [OrientationFace, OrientationFace][]).find(([, semantic]) => semantic === 'front')?.[0] ?? 'front'
     try { setError(''); setCorrectionNotice(''); replaceAsset(await studioApi.correctModelOrientation(projectId, selected.id, front, complete)); setCorrectionNotice('方向纠正已保存') }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : '人工方向纠正失败') }
@@ -279,7 +295,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <button className={`model-asset-row${selected?.id === asset.id ? ' active' : ''}`} key={asset.id} onClick={() => setSelectedId(asset.id)}>
                 <span className="model-asset-icon"><BoxSelect size={19} /></span>
                 <span className="model-asset-copy"><strong>{asset.label}</strong><span>{asset.format.toUpperCase()} · {fileSize(asset.bytes)}</span></span>
-                <span className={`model-origin ${asset.asset_type === 'surface' ? 'builtin' : 'uploaded'}`}>{asset.asset_type === 'surface' ? '板块' : asset.orientation_corrected ? '已纠正' : '待纠正'}</span>
+                <span className={`model-origin ${asset.asset_type === 'surface' ? 'builtin' : 'uploaded'}`}>{asset.asset_type === 'surface' ? '板块' : asset.correction_tag === 'handrail' ? '扶手' : asset.correction_tag === 'drain' ? '地漏' : asset.correction_tag === 'socket' ? '插座' : asset.correction_tag === 'switch' ? '开关' : asset.orientation_corrected ? '已纠正' : '待纠正'}</span>
               </button>
             ))}
           </div>
@@ -294,12 +310,13 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
                 <button className="button primary compact" type="button" disabled={!canAddToRoom} onClick={() => onAddToRoom(selectedForRoom)}><Plus size={15} />加入房间</button>
               </div>
             </header>
-            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} orientationView={selected.orientation_view} orientationMapping={orientationMapping} orientationTarget={orientationTarget} onOrientationTargetSelect={orientationEditable ? setOrientationTarget : undefined} onOrientationSelect={orientationEditable ? assignOrientationFace : undefined} onDimensions={updateSelectedDimensions} onPreviewReady={(capture) => { previewCaptures.current[selected.id] = capture }} />
+            <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} orientationView={selected.orientation_view} orientationMapping={orientationMapping} orientationTarget={orientationTarget} onOrientationTargetSelect={orientationEditable ? setOrientationTarget : undefined} onOrientationSelect={orientationEditable ? assignOrientationFace : undefined} allowedFaces={allowedFaces} onDimensions={updateSelectedDimensions} onPreviewReady={(capture) => { previewCaptures.current[selected.id] = capture }} />
             <div className="model-browser-meta">
               <div><span>格式</span><strong>{selected.format.toUpperCase()}</strong></div>
               <div><span>文件</span><strong>{selected.fileCount}</strong></div>
               <div><span>尺寸</span><strong>{selectedDimensions.width} × {selectedDimensions.depth} × {selectedDimensions.height} mm</strong></div>
               <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '暂无'}</code></div>
+              <div><span>标签</span><select aria-label="模型标签" value={correctionTag} onChange={(event) => void changeCorrectionTag(event.target.value as ImportedModelAsset['correction_tag'])}><option value="standard">普通模型</option><option value="handrail">扶手</option><option value="drain">地漏</option><option value="socket">插座</option><option value="switch">开关</option></select></div>
               {!selected.builtIn && <div><span>产品绑定</span><strong>{selected.catalog_codes?.length ? selected.catalog_codes.join('、') : '未绑定，不参与自动报价布局'}</strong></div>}
             </div>
             {!selected.builtIn && selected.product_attributes && <details className="model-knowledge-product"><summary>查看知识图谱物品</summary><dl>{Object.entries(selected.product_attributes).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl></details>}
@@ -310,7 +327,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <input aria-label="新产品品类" value={newProductCategory} onChange={(event) => setNewProductCategory(event.target.value)} placeholder="新产品品类" />
               <button type="button" className="button secondary compact" disabled={!bindingSku.trim() || !newProductCategory.trim()} onClick={() => void bindSelected(true)}>新增产品并绑定</button>
             </div>}
-            {orientationEditable && <div className="model-orientation-controls"><span>先选右上角目标面，再点模型外框对应面；至少完成三个面</span><button type="button" className="button primary compact" disabled={!completeOrientationMapping(orientationMapping)} onClick={() => void correctSelected()}>完成纠正</button><button type="button" className="button secondary compact" onClick={() => { setOrientationMapping({}); setOrientationTarget(null) }}>重选</button><small>已配对 {Object.keys(orientationMapping).length}/3</small></div>}
+            {orientationEditable && <div className="model-orientation-controls"><span>{correctionTag === 'handrail' ? '扶手仅需配对前/后面' : correctionTag === 'drain' ? '地漏仅需配对上/下面' : '先选右上角目标面，再点模型外框对应面；至少完成三个面'}</span><button type="button" className="button primary compact" disabled={!completeOrientationMapping(orientationMapping, requiredPairs)} onClick={() => void correctSelected()}>完成纠正</button><button type="button" className="button secondary compact" onClick={() => { setOrientationMapping({}); setOrientationTarget(null) }}>重选</button><small>已配对 {Math.min(Object.keys(orientationMapping).length, requiredPairs)}/{requiredPairs}</small></div>}
           </> : selected ? <>
             <header className="model-browser-header"><div><strong>{selected.label}</strong><span>{selected.filename} · 固定板块材质</span></div></header>
             <ModelAssetPreview assetKey={selected.id} src={selected.src} format={selected.format} onDimensions={updateSelectedDimensions} />

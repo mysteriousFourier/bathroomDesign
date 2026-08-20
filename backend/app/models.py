@@ -896,6 +896,7 @@ class ModelAssetResponse(BaseModel):
     orientation_mapping: dict[str, str] | None = None
     orientation_corrected: bool = False
     orientation_source: Literal["auto", "manual"] | None = None
+    correction_tag: Literal["standard", "handrail", "drain", "socket", "switch"] = "standard"
     library_scope: Literal["shared", "builtin"] = "shared"
     deduplicated: bool = False
     category: str | None = None
@@ -910,6 +911,10 @@ class ModelAssetResponse(BaseModel):
 class ModelOrientationRequest(BaseModel):
     view: Literal["front", "back", "top", "bottom", "left", "right"]
     mapping: dict[str, str] | None = None
+
+
+class ModelAssetTagRequest(BaseModel):
+    tag: Literal["standard", "handrail", "drain", "socket", "switch"]
 
 
 class ModelAssetBindingRequest(BaseModel):

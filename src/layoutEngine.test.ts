@@ -435,13 +435,13 @@ const minimalFixture = { id: 'f', kind: 'other', label: '设备', x_mm: 0, z_mm:
 describe('heater ceiling mounting rule', () => {
   it('computes deterministic mounting plans against the ceiling', () => {
     // 房高充足：贴近吊顶，不开凹槽。
-    expect(heaterMountingPlan(2600, 524.7)).toEqual({ elevation_mm: 2050, recess_depth_mm: 0 })
-    expect(heaterMountingPlan(2400, 430)).toEqual({ elevation_mm: 1945, recess_depth_mm: 0 })
+    expect(heaterMountingPlan(2600, 524.7)).toEqual({ elevation_mm: 2050, recess_depth_mm: 0, minimum_bottom_satisfied: true })
+    expect(heaterMountingPlan(2400, 430)).toEqual({ elevation_mm: 1945, recess_depth_mm: 0, minimum_bottom_satisfied: true })
     // 房高不足：开凹槽嵌入，凹槽深度按 10mm 向上取整。
-    expect(heaterMountingPlan(2200, 524.7)).toEqual({ elevation_mm: 1800, recess_depth_mm: 150 })
-    expect(heaterMountingPlan(2200, 430)).toEqual({ elevation_mm: 1805, recess_depth_mm: 60 })
+    expect(heaterMountingPlan(2200, 524.7)).toEqual({ elevation_mm: 1800, recess_depth_mm: 150, minimum_bottom_satisfied: true })
+    expect(heaterMountingPlan(2200, 430)).toEqual({ elevation_mm: 1805, recess_depth_mm: 60, minimum_bottom_satisfied: true })
     // 缺口超过上限：凹槽封顶 300mm，底部不足 1800mm 由校验提示。
-    expect(heaterMountingPlan(2000, 524.7)).toEqual({ elevation_mm: 1750, recess_depth_mm: HEATER_MAX_RECESS_MM })
+    expect(heaterMountingPlan(2000, 524.7)).toEqual({ elevation_mm: 1750, recess_depth_mm: HEATER_MAX_RECESS_MM, minimum_bottom_satisfied: false })
   })
 
   it('mounts the heater close to the ceiling without a recess when room height allows', () => {
@@ -452,6 +452,7 @@ describe('heater ceiling mounting rule', () => {
     expect(solution.ceiling_recess).toBeUndefined()
     expect(solution.checks.find((check) => check.code === 'G01-VERTICAL')).toMatchObject({ passed: true })
     expect(solution.checks.find((check) => check.code === 'CEILING-RECESS')).toMatchObject({ passed: true })
+    expect(solution.checks.find((check) => check.code === 'CEILING-RECESS-CONFIRMATION')).toMatchObject({ passed: true, severity: 'warning' })
   })
 
   it('embeds the heater into a ceiling recess when room height is insufficient', () => {
@@ -471,6 +472,7 @@ describe('heater ceiling mounting rule', () => {
     expect(Math.max(...xs)).toBeGreaterThanOrEqual(heater.x_mm + footprint.width_mm / 2)
     expect(Math.min(...zs)).toBeLessThanOrEqual(heater.z_mm - footprint.depth_mm / 2)
     expect(Math.max(...zs)).toBeGreaterThanOrEqual(heater.z_mm + footprint.depth_mm / 2)
+    expect(recess.boundary.every((point) => point.x_mm >= 0 && point.x_mm <= 3200 && point.z_mm >= 0 && point.z_mm <= 2600)).toBe(true)
     const area = recess.boundary.reduce((sum, point, index) => {
       const next = recess.boundary[(index + 1) % recess.boundary.length]
       return sum + point.x_mm * next.z_mm - next.x_mm * point.z_mm
@@ -478,8 +480,26 @@ describe('heater ceiling mounting rule', () => {
     expect(area).toBeGreaterThan(0)
     expect(solution.checks.find((check) => check.code === 'G01-VERTICAL')).toMatchObject({ passed: true })
     expect(solution.checks.find((check) => check.code === 'CEILING-RECESS')).toMatchObject({ passed: true })
+    expect(solution.checks.find((check) => check.code === 'CEILING-RECESS-CONFIRMATION')).toMatchObject({ passed: false, severity: 'warning' })
     const applied = applyLayoutSolution(low, solution)
     expect(applied.ceiling_zones?.some((zone) => zone.id === recess.id)).toBe(true)
     expect(applyLayoutSolution(applied, solution).ceiling_zones?.filter((zone) => zone.id === recess.id)).toHaveLength(1)
+  })
+
+  it('removes a generated heater recess when switching to a solution that does not need it', () => {
+    const low = manualRoom(3200, 2600, 2200)
+    const lowSolution = generateLayoutSolutions(low)[0]
+    const withRecess = applyLayoutSolution(low, lowSolution)
+    const high = manualRoom(3200, 2600, 2600)
+    const highSolution = generateLayoutSolutions(high)[0]
+    const switched = applyLayoutSolution({ ...high, ceiling_zones: withRecess.ceiling_zones }, highSolution)
+    expect(switched.ceiling_zones?.some((zone) => zone.id === 'layout-heater-recess')).toBe(false)
+  })
+
+  it('blocks applying a layout when the maximum recess still leaves the heater too low', () => {
+    const room = manualRoom(3200, 2600, 2000)
+    const solution = generateLayoutSolutions(room)[0]
+    expect(solution.checks.find((check) => check.code === 'CEILING-RECESS')).toMatchObject({ passed: false, severity: 'error' })
+    expect(() => applyLayoutSolution(room, solution)).toThrow(/CEILING-RECESS/)
   })
 })

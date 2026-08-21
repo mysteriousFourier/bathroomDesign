@@ -158,7 +158,7 @@ function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: Fixtur
       scale,
       position: new Vector3(-center.x * scale, -box.min.y * scale, -center.z * scale),
     }
-  }, [fixture.depth_mm, fixture.height_mm, fixture.width_mm, object])
+  }, [fixture.depth_mm, fixture.height_mm, fixture.width_mm, fixture.model_asset?.orientation_mapping, fixture.model_asset?.orientation_view, object])
 
   return <>
     <primitive object={scene} position={position} scale={scale} />

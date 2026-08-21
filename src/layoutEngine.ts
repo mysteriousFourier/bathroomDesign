@@ -282,28 +282,31 @@ const HEATER_CEILING_SAFETY_MM = 25
 export const HEATER_MIN_BOTTOM_MM = 1800
 export const HEATER_MAX_RECESS_MM = 300
 const HEATER_RECESS_ZONE_ID = 'layout-heater-recess'
-const HEATER_RECESS_MARGIN_MM = 25
 
 export interface HeaterMountingPlan {
   elevation_mm: number
   recess_depth_mm: number
+  minimum_bottom_satisfied: boolean
 }
 
 export function heaterMountingPlan(ceilingHeightMm: number, heaterHeightMm: number): HeaterMountingPlan {
   const ideal = ceilingHeightMm - heaterHeightMm - HEATER_CEILING_SAFETY_MM
-  if (ideal >= HEATER_MIN_BOTTOM_MM) return { elevation_mm: Math.max(0, Math.floor(ideal)), recess_depth_mm: 0 }
+  if (ideal >= HEATER_MIN_BOTTOM_MM) return { elevation_mm: Math.max(0, Math.floor(ideal)), recess_depth_mm: 0, minimum_bottom_satisfied: true }
   const deficit = HEATER_MIN_BOTTOM_MM - ideal
   const recessDepth = Math.min(HEATER_MAX_RECESS_MM, Math.ceil(deficit / 10) * 10)
-  return { elevation_mm: Math.max(0, Math.floor(ideal + recessDepth)), recess_depth_mm: recessDepth }
+  const elevation = Math.max(0, Math.floor(ideal + recessDepth))
+  return { elevation_mm: elevation, recess_depth_mm: recessDepth, minimum_bottom_satisfied: elevation >= HEATER_MIN_BOTTOM_MM }
 }
 
 function heaterCeilingRecessZone(spec: RoomSpec, heater: FixtureSpec, recessDepthMm: number): CeilingZone {
   const footprint = footprintForRotation(heater, heater.rotation_deg)
   const ceilingHeight = spec.height_mm ?? 2200
-  const minX = Math.round(heater.x_mm - footprint.width / 2 - HEATER_RECESS_MARGIN_MM)
-  const maxX = Math.round(heater.x_mm + footprint.width / 2 + HEATER_RECESS_MARGIN_MM)
-  const minZ = Math.round(heater.z_mm - footprint.depth / 2 - HEATER_RECESS_MARGIN_MM)
-  const maxZ = Math.round(heater.z_mm + footprint.depth / 2 + HEATER_RECESS_MARGIN_MM)
+  // Keep the generated zone on the fixture footprint. A symmetric margin made
+  // wall-mounted heaters extend the recess behind the finished room boundary.
+  const minX = Math.floor(heater.x_mm - footprint.width / 2)
+  const maxX = Math.ceil(heater.x_mm + footprint.width / 2)
+  const minZ = Math.floor(heater.z_mm - footprint.depth / 2)
+  const maxZ = Math.ceil(heater.z_mm + footprint.depth / 2)
   return {
     id: HEATER_RECESS_ZONE_ID,
     label: `热水器吊顶凹槽 · 嵌入 ${recessDepthMm}mm`,
@@ -957,11 +960,14 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
     check('G01', inside, 'error', '几何', inside ? '全部设备实体位于房间边界内' : `设备越界：${outsideFixtures.map((f) => f.label).join('、')}`),
     check('G01-COLLISION', collisions.length === 0, 'error', '几何', collisions.length ? `设备实体碰撞：${collisions.join('、')}` : '设备实体包围盒无碰撞（30mm 容差）'),
     check('G01-VERTICAL', verticalOverflow.length === 0, 'error', '几何', verticalOverflow.length ? `设备穿越吊顶安全界面：${verticalOverflow.map((f) => f.label).join('、')}` : ceilingRecess ? `热水器嵌入吊顶凹槽 ${ceilingRecess.height_mm - ceilingHeight}mm，其余设备低于吊顶安全界面 25mm` : '全部设备低于吊顶安全界面 25mm'),
-    ...(heaterFixture ? [check('CEILING-RECESS', !ceilingRecess || (heaterFixture.elevation_mm ?? 0) >= HEATER_MIN_BOTTOM_MM, 'warning', '吊顶嵌入', ceilingRecess
+    ...(heaterFixture ? [check('CEILING-RECESS', heaterPlan?.minimum_bottom_satisfied ?? false, 'error', '吊顶嵌入', ceilingRecess
       ? ((heaterFixture.elevation_mm ?? 0) >= HEATER_MIN_BOTTOM_MM
         ? `房高不足，热水器顶部嵌入吊顶凹槽 ${ceilingRecess.height_mm - ceilingHeight}mm（凹槽完成面高 ${ceilingRecess.height_mm}mm），底部 ${Math.round(heaterFixture.elevation_mm ?? 0)}mm`
         : `吊顶凹槽已达 ${HEATER_MAX_RECESS_MM}mm 上限，热水器底部 ${Math.round(heaterFixture.elevation_mm ?? 0)}mm 低于 ${HEATER_MIN_BOTTOM_MM}mm 安装高度，需现场复核`)
       : `热水器贴近吊顶安装，顶部距吊顶完成面 ${HEATER_CEILING_SAFETY_MM}mm`)] : []),
+    check('CEILING-RECESS-CONFIRMATION', !ceilingRecess, 'warning', '吊顶嵌入', ceilingRecess
+      ? '凹槽为设计预留；施工前必须核验结构顶净空、吊顶龙骨及隐蔽管线'
+      : '无需吊顶凹槽'),
     check('G02-CLEARANCE', placementFailures.length === 0, 'error', '几何净空', placementFailures.length ? `没有满足完成面、门区和前向净空的候选位置：${placementFailures.join('、')}` : '全部落地设备满足完成面、门区和前向净空'),
     check('G02-CLEARANCE-RELAXED', !fixtures.some((fixture) => relaxedPlacementClearances.has(fixture)), 'warning', '几何净空', fixtures.some((fixture) => relaxedPlacementClearances.has(fixture)) ? '浴室柜在当前房型采用 300mm 前向净空降级，需现场复核使用空间' : '未使用净空降级'),
     check('C01', frontClearance >= 800, 'warning', 'D', `主要通路估算净宽 ${frontClearance}mm（建议 ≥800mm）`),
@@ -1093,7 +1099,8 @@ function makeLevelSolution(spec:RoomSpec,level:LayoutLevelDecision,preference?:L
   const exactSelection=selectedCodes.size===fixtureCodes.size&&[...selectedCodes].every(code=>fixtureCodes.has(code))&&selectedGraphIds.size===fixtureGraphIds.size&&[...selectedGraphIds].every(id=>fixtureGraphIds.has(id))
   const toiletOffset=measuredToiletAnchor&&toilet?Math.hypot(toilet.x_mm-measuredToiletAnchor.x_mm,toilet.z_mm-measuredToiletAnchor.z_mm):0
   const rearWallFailures=fixtures.filter(item=>requiredRearWallGap(item)!==undefined).filter(item=>{const wall=semanticWallForIndex(spec,item.bound_wall_index)??wallNearestPoint(spec,item);return Math.abs(rearWallDistance(spec,item,wall)-(requiredRearWallGap(item)??0))>10})
-  const checks:LayoutCheck[]=[check('G01',outside.length===0,'error','几何',outside.length?`设备越界：${outside.map(f=>f.label).join('、')}`:'全部设备实体位于房间边界内'),check('G01-COLLISION',collisions.length===0,'error','几何',collisions.length?`设备实体碰撞：${collisions.join('、')}`:'设备实体包围盒无碰撞（30mm 容差）'),check('G01-VERTICAL',verticalOverflow.length===0,'error','几何',verticalOverflow.length?`设备穿越吊顶安全界面：${verticalOverflow.map(f=>f.label).join('、')}`:ceilingRecess?`热水器嵌入吊顶凹槽 ${ceilingRecess.height_mm-ceilingHeight}mm，其余设备低于吊顶安全界面 25mm`:'全部设备低于吊顶安全界面 25mm'),...(heaterFixture?[check('CEILING-RECESS',!ceilingRecess||(heaterFixture.elevation_mm??0)>=HEATER_MIN_BOTTOM_MM,'warning','吊顶嵌入',ceilingRecess?((heaterFixture.elevation_mm??0)>=HEATER_MIN_BOTTOM_MM?`房高不足，热水器顶部嵌入吊顶凹槽 ${ceilingRecess.height_mm-ceilingHeight}mm（凹槽完成面高 ${ceilingRecess.height_mm}mm），底部 ${Math.round(heaterFixture.elevation_mm??0)}mm`:`吊顶凹槽已达 ${HEATER_MAX_RECESS_MM}mm 上限，热水器底部 ${Math.round(heaterFixture.elevation_mm??0)}mm 低于 ${HEATER_MIN_BOTTOM_MM}mm 安装高度，需现场复核`):`热水器贴近吊顶安装，顶部距吊顶完成面 ${HEATER_CEILING_SAFETY_MM}mm`)]:[]),check('G02-CLEARANCE',placementFailures.length===0,'error','几何净空',placementFailures.length?`没有满足前向净空和实体间距的候选位置：${placementFailures.join('、')}`:'全部落地设备满足布局脚本的前向使用净空'),check('G04',doorClear,'error','几何',doorClear?'入口开门包络未被设备占用':'设备侵入入口开门包络'),check('G06-WALL-ATTACH',rearWallFailures.length===0,'warning','安装约束',rearWallFailures.length?`设备未满足墙板吸附或插电预留：${rearWallFailures.map(item=>item.label).join('、')}`:'墙板距墙 35mm；壁挂设备吸附完成面，洗衣机背后预留 50mm'),check('MEP-AUTO-POINTS', !!showerHead&&fixtures.filter(item=>item.kind==='water'&&item.point_usage==='shower').length>=2&&(!washer||fixtures.some(item=>item.label==='自动洗衣机进水点')&&fixtures.some(item=>item.label==='自动洗衣机电点')), 'error', '水电点规则', washer?'已生成花洒冷热水点及洗衣机进水、电点':'已生成花洒冷热水点'),check('G05',reachable,'warning','栅格可达性',reachable?'门口至湿区存在连续可达路径':'门口至湿区通路未通过，需选择其他候选'),check('PLUMBING-TOILET',!measuredToiletAnchor||toiletOffset<=600,'error','排水粗装约束',measuredToiletAnchor?`马桶中心相对排水粗装锚点微调 ${Math.round(toiletOffset)}mm`:'量房未提供马桶排水粗装点'),check('KG-SELECTION',exactSelection,'error','产品知识图谱','布局实体与需求助手选择的 graph_id 和目录编号逐项一致'),check('KG-ACCESSIBLE',demand!=='elderly_safe'||hasAccessible,'error','设备规则',demand==='elderly_safe'?'适老安全设备完整且未使用淋浴隔断':'非适老分支'),check('MODEL-DIMENSIONS',fixtures.filter(f=>!['floor_drain','water','electric'].includes(f.kind)).every(f=>!f.label.includes(' · proxy')),'warning','模型包围盒','实体优先使用精确 SKU 或后端模型快照尺寸，缺失模型时使用审计代理尺寸'),check('MODEL-ASSETS',fixtures.filter(f=>!['floor_drain','water','electric'].includes(f.kind)).every(f=>!!f.model_asset),'warning','模型资产','实体优先按精确 SKU 绑定本地模型，否则沿用后端产品模型快照'),check('INPUT-DRAIN',spec.fixtures.some(f=>f.kind==='floor_drain'),'warning','输入门禁',measuredShowerDrain?'沿用量房淋浴排水点':'量房未提供淋浴排水点，位置待专业确认')]
+  const checks:LayoutCheck[]=[check('G01',outside.length===0,'error','几何',outside.length?`设备越界：${outside.map(f=>f.label).join('、')}`:'全部设备实体位于房间边界内'),check('G01-COLLISION',collisions.length===0,'error','几何',collisions.length?`设备实体碰撞：${collisions.join('、')}`:'设备实体包围盒无碰撞（30mm 容差）'),check('G01-VERTICAL',verticalOverflow.length===0,'error','几何',verticalOverflow.length?`设备穿越吊顶安全界面：${verticalOverflow.map(f=>f.label).join('、')}`:ceilingRecess?`热水器嵌入吊顶凹槽 ${ceilingRecess.height_mm-ceilingHeight}mm，其余设备低于吊顶安全界面 25mm`:'全部设备低于吊顶安全界面 25mm'),...(heaterFixture?[check('CEILING-RECESS',heaterPlan?.minimum_bottom_satisfied??false,'error','吊顶嵌入',ceilingRecess?((heaterFixture.elevation_mm??0)>=HEATER_MIN_BOTTOM_MM?`房高不足，热水器顶部嵌入吊顶凹槽 ${ceilingRecess.height_mm-ceilingHeight}mm（凹槽完成面高 ${ceilingRecess.height_mm}mm），底部 ${Math.round(heaterFixture.elevation_mm??0)}mm`:`吊顶凹槽已达 ${HEATER_MAX_RECESS_MM}mm 上限，热水器底部 ${Math.round(heaterFixture.elevation_mm??0)}mm 低于 ${HEATER_MIN_BOTTOM_MM}mm 安装高度，需现场复核`):`热水器贴近吊顶安装，顶部距吊顶完成面 ${HEATER_CEILING_SAFETY_MM}mm`)]:[]),check('G02-CLEARANCE',placementFailures.length===0,'error','几何净空',placementFailures.length?`没有满足前向净空和实体间距的候选位置：${placementFailures.join('、')}`:'全部落地设备满足布局脚本的前向使用净空'),check('G04',doorClear,'error','几何',doorClear?'入口开门包络未被设备占用':'设备侵入入口开门包络'),check('G06-WALL-ATTACH',rearWallFailures.length===0,'warning','安装约束',rearWallFailures.length?`设备未满足墙板吸附或插电预留：${rearWallFailures.map(item=>item.label).join('、')}`:'墙板距墙 35mm；壁挂设备吸附完成面，洗衣机背后预留 50mm'),check('MEP-AUTO-POINTS', !!showerHead&&fixtures.filter(item=>item.kind==='water'&&item.point_usage==='shower').length>=2&&(!washer||fixtures.some(item=>item.label==='自动洗衣机进水点')&&fixtures.some(item=>item.label==='自动洗衣机电点')), 'error', '水电点规则', washer?'已生成花洒冷热水点及洗衣机进水、电点':'已生成花洒冷热水点'),check('G05',reachable,'warning','栅格可达性',reachable?'门口至湿区存在连续可达路径':'门口至湿区通路未通过，需选择其他候选'),check('PLUMBING-TOILET',!measuredToiletAnchor||toiletOffset<=600,'error','排水粗装约束',measuredToiletAnchor?`马桶中心相对排水粗装锚点微调 ${Math.round(toiletOffset)}mm`:'量房未提供马桶排水粗装点'),check('KG-SELECTION',exactSelection,'error','产品知识图谱','布局实体与需求助手选择的 graph_id 和目录编号逐项一致'),check('KG-ACCESSIBLE',demand!=='elderly_safe'||hasAccessible,'error','设备规则',demand==='elderly_safe'?'适老安全设备完整且未使用淋浴隔断':'非适老分支'),check('MODEL-DIMENSIONS',fixtures.filter(f=>!['floor_drain','water','electric'].includes(f.kind)).every(f=>!f.label.includes(' · proxy')),'warning','模型包围盒','实体优先使用精确 SKU 或后端模型快照尺寸，缺失模型时使用审计代理尺寸'),check('MODEL-ASSETS',fixtures.filter(f=>!['floor_drain','water','electric'].includes(f.kind)).every(f=>!!f.model_asset),'warning','模型资产','实体优先按精确 SKU 绑定本地模型，否则沿用后端产品模型快照'),check('INPUT-DRAIN',spec.fixtures.some(f=>f.kind==='floor_drain'),'warning','输入门禁',measuredShowerDrain?'沿用量房淋浴排水点':'量房未提供淋浴排水点，位置待专业确认')]
+  checks.push(check('CEILING-RECESS-CONFIRMATION',!ceilingRecess,'warning','吊顶嵌入',ceilingRecess?'凹槽为设计预留；施工前必须核验结构顶净空、吊顶龙骨及隐蔽管线':'无需吊顶凹槽'))
   const anchors:LayoutAnchor[]=fixtures.map(entity=>{const product=fixtureProducts.get(entity.id),rule=instruction(product?levelRole(product.category):'wet_zone');return{id:`anchor-${entity.id}`,label:`${entity.label}中心点`,x_mm:entity.x_mm,z_mm:entity.z_mm,instruction:`${rule.zone}区 / 靠${rule.wall}墙 / ${rule.near?`邻近 ${rule.near} / `:''}最小净距 ${rule.min_clearance_mm}mm / 旋转 ${entity.rotation_deg}°`}})
   const productLines=level.products.map(product=>({code:product.catalog_code,category:product.category,spec:product.spec,price:product.unit_price,quantity:1,unit:product.price_unit})),quantities=surfaceQuantities(spec),wallProduct=materialProduct('墙板',quality,style),floorProduct=materialProduct('地砖',quality,style),ceilingProduct=materialProduct('吊顶',quality,style),floorAsset=surfaceAssetForProduct(floorProduct.材料编号),floorLayout=optimizeFloorLayout({...spec,fixtures},floorAsset?.dimensions_mm.width??600,floorAsset?.dimensions_mm.depth??600),materialLines=[{product:wallProduct,quantity:quantities.wall},{product:floorProduct,quantity:quantities.floor},{product:ceilingProduct,quantity:quantities.ceiling}].map(({product,quantity})=>({code:product.材料编号,category:product.材料名称,spec:product.规格型号,price:Number(product.单价),quantity,unit:product.数量单位,subtotal:Math.round(Number(product.单价)*quantity*100)/100,model_asset_id:surfaceAssetForProduct(product.材料编号)?.id})),equipmentPrice=productLines.reduce((sum,line)=>sum+line.price,0),materialPrice=materialLines.reduce((sum,line)=>sum+line.subtotal,0)
   checks.push(check('FLOOR-CUT',floorLayout.narrow_cut_count===0,'warning','地砖排版优化器',floorLayout.description),check('FLOOR-JOINT-POINT',floorLayout.joint_conflict_count===0,'error','地砖排版优化器',floorLayout.joint_conflict_count?`干区地面点位与砖缝冲突 ${floorLayout.joint_conflict_count} 处`:`干区地面点位均避开砖缝，最小净距 ${floorLayout.min_point_joint_clearance_mm}mm`))
@@ -1144,6 +1151,6 @@ export function applyLayoutSolution(spec: RoomSpec, solution: LayoutSolution): R
   // 热水器吊顶凹槽随方案写入 ceiling_zones；重复应用时替换旧凹槽。
   const ceilingZones = (spec.ceiling_zones ?? []).filter((zone) => zone.id !== HEATER_RECESS_ZONE_ID)
   if (solution.ceiling_recess) ceilingZones.push(solution.ceiling_recess)
-  const next = { ...spec, wall_finish_gap_mm: Math.max(35, spec.wall_finish_gap_mm ?? 0), fixtures: [...retainedFixtures, ...solution.fixtures.map((fixture) => ({ ...fixture, layout_generated: true }))], dry_wet_zones: retainedZones.length ? retainedZones : [solvedZone], ...(ceilingZones.length ? { ceiling_zones: ceilingZones } : {}) }
+  const next = { ...spec, wall_finish_gap_mm: Math.max(35, spec.wall_finish_gap_mm ?? 0), fixtures: [...retainedFixtures, ...solution.fixtures.map((fixture) => ({ ...fixture, layout_generated: true }))], dry_wet_zones: retainedZones.length ? retainedZones : [solvedZone], ceiling_zones: ceilingZones }
   return ensureWallFinishGapsForBoundPoints(next)
 }

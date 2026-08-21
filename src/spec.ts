@@ -622,7 +622,12 @@ export function fixtureBoundWallIndex(spec: RoomSpec, fixture: FixtureSpec) {
 
 export function toiletRotationForWall(points: Point2D[], wallIndex: number) {
   const normal = wallInwardNormal(points, wallIndex)
-  const degrees = Math.round(Math.atan2(normal.x, normal.z) * 180 / Math.PI)
+  // COORDINATE-SYSTEM.md: positive rotation is counterclockwise viewed from
+  // above (right-hand rule about +Z), so the front direction of a fixture with
+  // rotation r is (-sin r, cos r). Facing the wall's inward normal therefore
+  // needs atan2(-normal.x, normal.z); the previous atan2(normal.x, normal.z)
+  // produced mirrored angles that rendered east/west-wall fixtures backwards.
+  const degrees = Math.round(Math.atan2(-normal.x, normal.z) * 180 / Math.PI)
   if (Object.is(degrees, -0)) return 0
   return degrees === -180 ? 180 : degrees
 }

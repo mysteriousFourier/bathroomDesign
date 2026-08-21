@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { applyLayoutSolution, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, effectiveLayoutInstruction, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, optimizeFloorLayout } from './layoutEngine'
-import { finishedRoomBoundary, fixtureLocalFootprint, manualRoom, projectPointToWall } from './spec'
+import { applyLayoutSolution, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, effectiveLayoutInstruction, fixtureFront, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, heaterMountingPlan, HEATER_MAX_RECESS_MM, HEATER_MIN_BOTTOM_MM, optimizeFloorLayout } from './layoutEngine'
+import { finishedRoomBoundary, fixtureLocalFootprint, manualRoom, projectPointToWall, wallInwardNormal } from './spec'
 import { modelDimensions } from './modelDimensions'
 import graphOutput from './generated-layout-products.json'
 import type { LayoutLevelDecision } from './types'
@@ -219,6 +219,25 @@ describe('deterministic requirement layout engine', () => {
     expect(solutions[0].floor_layout.description).toContain('长边沿房型短边')
   })
 
+  it('lays the dry floor after points are generated and keeps joints clear of them', () => {
+    const withDryPoints = manualRoom(3200, 2600, 2700)
+    withDryPoints.fixtures.push(
+      { id:'general-floor-drain', kind:'floor_drain', point_usage:'general', label:'干区地漏', x_mm:600, z_mm:1200, width_mm:100, depth_mm:100, height_mm:10, rotation_deg:0, source:'derived', confidence:1, layout_generated:true },
+      { id:'shower-floor-drain', kind:'floor_drain', point_usage:'shower', label:'淋浴地漏', x_mm:1600, z_mm:1200, width_mm:100, depth_mm:100, height_mm:10, rotation_deg:0, source:'derived', confidence:1, layout_generated:true },
+    )
+    const plan = optimizeFloorLayout(withDryPoints, 600, 600)
+    expect(plan.joint_conflict_count).toBe(0)
+    expect(plan.min_point_joint_clearance_mm).toBeGreaterThanOrEqual(25)
+    expect(plan.description).toContain('干区点位砖缝冲突 0')
+  })
+
+  it('uses generated automatic-layout floor points when choosing tile offsets', () => {
+    const solution = generateLayoutSolutions(manualRoom(3200, 2600, 2700))[0]
+    expect(solution.fixtures.some((fixture) => fixture.kind === 'floor_drain' && fixture.layout_generated)).toBe(true)
+    expect(solution.floor_layout.joint_conflict_count).toBe(0)
+    expect(solution.checks).toContainEqual(expect.objectContaining({ code:'FLOOR-JOINT-POINT', passed:true }))
+  })
+
   it('emits exact semantic anchor coordinates and geometry checks', () => {
     expect(solutions.every((x) => x.anchors.length === x.fixtures.length)).toBe(true)
     expect(solutions.every((x) => x.anchors.every((a) => Number.isInteger(a.x_mm) && Number.isInteger(a.z_mm)))).toBe(true)
@@ -382,5 +401,85 @@ describe('deterministic requirement layout engine', () => {
     })) satisfies LayoutLevelDecision[]
     const accessible = generateLayoutSolutions(measuredRoom,{levels:accessibleLevels})
     expect(accessible.map((candidate)=>candidate.checks.filter((check)=>check.severity==='error'&&!check.passed).map((check)=>check.code))).toEqual([[],[],[]])
+  })
+})
+
+describe('auto-layout model orientation contract', () => {
+  const room = manualRoom(3200, 2600, 2700)
+  room.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 1300, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'measured', confidence: 1 })
+
+  it('faces every wall-mounted fixture into the room per the frozen CCW rotation convention', () => {
+    const solution = generateLayoutSolutions(room)[0]
+    const finished = finishedRoomBoundary({ ...room, wall_finish_gap_mm: 35 })
+    const mounted = solution.fixtures.filter((fixture) => fixture.kind !== 'shower' && fixture.bound_wall_index !== undefined && fixture.bound_wall_index !== null)
+    expect(mounted.length).toBeGreaterThan(0)
+    for (const fixture of mounted) {
+      const inward = wallInwardNormal(finished, fixture.bound_wall_index!)
+      // Contract front direction for rotation r is (-sin r, cos r).
+      const degrees = ((fixture.rotation_deg % 360) + 360) % 360
+      const front = { x: -Math.sin(degrees * Math.PI / 180), z: Math.cos(degrees * Math.PI / 180) }
+      expect(front.x * inward.x + front.z * inward.z).toBeGreaterThan(0.5)
+    }
+  })
+
+  it('emits a west-wall rotation of 270 whose front points east', () => {
+    expect(fixtureFront({ ...minimalFixture, rotation_deg: 270 })).toBe('east')
+    expect(fixtureFront({ ...minimalFixture, rotation_deg: 90 })).toBe('west')
+    expect(fixtureFront({ ...minimalFixture, rotation_deg: 0 })).toBe('north')
+    expect(fixtureFront({ ...minimalFixture, rotation_deg: 180 })).toBe('south')
+  })
+})
+
+const minimalFixture = { id: 'f', kind: 'other', label: '设备', x_mm: 0, z_mm: 0, width_mm: 400, depth_mm: 300, height_mm: 800, source: 'derived', confidence: 1 } as const
+
+describe('heater ceiling mounting rule', () => {
+  it('computes deterministic mounting plans against the ceiling', () => {
+    // 房高充足：贴近吊顶，不开凹槽。
+    expect(heaterMountingPlan(2600, 524.7)).toEqual({ elevation_mm: 2050, recess_depth_mm: 0 })
+    expect(heaterMountingPlan(2400, 430)).toEqual({ elevation_mm: 1945, recess_depth_mm: 0 })
+    // 房高不足：开凹槽嵌入，凹槽深度按 10mm 向上取整。
+    expect(heaterMountingPlan(2200, 524.7)).toEqual({ elevation_mm: 1800, recess_depth_mm: 150 })
+    expect(heaterMountingPlan(2200, 430)).toEqual({ elevation_mm: 1805, recess_depth_mm: 60 })
+    // 缺口超过上限：凹槽封顶 300mm，底部不足 1800mm 由校验提示。
+    expect(heaterMountingPlan(2000, 524.7)).toEqual({ elevation_mm: 1750, recess_depth_mm: HEATER_MAX_RECESS_MM })
+  })
+
+  it('mounts the heater close to the ceiling without a recess when room height allows', () => {
+    const solution = generateLayoutSolutions(manualRoom(3200, 2600, 2600))[0]
+    const heater = solution.fixtures.find((fixture) => fixture.label.includes('热水器'))!
+    expect(heater.elevation_mm).toBe(Math.floor(2600 - heater.height_mm - 25))
+    expect(heater.elevation_mm).toBeGreaterThan(1200)
+    expect(solution.ceiling_recess).toBeUndefined()
+    expect(solution.checks.find((check) => check.code === 'G01-VERTICAL')).toMatchObject({ passed: true })
+    expect(solution.checks.find((check) => check.code === 'CEILING-RECESS')).toMatchObject({ passed: true })
+  })
+
+  it('embeds the heater into a ceiling recess when room height is insufficient', () => {
+    const low = manualRoom(3200, 2600, 2200)
+    const solution = generateLayoutSolutions(low)[0]
+    const heater = solution.fixtures.find((fixture) => fixture.label.includes('热水器'))!
+    expect(heater.elevation_mm).toBeGreaterThanOrEqual(HEATER_MIN_BOTTOM_MM - 1)
+    const recess = solution.ceiling_recess!
+    expect(recess.height_mm).toBeGreaterThan(2200)
+    expect(recess.height_mm - 2200).toBeLessThanOrEqual(HEATER_MAX_RECESS_MM)
+    expect(heater.elevation_mm! + heater.height_mm).toBeLessThanOrEqual(recess.height_mm - 25)
+    // 凹槽边界覆盖热水器占位并满足 CCW 顶点顺序。
+    const footprint = fixtureLocalFootprint(heater)
+    const xs = recess.boundary.map((point) => point.x_mm)
+    const zs = recess.boundary.map((point) => point.z_mm)
+    expect(Math.min(...xs)).toBeLessThanOrEqual(heater.x_mm - footprint.width_mm / 2)
+    expect(Math.max(...xs)).toBeGreaterThanOrEqual(heater.x_mm + footprint.width_mm / 2)
+    expect(Math.min(...zs)).toBeLessThanOrEqual(heater.z_mm - footprint.depth_mm / 2)
+    expect(Math.max(...zs)).toBeGreaterThanOrEqual(heater.z_mm + footprint.depth_mm / 2)
+    const area = recess.boundary.reduce((sum, point, index) => {
+      const next = recess.boundary[(index + 1) % recess.boundary.length]
+      return sum + point.x_mm * next.z_mm - next.x_mm * point.z_mm
+    }, 0) / 2
+    expect(area).toBeGreaterThan(0)
+    expect(solution.checks.find((check) => check.code === 'G01-VERTICAL')).toMatchObject({ passed: true })
+    expect(solution.checks.find((check) => check.code === 'CEILING-RECESS')).toMatchObject({ passed: true })
+    const applied = applyLayoutSolution(low, solution)
+    expect(applied.ceiling_zones?.some((zone) => zone.id === recess.id)).toBe(true)
+    expect(applyLayoutSolution(applied, solution).ceiling_zones?.filter((zone) => zone.id === recess.id)).toHaveLength(1)
   })
 })

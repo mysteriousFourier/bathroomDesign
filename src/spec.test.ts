@@ -503,8 +503,11 @@ describe('dry wet zones and wall finishes', () => {
   it('computes toilet orientation from each wall inward normal', () => {
     const spec = manualRoom(2400, 3200, 2600)
 
-    expect(spec.boundary.map((_, index) => toiletRotationForWall(finishedRoomBoundary(spec), index))).toEqual([0, -90, 180, 90])
-    expect(toiletPlacementFromDrain(spec, { id: 'free', kind: 'drain', point_usage: 'toilet', label: '马桶排水', x_mm: 300, z_mm: 1600, width_mm: 110, depth_mm: 110, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 })).toMatchObject({ rotation_deg: 90 })
+    // Wall 0=south, 1=east, 2=north, 3=west. Contract rotation is CCW viewed
+    // from above, so a west-wall toilet (inward +x) faces east at r=-90 and an
+    // east-wall toilet (inward -x) faces west at r=90.
+    expect(spec.boundary.map((_, index) => toiletRotationForWall(finishedRoomBoundary(spec), index))).toEqual([0, 90, 180, -90])
+    expect(toiletPlacementFromDrain(spec, { id: 'free', kind: 'drain', point_usage: 'toilet', label: '马桶排水', x_mm: 300, z_mm: 1600, width_mm: 110, depth_mm: 110, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 })).toMatchObject({ rotation_deg: -90 })
   })
 
   it('separates stripping the measured finish from adding the new finish', () => {

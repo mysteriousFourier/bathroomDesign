@@ -649,38 +649,6 @@ export function toiletPlacementFromDrain(spec: RoomSpec, drain: FixtureSpec) {
   }
 }
 
-export function syncToiletWithDrain(spec: RoomSpec, drainId: string, toiletId = `toilet-for-${drainId}`) {
-  const drain = spec.fixtures.find((fixture) => fixture.id === drainId)
-  if (!drain || drain.kind !== 'drain' || fixturePointUsage(drain) !== 'toilet') return null
-  const placement = toiletPlacementFromDrain(spec, drain)
-  const linkedEvidenceId = `toilet-drain:${drain.id}`
-  let toilet = spec.fixtures.find((fixture) => fixture.kind === 'toilet' && fixture.evidence_ids?.includes(linkedEvidenceId))
-    ?? spec.fixtures.find((fixture) => fixture.id === toiletId)
-  if (!toilet) {
-    toilet = {
-      id: toiletId,
-      kind: 'toilet',
-      label: fixtureLabels.toilet,
-      x_mm: placement.x_mm,
-      z_mm: placement.z_mm,
-      ...fixtureDefaults.toilet,
-      rotation_deg: placement.rotation_deg,
-      source: 'derived',
-      confidence: Math.min(0.92, drain.confidence),
-      evidence_ids: [linkedEvidenceId],
-    }
-    spec.fixtures.push(toilet)
-  } else {
-    toilet.x_mm = placement.x_mm
-    toilet.z_mm = placement.z_mm
-    toilet.rotation_deg = placement.rotation_deg
-    toilet.source = drain.source === 'user' ? 'derived' : drain.source
-    toilet.confidence = Math.min(0.92, Math.max(0.6, drain.confidence))
-    toilet.evidence_ids = [...new Set([...(toilet.evidence_ids ?? []), linkedEvidenceId])]
-  }
-  return toilet.id
-}
-
 function coordinateBounds(spec: RoomSpec) {
   const imageBoundary = spec.plan_annotation?.boundary ?? []
   if (!imageBoundary.length || !spec.boundary.length) return null

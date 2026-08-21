@@ -53,6 +53,22 @@ describe('deterministic requirement layout engine', () => {
     expect(toilets.every((toilet) => toilet.label.startsWith('MT3 马桶'))).toBe(true)
     expect(toilets.every((toilet) => toilet.model_asset?.src.includes('/api/model-assets/ce23ef42c17da53def16083f77c3c0dd/'))).toBe(true)
     expect(toilets.every((toilet) => [toilet.width_mm, toilet.depth_mm, toilet.height_mm].join(':') === '380:680:760')).toBe(true)
+    expect(new Set(fallback.map((solution) => solution.selected_product_ids.slice().sort().join('|'))).size).toBe(3)
+    expect(fallback[0].total_price).toBeLessThan(fallback[1].total_price)
+    expect(fallback[1].total_price).toBeLessThan(fallback[2].total_price)
+  })
+
+  it('keeps all local tiers valid for the current measured toilet drain', () => {
+    const moved = manualRoom(4105, 2160, 2200)
+    moved.boundary = [{x_mm:0,z_mm:320},{x_mm:0,z_mm:2160},{x_mm:1255,z_mm:2160},{x_mm:1255,z_mm:1840},{x_mm:4105,z_mm:1840},{x_mm:4105,z_mm:0},{x_mm:2515,z_mm:0},{x_mm:2515,z_mm:610},{x_mm:1900,z_mm:610},{x_mm:1900,z_mm:0},{x_mm:260,z_mm:0},{x_mm:260,z_mm:320}]
+    moved.openings.push({id:'door',kind:'door',wall_index:1,offset_mm:400,width_mm:800,height_mm:2055,sill_mm:0,label:'D1',source:'measured',confidence:1,opening_form:'hinged',swing_direction:'inward'})
+    moved.fixtures.push({id:'shower-drain',kind:'floor_drain',point_usage:'shower',label:'淋浴地漏',x_mm:3775,z_mm:276,width_mm:75,depth_mm:75,height_mm:10,rotation_deg:0,source:'measured',confidence:1})
+    moved.fixtures.push({id:'toilet-drain',kind:'drain',point_usage:'toilet',label:'马桶排水',x_mm:3596,z_mm:1455,width_mm:110,depth_mm:110,height_mm:10,rotation_deg:0,source:'user',confidence:1})
+    const candidates = generateDeterministicLayoutSolutions(moved)
+    expect(candidates).toHaveLength(3)
+    expect(candidates.every((solution) => solution.checks.every((check) => check.passed || check.severity !== 'error'))).toBe(true)
+    expect(new Set(candidates.map((solution) => solution.selected_product_ids.slice().sort().join('|'))).size).toBe(3)
+    expect(candidates.every((solution, index) => index === 0 || candidates[index - 1].total_price < solution.total_price)).toBe(true)
   })
 
   it('keeps local fallback layouts inside the finished boundary across room proportions', () => {
@@ -62,6 +78,21 @@ describe('deterministic requirement layout engine', () => {
       expect(candidate.wet_zone.width_mm).toBeGreaterThanOrEqual(800)
       expect(candidate.wet_zone.depth_mm).toBeGreaterThanOrEqual(800)
     }
+  })
+
+  it('keeps all local tiers valid in the compact measured room with a door and window', () => {
+    const compact = manualRoom(1595, 1790, 2600)
+    compact.openings.push(
+      { id:'door', kind:'door', wall_index:2, offset_mm:770, width_mm:800, height_mm:2055, sill_mm:0, label:'D1', source:'user', confidence:1, opening_form:'folding', swing_direction:'unknown' },
+      { id:'window', kind:'window', wall_index:0, offset_mm:330, width_mm:475, height_mm:1305, sill_mm:735, label:'W1', source:'derived', confidence:.95 },
+    )
+    compact.fixtures.push(
+      { id:'toilet-drain', kind:'drain', point_usage:'toilet', label:'马桶排水', x_mm:1304, z_mm:1428, width_mm:110, depth_mm:110, height_mm:10, rotation_deg:0, source:'user', confidence:1 },
+      { id:'shower-drain', kind:'floor_drain', label:'floor_drain', x_mm:1297, z_mm:346, width_mm:75, depth_mm:75, height_mm:10, rotation_deg:0, source:'measured', confidence:1 },
+    )
+    const candidates = generateDeterministicLayoutSolutions(compact, { style:'素雅' })
+    expect(candidates).toHaveLength(3)
+    expect(candidates.every((solution) => solution.checks.every((check) => check.passed || check.severity !== 'error'))).toBe(true)
   })
 
   it('prefers a wet-zone corner with two finished-wall contacts when plumbing is not fixed', () => {

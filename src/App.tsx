@@ -17,7 +17,7 @@ import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTa
 import { fixtureModelAssetFromLibrary, modelAssetPointKind, type RoomModelAsset } from './modelAssets'
 import { applyLayoutSolution, generateDeterministicLayoutSolutions, generateLayoutSolutions, type LayoutSolution } from './layoutEngine'
 import { surfaceMaterialsForDesignQuote } from './modelLibrary'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, syncToiletWithDrain, updateOpeningFromLine, wallLength, wetZoneBoundaryValid } from './spec'
+import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, updateOpeningFromLine, wallLength, wetZoneBoundaryValid } from './spec'
 import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
@@ -64,7 +64,7 @@ const layoutBatchReady = (solutions: LayoutSolution[]) =>
   solutions.length === 3 && invalidLayoutSolutions(solutions).length === 0 && duplicateLayoutGroups(solutions).length === 0 &&
   new Set(solutions.map((solution) => [...solution.selected_product_ids].sort().join('|'))).size === 3 &&
   [...solutions].sort((left, right) => ['basic', 'comfort', 'premium'].indexOf(left.budget) - ['basic', 'comfort', 'premium'].indexOf(right.budget))
-    .every((solution, index, ordered) => index === 0 || ordered[index - 1].equipment_price < solution.equipment_price)
+    .every((solution, index, ordered) => index === 0 || ordered[index - 1].total_price < solution.total_price)
 
 const usableLayoutSolutions = (solutions: LayoutSolution[]) => {
   const valid = solutions.filter((solution) => !solution.checks.some((check) => !check.passed && check.severity === 'error'))
@@ -91,15 +91,19 @@ const completeLayoutSolutions = (primary: LayoutSolution[], fallback: LayoutSolu
     tiers.add(candidate.budget)
     result.push(candidate)
   }
-  for (const tier of tierOrder) add(primary.find((candidate) => candidate.budget === tier))
-  for (const tier of tierOrder) add(fallback.find((candidate) => candidate.budget === tier))
+  // Remote levels are an atomic batch: mixing a rejected remote tier with a
+  // local tier can preserve duplicate products or inverted pricing. Use the
+  // remote batch only after it passes every three-tier gate; otherwise apply
+  // the already validated local batch as a whole.
+  const source = layoutBatchReady(primary) ? primary : fallback
+  for (const tier of tierOrder) add(source.find((candidate) => candidate.budget === tier))
   if (result.length !== tierOrder.length) {
     throw new Error('三个价位档位未能全部生成无硬错误且互不重复的可应用方案')
   }
   const productSignatures = new Set(result.map((solution) => [...solution.selected_product_ids].sort().join('|')))
   const ordered = [...result].sort((left, right) => tierOrder.indexOf(left.budget) - tierOrder.indexOf(right.budget))
-  if (productSignatures.size !== 3 || !ordered.every((solution, index) => index === 0 || ordered[index - 1].equipment_price < solution.equipment_price)) {
-    throw new Error('三档方案必须使用不同真实产品组合，且设备价格按经济、舒适、品质递增')
+  if (productSignatures.size !== 3 || !ordered.every((solution, index) => index === 0 || ordered[index - 1].total_price < solution.total_price)) {
+    throw new Error('三档方案必须使用不同真实产品组合，且总价按经济、舒适、品质递增')
   }
   return result
 }
@@ -626,7 +630,7 @@ export default function App() {
     try {
     const localFallbackCandidates = generateDeterministicLayoutSolutions(sourceSpec, { style: designQuote?.style_match.catalog_style })
     const localFallback = usableLayoutSolutions(localFallbackCandidates)
-    if (localFallback.length < 3) {
+    if (!layoutBatchReady(localFallback)) {
       const diagnostic = generateDeterministicLayoutSolutions(sourceSpec, { style: designQuote?.style_match.catalog_style })[0]
       const failed = diagnostic?.checks.filter((check) => !check.passed && check.severity === 'error').map((check) => `${check.code}: ${check.message}`).join('；')
       throw new Error(`当前房型本地几何求解无法生成三档有效方案${failed ? `：${failed}` : ''}`)
@@ -759,9 +763,8 @@ export default function App() {
                     if (kind === 'floor_drain' && pointUsage === 'shower') next.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
                     next.fixtures.push({ id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : kind === 'drain' && pointUsage === 'toilet' ? '马桶排水' : fixtureLabels[kind], x_mm: projected?.point.x_mm ?? xMm, z_mm: projected?.point.z_mm ?? zMm, ...defaults, width_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.width_mm, depth_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.depth_mm, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: projected ? wallIndex : null, point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined })
                     if (kind === 'floor_drain' && pointUsage === 'shower') next.dry_wet_zones = generateDryWetZones(next)
-                    if (kind === 'drain' && pointUsage === 'toilet') syncToiletWithDrain(next, id)
                     commitSpec(next)
-                    setSelection({ type: 'fixture', id: kind === 'drain' && pointUsage === 'toilet' ? `toilet-for-${id}` : id })
+                    setSelection({ type: 'fixture', id })
                   }}
                   onFixtureMove={(id, x, z) => {
                     const next = cloneSpec(spec)
@@ -772,7 +775,6 @@ export default function App() {
                       fixture.bound_wall_index = snap?.wall_index ?? null
                       fixture.source = 'user'; fixture.confidence = 1
                       if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') next.dry_wet_zones = generateDryWetZones(next)
-                      if (fixture.kind === 'drain' && fixturePointUsage(fixture) === 'toilet') syncToiletWithDrain(next, fixture.id)
                       commitSpec(next)
                     }
                   }}

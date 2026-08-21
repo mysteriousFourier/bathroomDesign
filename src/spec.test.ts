@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, syncToiletWithDrain, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
+import { clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
 
 describe('plan line dimensions', () => {
   it('resizes one segment in millimetres while preserving the following shape', () => {
@@ -498,36 +498,6 @@ describe('dry wet zones and wall finishes', () => {
     expect(fixturePointShape('floor_drain')).toBe('square')
     expect(fixturePointShape('toilet')).toBeNull()
     expect(fixturePointUsage({ id: 'shower-floor', kind: 'floor_drain', label: '淋浴地漏', x_mm: 0, z_mm: 0, width_mm: 120, depth_mm: 120, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 })).toBe('shower')
-  })
-
-  it('snaps a toilet model to the toilet drainage point and nearest wall direction', () => {
-    const spec = manualRoom(2400, 3200, 2600)
-    spec.fixtures.push({ id: 'toilet-drain-1', kind: 'drain', point_usage: 'toilet', label: '马桶排水', x_mm: 700, z_mm: 305, width_mm: 110, depth_mm: 110, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 })
-
-    const toiletId = syncToiletWithDrain(spec, 'toilet-drain-1')
-    const toilet = spec.fixtures.find((fixture) => fixture.id === toiletId)
-
-    expect(toilet).toMatchObject({ kind: 'toilet', label: '马桶', x_mm: 700, z_mm: 305, rotation_deg: 0, source: 'derived' })
-    expect(toilet?.evidence_ids).toContain('toilet-drain:toilet-drain-1')
-    expect(toilet?.model_asset).toBeUndefined()
-    expect(clientValidate(spec).filter((issue) => issue.severity === 'error')).toEqual([])
-  })
-
-  it('moves the linked toilet when the toilet drainage point changes wall', () => {
-    const spec = manualRoom(2400, 3200, 2600)
-    spec.fixtures.push({ id: 'toilet-drain-1', kind: 'drain', point_usage: 'toilet', label: '马桶排水', x_mm: 700, z_mm: 305, width_mm: 110, depth_mm: 110, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 })
-
-    syncToiletWithDrain(spec, 'toilet-drain-1')
-    const drain = spec.fixtures.find((fixture) => fixture.id === 'toilet-drain-1')!
-    drain.x_mm = 2095
-    drain.z_mm = 1200
-    syncToiletWithDrain(spec, 'toilet-drain-1')
-    const toilet = spec.fixtures.find((fixture) => fixture.kind === 'toilet')!
-
-    expect(toilet.x_mm).toBe(2095)
-    expect(toilet.z_mm).toBe(1200)
-    expect(toilet.rotation_deg).toBe(-90)
-    expect(toilet.evidence_ids).toEqual(['toilet-drain:toilet-drain-1'])
   })
 
   it('computes toilet orientation from each wall inward normal', () => {

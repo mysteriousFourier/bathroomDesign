@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, syncToiletWithDrain, wallFinishBaseThickness, wallFinishGap, wallLength, wetZoneBoundaryValid } from '../spec'
+import { cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallFinishGap, wallLength, wetZoneBoundaryValid } from '../spec'
 import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -85,9 +85,8 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
         point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined,
       })
       if (kind === 'floor_drain' && pointUsage === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
-      if (kind === 'drain' && pointUsage === 'toilet') syncToiletWithDrain(draft, id)
     })
-    onSelect({ type: 'fixture', id: kind === 'drain' && pointUsage === 'toilet' ? `toilet-for-${id}` : id })
+    onSelect({ type: 'fixture', id })
   }
 
   const addOpening = () => {
@@ -233,7 +232,6 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
                 item.label = '马桶排水'
                 item.width_mm = 110
                 item.depth_mm = 110
-                syncToiletWithDrain(draft, item.id)
               }
               if (item.kind === 'floor_drain') {
                 if (usage === 'shower') item.label = '淋浴地漏'
@@ -250,7 +248,6 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
                   if (projection) { item.x_mm = projection.point.x_mm; item.z_mm = projection.point.z_mm }
                 }
                 if ((field === 'x_mm' || field === 'z_mm') && item.kind === 'floor_drain' && fixturePointUsage(item) === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
-                if ((field === 'x_mm' || field === 'z_mm') && item.kind === 'drain' && fixturePointUsage(item) === 'toilet') syncToiletWithDrain(draft, item.id)
               })} />
             ))}
             {selectedFixture.model_asset && <div className="asset-summary">
@@ -266,7 +263,6 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
               const projection = projectPointToWall(finishedRoomBoundary(draft), wallIndex, item)
               item.bound_wall_index = projection ? wallIndex : null
               if (projection) { item.x_mm = projection.point.x_mm; item.z_mm = projection.point.z_mm }
-              if (item.kind === 'drain' && fixturePointUsage(item) === 'toilet') syncToiletWithDrain(draft, item.id)
             })}><option value="">未绑定</option>{spec.boundary.map((_, index) => <option key={index} value={index}>W{index + 1}</option>)}</select></label>}
             <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.fixtures = draft.fixtures.filter((item) => item.id !== selectedFixture.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除设施</button>
           </div>

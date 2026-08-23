@@ -773,7 +773,7 @@ export default function App() {
                       const snap = snapPointToNearestWall(finishedRoomBoundary(next), { x_mm: x, z_mm: z })
                       fixture.x_mm = snap?.point.x_mm ?? x; fixture.z_mm = snap?.point.z_mm ?? z
                       fixture.bound_wall_index = snap?.wall_index ?? null
-                      fixture.source = 'user'; fixture.confidence = 1
+                      fixture.source = 'user'; fixture.confidence = 1; fixture.layout_generated = false
                       if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') next.dry_wet_zones = generateDryWetZones(next)
                       commitSpec(next)
                     }

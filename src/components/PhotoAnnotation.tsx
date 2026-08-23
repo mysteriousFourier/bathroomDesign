@@ -504,6 +504,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     fixture.bound_wall_index = snap?.wall_index ?? null
     fixture.source = 'user'
     fixture.confidence = 1
+    fixture.layout_generated = false
     if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
     const evidenceId = fixture.evidence_ids?.[0]
     const observation = evidenceId ? draft.observations.find((item) => item.field === `visual_evidence:${evidenceId}`) : undefined

@@ -438,18 +438,28 @@ export function frontClearanceEnvelope(item: FixtureSpec, instruction: LayoutIns
   return fixture(`clearance-${item.id}`, 'other', `${item.label}前向使用净空`, x, z, width, depth, 1)
 }
 
-function wetWallContactCount(spec: RoomSpec, item: FixtureSpec) {
+function wetWallContactLength(spec: RoomSpec, item: FixtureSpec) {
   if (item.kind !== 'shower') return 0
   const boundary = layoutBoundary(spec)
   let contacts = 0
+  let contactLength = 0
   for (let index = 0; index < boundary.length; index += 1) {
     const projection = projectPointToWall(boundary, index, item)
     if (!projection) continue
     const inward = wallInwardNormal(boundary, index)
     const halfExtent = Math.abs(inward.x) * item.width_mm / 2 + Math.abs(inward.z) * item.depth_mm / 2
-    if (projection.distance_mm <= halfExtent + 25) contacts += 1
+    if (projection.distance_mm <= halfExtent + 25) {
+      contacts += 1
+      const start = boundary[index]
+      const end = boundary[(index + 1) % boundary.length]
+      const wallLength = Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm)
+      const wetEdgeLength = Math.abs(inward.x) > Math.abs(inward.z) ? item.depth_mm : item.width_mm
+      contactLength += Math.min(wallLength, wetEdgeLength)
+    }
   }
-  return contacts
+  // Preserve semantic-wall and plumbing priorities; use overlap length only
+  // as a deterministic tie-break between candidates with equal wall contacts.
+  return contacts + contactLength / 1_000_000_000
 }
 
 function pointInPolygon(x: number, z: number, polygon: RoomSpec['boundary']) {
@@ -690,6 +700,13 @@ type PlacementCandidate = { x:number; z:number; rotation:number; width:number; d
 
 function retainFixtureAcrossLayouts(fixture: FixtureSpec) {
   if (fixture.layout_generated) return false
+  // Layouts saved by older clients did not persist layout_generated. Do not
+  // retain their deterministic service points when replacing the layout.
+  if (fixture.source === 'derived' && (
+    /^自动/.test(fixture.label)
+    || /(?:^|-)(?:shower-(?:cold|hot)|washer-(?:water|electric)|drain)$/.test(fixture.id)
+    || /^湿区地漏\s*·/.test(fixture.label)
+  )) return false
   // Utility points and structural obstacles survive a layout replacement;
   // measured fixture bodies are replaced by the solved product entities.
   return ['floor_drain', 'drain', 'water', 'electric', 'pipe', 'column', 'radiator'].includes(fixture.kind)
@@ -793,7 +810,7 @@ function searchPlacement(spec: RoomSpec, item: FixtureSpec, occupied: FixtureSpe
           const plumbingDistance = plumbing ? Math.hypot(x - plumbing.x_mm, z - plumbing.z_mm) : 0
           const semanticDistance = Math.hypot(x - target.x, z - target.z)
           const wallContactWeight = plumbing ? 1800 : 12000
-          const score = wetWallContactCount(spec, candidate) * wallContactWeight - wallDistance * 2 - plumbingDistance * 8 - semanticDistance * 8
+          const score = wetWallContactLength(spec, candidate) * wallContactWeight - wallDistance * 2 - plumbingDistance * 8 - semanticDistance * 8
           if (!best || score > best.score) best = { x, z, rotation, width, depth, score, wallIndex:hostWallIndex, clearance }
         }
       }
@@ -838,6 +855,11 @@ function solveWetZone(spec: RoomSpec, id: string, label: string, preferredSize: 
     last = candidate
     if (searchPlacement(spec, candidate, occupied, instruction, plumbing, trace)) return { shower: candidate, solved: true }
   }
+  // A measured drain is commonly close to a wall. Using it as the centre of
+  // the fallback footprint used to leave half of the wet zone outside the
+  // room. Keep the failed status, but make the fallback geometry editable and
+  // safe to render inside the finished boundary.
+  moveInsideRoomPolygon(spec, last)
   return { shower: last, solved: false }
 }
 function isReachable(spec:RoomSpec,fixtures:FixtureSpec[],goal:{x:number;z:number}){const b=rectangleBounds(spec),step=100,radius=300,blocked=(x:number,z:number)=>!pointInPolygon(x,z,spec.boundary)||fixtures.some(f=>(f.elevation_mm??0)===0&&f.kind!=='floor_drain'&&Math.abs(x-f.x_mm)<f.width_mm/2+radius&&Math.abs(z-f.z_mm)<f.depth_mm/2+radius);const door=spec.openings.find(o=>o.kind==='door');if(!door)return true;const edge=spec.boundary[door.wall_index],next=spec.boundary[(door.wall_index+1)%spec.boundary.length],horizontal=Math.abs(next.x_mm-edge.x_mm)>=Math.abs(next.z_mm-edge.z_mm);let sx=horizontal?Math.min(edge.x_mm,next.x_mm)+door.offset_mm+door.width_mm/2:edge.x_mm,sz=horizontal?edge.z_mm:Math.min(edge.z_mm,next.z_mm)+door.offset_mm+door.width_mm/2;sx+=horizontal?0:(sx<(b.minX+b.maxX)/2?step:-step);sz+=horizontal?(sz<(b.minZ+b.maxZ)/2?step:-step):0;const key=(x:number,z:number)=>`${Math.round(x/step)},${Math.round(z/step)}`,queue=[[Math.round(sx/step)*step,Math.round(sz/step)*step]],seen=new Set<string>();while(queue.length){const [x,z]=queue.shift()!,k=key(x,z);if(seen.has(k))continue;if(Math.hypot(x-goal.x,z-goal.z)<=450)return true;if(blocked(x,z))continue;seen.add(k);for(const [dx,dz] of [[step,0],[-step,0],[0,step],[0,-step]])queue.push([x+dx,z+dz])}return false}
@@ -887,6 +909,7 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
   const toilet = productFixture(`${demand}-${budget}-toilet`, 'toilet', toiletProduct, toiletX, toiletZ, { width_mm: toiletWidth, depth_mm: toiletDepth, height_mm: 760 }, tp.rotation, 0, true)
   const drainDimensions = dimensionsFor('地漏', { width_mm: 100, depth_mm: 100, height_mm: 20 })
   const drain = fixture(`${demand}-${budget}-drain`, 'floor_drain', `湿区地漏 · ${drainDimensions.file_name}`, shower.x_mm, shower.z_mm, drainDimensions.width_mm, drainDimensions.depth_mm, drainDimensions.height_mm)
+  drain.point_usage = 'shower'
   const drainAsset = modelAssetForProduct('地漏')
   if (drainAsset) drain.model_asset = builtInAssetAsRoomAsset(drainAsset)
   // `shower` is a spatial calculation envelope, never a catalog product or furniture.
@@ -1065,7 +1088,7 @@ function makeLevelSolution(spec:RoomSpec,level:LayoutLevelDecision,preference?:L
   const wetPlacement=solveWetZone(spec,`${level.id}-wet-zone`,`${level.name}淋浴湿区`,showerSize,wetRule,[...fixedObstacles,...reservedBodies],measuredShowerDrain,solverTrace)
   const shower=wetPlacement.shower
   if(!wetPlacement.solved)placementFailures.push(shower.label)
-  const drainDimensions=dimensionsFor('地漏',{width_mm:100,depth_mm:100,height_mm:20}),drain=fixture(`${level.id}-drain`,'floor_drain',`湿区地漏 · ${drainDimensions.file_name}`,shower.x_mm,shower.z_mm,drainDimensions.width_mm,drainDimensions.depth_mm,drainDimensions.height_mm),drainAsset=modelAssetForProduct('地漏');if(drainAsset)drain.model_asset=builtInAssetAsRoomAsset(drainAsset)
+  const drainDimensions=dimensionsFor('地漏',{width_mm:100,depth_mm:100,height_mm:20}),drain=fixture(`${level.id}-drain`,'floor_drain',`湿区地漏 · ${drainDimensions.file_name}`,shower.x_mm,shower.z_mm,drainDimensions.width_mm,drainDimensions.depth_mm,drainDimensions.height_mm),drainAsset=modelAssetForProduct('地漏');drain.point_usage='shower';if(drainAsset)drain.model_asset=builtInAssetAsRoomAsset(drainAsset)
   const fixtures:FixtureSpec[]=[...(measuredShowerDrain?[]:[drain])],fixtureProducts=new Map<string,GraphProduct>(),ground:FixtureSpec[]=[],elevated:FixtureSpec[]=[]
   for(const product of products){
     const fallback=levelFallback(product.category),role=levelRole(product.category),rule=instruction(role),dims=dimensionsFor(product.category,fallback),target=semanticTarget(spec,rule,dims.width_mm,dims.depth_mm),kind=levelKind(product.category)
@@ -1141,13 +1164,91 @@ export function generateAutomaticLayoutSolution(spec: RoomSpec, preference?: Lay
   }
 }
 
+function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
+  const room = layoutBoundary(spec)
+  const wet = solution.wet_zone
+  const tile = solution.surface_materials.floor?.dimensions_mm
+  // The wet area is always a true rectangle in a room corner: two adjacent
+  // sides reuse finished walls and the other two are perpendicular dividers.
+  // Raw wall topology may split those two sides into two or three wall runs.
+  const dividerAxis = solution.floor_layout.rotation_deg === 0 ? 'z' : 'x'
+  type Axis = 'x' | 'z'
+  type Cut = { axis:Axis; keepMinimum:boolean; cut:number }
+  const coordinate = (point:{x_mm:number;z_mm:number}, axis:Axis) => axis === 'x' ? point.x_mm : point.z_mm
+  const axisCuts = (axis:Axis):Cut[] => {
+    const values=room.map((point)=>coordinate(point,axis)), minimum=Math.min(...values), maximum=Math.max(...values)
+    const centre=axis==='x'?wet.x_mm:wet.z_mm, halfWet=axis==='x'?wet.width_mm/2:wet.depth_mm/2
+    const module=tile?(axis==='x'?(solution.floor_layout.rotation_deg===0?tile.width:tile.depth):(solution.floor_layout.rotation_deg===0?tile.depth:tile.width)):0
+    const offset=axis==='x'?solution.floor_layout.offset_x_mm:solution.floor_layout.offset_z_mm
+    const snapOutward = (value:number, towardMinimum:boolean) => {
+    if (!module) return value
+    const relative = (value - minimum - offset) / module
+    return minimum + offset + (towardMinimum ? Math.floor(relative) : Math.ceil(relative)) * module
+    }
+    const exact = [
+      {axis,keepMinimum:true,cut:centre+halfWet},
+      {axis,keepMinimum:false,cut:centre-halfWet},
+    ]
+    // A joint is preferred, but it is not a feasibility constraint. Near an
+    // irregular wall the outward joint can land on (or beyond) the room bound
+    // and erase the divider, so retain the exact wet-envelope cut as fallback.
+    return exact.flatMap((cut) => {
+      const snapped = snapOutward(cut.cut, cut.keepMinimum ? false : true)
+      return [snapped, cut.cut].map((value) => ({...cut,cut:Math.max(minimum,Math.min(maximum,value))}))
+    }).filter((cut,index,cuts)=>cuts.findIndex((item)=>item.keepMinimum===cut.keepMinimum&&Math.abs(item.cut-cut.cut)<.001)===index)
+  }
+  const pointOnWallSegment = (point:(typeof room)[number], start:(typeof room)[number], end:(typeof room)[number]) => {
+    const cross=(end.x_mm-start.x_mm)*(point.z_mm-start.z_mm)-(end.z_mm-start.z_mm)*(point.x_mm-start.x_mm)
+    return Math.abs(cross)<.01 && point.x_mm>=Math.min(start.x_mm,end.x_mm)-.01 && point.x_mm<=Math.max(start.x_mm,end.x_mm)+.01 && point.z_mm>=Math.min(start.z_mm,end.z_mm)-.01 && point.z_mm<=Math.max(start.z_mm,end.z_mm)+.01
+  }
+  const edgeOnWall = (start:(typeof room)[number],end:(typeof room)[number]) => {
+    const length=Math.hypot(end.x_mm-start.x_mm,end.z_mm-start.z_mm)
+    const samples=Math.max(2,Math.ceil(length/50))
+    return Array.from({length:samples+1},(_,index)=>({
+      x_mm:start.x_mm+(end.x_mm-start.x_mm)*index/samples,
+      z_mm:start.z_mm+(end.z_mm-start.z_mm)*index/samples,
+    })).every((point)=>room.some((wallStart,index)=>pointOnWallSegment(point,wallStart,room[(index+1)%room.length])))
+  }
+  const wallRunCount = (start:(typeof room)[number],end:(typeof room)[number]) => room.filter((wallStart,index) => {
+    const wallEnd=room[(index+1)%room.length]
+    const horizontal=Math.abs(end.z_mm-start.z_mm)<.01
+    if(horizontal!== (Math.abs(wallEnd.z_mm-wallStart.z_mm)<.01))return false
+    if(horizontal&&Math.abs(start.z_mm-wallStart.z_mm)>.01)return false
+    if(!horizontal&&Math.abs(start.x_mm-wallStart.x_mm)>.01)return false
+    const [a,b,c,d]=horizontal?[start.x_mm,end.x_mm,wallStart.x_mm,wallEnd.x_mm]:[start.z_mm,end.z_mm,wallStart.z_mm,wallEnd.z_mm]
+    return Math.min(Math.max(a,b),Math.max(c,d))-Math.max(Math.min(a,b),Math.min(c,d))>.01
+  }).length
+  const xValues=room.map((point)=>point.x_mm),zValues=room.map((point)=>point.z_mm)
+  const minX=Math.min(...xValues),maxX=Math.max(...xValues),minZ=Math.min(...zValues),maxZ=Math.max(...zValues)
+  const primaryCuts=axisCuts(dividerAxis),secondaryCuts=axisCuts(dividerAxis==='x'?'z':'x')
+  const candidates = primaryCuts.flatMap((first)=>secondaryCuts.map((second) => {
+    const xCut=first.axis==='x'?first:second,zCut=first.axis==='z'?first:second
+    const left=xCut.keepMinimum?minX:xCut.cut,right=xCut.keepMinimum?xCut.cut:maxX
+    const top=zCut.keepMinimum?minZ:zCut.cut,bottom=zCut.keepMinimum?zCut.cut:maxZ
+    const boundary=[{x_mm:left,z_mm:top},{x_mm:right,z_mm:top},{x_mm:right,z_mm:bottom},{x_mm:left,z_mm:bottom}]
+    const wetHalfWidth=wet.width_mm/2,wetHalfDepth=wet.depth_mm/2
+    if(wet.x_mm-wetHalfWidth<left-.01||wet.x_mm+wetHalfWidth>right+.01||wet.z_mm-wetHalfDepth<top-.01||wet.z_mm+wetHalfDepth>bottom+.01)return false
+    const edges=boundary.map((start,index)=>({start,end:boundary[(index+1)%4]}))
+    if(edges.some(({start,end})=>!pointInPolygon((start.x_mm+end.x_mm)/2,(start.z_mm+end.z_mm)/2,room)&&!edgeOnWall(start,end)))return false
+    const wallEdges=edges.filter(({start,end})=>edgeOnWall(start,end))
+    if(wallEdges.length!==2)return false
+    const wallRuns=wallEdges.reduce((sum,{start,end})=>sum+wallRunCount(start,end),0)
+    if(wallRuns<2||wallRuns>3)return false
+    return {boundary,wallRuns}
+  })).filter((candidate):candidate is {boundary:typeof room;wallRuns:number}=>candidate!==false)
+  if (!candidates.length) throw new Error('当前房间无法用两根正交分界线与 2–3 段墙边围成矩形湿区')
+  return candidates.sort((left,right) => {
+    const area=(points:typeof room)=>Math.abs(points.reduce((sum,point,index)=>{const next=points[(index+1)%points.length];return sum+point.x_mm*next.z_mm-next.x_mm*point.z_mm},0))/2
+    return area(left.boundary)-area(right.boundary) || left.wallRuns-right.wallRuns
+  })[0].boundary
+}
+
 export function applyLayoutSolution(spec: RoomSpec, solution: LayoutSolution): RoomSpec {
   const blocking = solution.checks.filter((item) => !item.passed && item.severity === 'error')
   if (blocking.length) throw new Error(`方案存在硬错误：${blocking.map((item) => item.code).join('、')}`)
-  const s = solution.wet_zone
   const retainedFixtures = spec.fixtures.filter(retainFixtureAcrossLayouts)
   const retainedZones = (spec.dry_wet_zones ?? []).filter((zone) => zone.source !== 'derived')
-  const solvedZone = { id: `layout-wet-${solution.id}`, kind: 'wet' as const, label: '自动生成湿区（空间，非家具）', boundary: [{ x_mm: s.x_mm - s.width_mm / 2, z_mm: s.z_mm - s.depth_mm / 2 }, { x_mm: s.x_mm + s.width_mm / 2, z_mm: s.z_mm - s.depth_mm / 2 }, { x_mm: s.x_mm + s.width_mm / 2, z_mm: s.z_mm + s.depth_mm / 2 }, { x_mm: s.x_mm - s.width_mm / 2, z_mm: s.z_mm + s.depth_mm / 2 }], source: 'derived' as const, confidence: 1 }
+  const solvedZone = { id: `layout-wet-${solution.id}`, kind: 'wet' as const, label: '自动生成湿区（空间，非家具）', boundary: wetZoneBoundaryForSolution(spec, solution), source: 'derived' as const, confidence: 1 }
   // 热水器吊顶凹槽随方案写入 ceiling_zones；重复应用时替换旧凹槽。
   const ceilingZones = (spec.ceiling_zones ?? []).filter((zone) => zone.id !== HEATER_RECESS_ZONE_ID)
   if (solution.ceiling_recess) ceilingZones.push(solution.ceiling_recess)

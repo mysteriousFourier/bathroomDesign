@@ -498,6 +498,7 @@ describe('dry wet zones and wall finishes', () => {
     expect(fixturePointShape('floor_drain')).toBe('square')
     expect(fixturePointShape('toilet')).toBeNull()
     expect(fixturePointUsage({ id: 'shower-floor', kind: 'floor_drain', label: '淋浴地漏', x_mm: 0, z_mm: 0, width_mm: 120, depth_mm: 120, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1 })).toBe('shower')
+    expect(fixturePointUsage({ id: 'generated-wet-floor', kind: 'floor_drain', label: '湿区地漏 · 地漏', x_mm: 0, z_mm: 0, width_mm: 120, depth_mm: 120, height_mm: 10, rotation_deg: 0, source: 'derived', confidence: 1 })).toBe('shower')
   })
 
   it('computes toilet orientation from each wall inward normal', () => {

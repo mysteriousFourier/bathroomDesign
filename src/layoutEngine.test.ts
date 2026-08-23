@@ -280,6 +280,63 @@ describe('deterministic requirement layout engine', () => {
     expect(applyLayoutSolution(applied, solutions[0]).dry_wet_zones).toHaveLength(1)
   })
 
+  it('uses exactly two orthogonal dividers and two wall sides for a rectangular wet zone', () => {
+    const solution = solutions[0]
+    const applied = applyLayoutSolution(room, solution)
+    const boundary = applied.dry_wet_zones![0].boundary
+    const finished = finishedRoomBoundary({ ...room, wall_finish_gap_mm:35 })
+    const onWallSegment = (point:(typeof boundary)[number],start:(typeof boundary)[number],end:(typeof boundary)[number]) =>
+      Math.abs((end.x_mm-start.x_mm)*(point.z_mm-start.z_mm)-(end.z_mm-start.z_mm)*(point.x_mm-start.x_mm))<.01
+        && point.x_mm>=Math.min(start.x_mm,end.x_mm)-.01&&point.x_mm<=Math.max(start.x_mm,end.x_mm)+.01
+        && point.z_mm>=Math.min(start.z_mm,end.z_mm)-.01&&point.z_mm<=Math.max(start.z_mm,end.z_mm)+.01
+    const onWall = (start:(typeof boundary)[number],end:(typeof boundary)[number]) => finished.some((wallStart,index) => {
+      const wallEnd=finished[(index+1)%finished.length]
+      return onWallSegment(start,wallStart,wallEnd)&&onWallSegment(end,wallStart,wallEnd)
+    })
+    const wallEdges=boundary.filter((point,index)=>onWall(point,boundary[(index+1)%boundary.length])).length
+    const dividerEdges=boundary.map((point,index)=>({start:point,end:boundary[(index+1)%boundary.length]})).filter(({start,end})=>!onWall(start,end))
+    expect(boundary).toHaveLength(4)
+    expect(wallEdges).toBe(2)
+    expect(dividerEdges).toHaveLength(2)
+    const [first,second]=dividerEdges
+    expect((first.end.x_mm-first.start.x_mm)*(second.end.x_mm-second.start.x_mm)+(first.end.z_mm-first.start.z_mm)*(second.end.z_mm-second.start.z_mm)).toBeCloseTo(0)
+    expect(boundary.every((point,index) => {
+      const previous=boundary[(index+3)%4],next=boundary[(index+1)%4]
+      return Math.abs((previous.x_mm-point.x_mm)*(next.x_mm-point.x_mm)+(previous.z_mm-point.z_mm)*(next.z_mm-point.z_mm))<.01
+    })).toBe(true)
+  })
+
+  it('keeps a rectangular wet zone when its two wall sides span three measured wall runs', () => {
+    const segmented = manualRoom(3200, 2600, 2700)
+    // A measured wall may contain topology vertices although consecutive runs
+    // are collinear. They remain wall runs, not extra wet-zone corners.
+    segmented.boundary = [
+      {x_mm:0,z_mm:0},{x_mm:1600,z_mm:0},{x_mm:3200,z_mm:0},
+      {x_mm:3200,z_mm:1300},{x_mm:3200,z_mm:2600},
+      {x_mm:0,z_mm:2600},{x_mm:0,z_mm:0},
+    ].slice(0,-1)
+    const solution = generateLayoutSolutions(segmented)[0]
+    expect(() => applyLayoutSolution(segmented, solution)).not.toThrow()
+    const wetBoundary = applyLayoutSolution(segmented, solution).dry_wet_zones![0].boundary
+    expect(wetBoundary).toHaveLength(4)
+    expect(wetBoundary.every((point,index) => {
+      const previous=wetBoundary[(index+3)%4],next=wetBoundary[(index+1)%4]
+      return Math.abs((previous.x_mm-point.x_mm)*(next.x_mm-point.x_mm)+(previous.z_mm-point.z_mm)*(next.z_mm-point.z_mm))<.01
+    })).toBe(true)
+  })
+
+  it('replaces legacy generated points without deleting measured points', () => {
+    const legacy = structuredClone(room)
+    legacy.fixtures.push(
+      { id:'old-shower-cold', kind:'water', label:'自动花洒冷水点', point_usage:'shower', x_mm:100, z_mm:100, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'derived', confidence:1 },
+      { id:'measured-water', kind:'water', label:'现场给水点', x_mm:200, z_mm:200, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'measured', confidence:1 },
+    )
+    const applied = applyLayoutSolution(legacy, solutions[0])
+    expect(applied.fixtures.some((fixture) => fixture.id === 'old-shower-cold')).toBe(false)
+    expect(applied.fixtures.some((fixture) => fixture.id === 'measured-water')).toBe(true)
+    expect(applied.fixtures.filter((fixture) => fixture.label === '自动花洒冷水点')).toHaveLength(1)
+  })
+
   it('anchors the generated toilet to the measured toilet drain and preserves every measured point', () => {
     const anchoredRoom = manualRoom(3200, 2600, 2700)
     anchoredRoom.fixtures.push(

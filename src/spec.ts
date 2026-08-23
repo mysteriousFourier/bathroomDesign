@@ -52,7 +52,7 @@ export function fixturePointUsage(fixture: FixtureSpec): FixturePointUsage | nul
   if (fixture.kind !== 'floor_drain' && fixture.kind !== 'drain' && fixture.kind !== 'water') return null
   if (fixture.point_usage) return fixture.point_usage
   if (/马桶|坐便/.test(fixture.label)) return 'toilet'
-  if (/花洒|淋浴/.test(fixture.label)) return 'shower'
+  if (/花洒|淋浴|湿区地漏/.test(fixture.label)) return 'shower'
   if (/台盆|面盆|洗手盆|水池|龙头/.test(fixture.label)) return 'basin'
   return 'general'
 }

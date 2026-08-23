@@ -678,6 +678,22 @@ async def test_shared_model_requires_exact_product_binding_for_layout(tmp_path) 
     assert lookup["model_asset_id"] == smart_toilet.json()["id"]
     assert lookup["model_asset_src"].endswith("/%E6%99%BA%E8%83%BD%E5%9D%90%E4%BE%BF%E5%99%A8.fbx")
     assert lookup["model_dimensions_mm"] == {"width": 380.0, "depth": 680.0, "height": 760.0}
+
+
+def test_model_lookup_applies_reviewed_orientation_to_bounds(monkeypatch):
+    from backend.app import design_chat
+    from backend.app.models import ModelAssetResponse
+    asset = ModelAssetResponse(
+        id="a" * 64, project_id="project", label="侧放马桶", filename="toilet.fbx", format="fbx",
+        bytes=1, sha256="a" * 64, file_count=1, created_at="2026-01-01T00:00:00+00:00",
+        src="/api/model-assets/test", category="马桶", dimensions_mm={"width": 380, "depth": 760, "height": 680},
+        catalog_codes=["MT-ROTATED"], binding_status="bound", orientation_view="top", orientation_corrected=True,
+        orientation_source="manual", orientation_mapping={"right":"right","left":"left","top":"front","bottom":"back","front":"bottom","back":"top"},
+    )
+    monkeypatch.setattr(design_chat, "list_shared_model_assets", lambda: [asset])
+    lookup=design_chat._model_lookup({"id":"product","attributes":{"材料编号":"MT-ROTATED","材料名称":"马桶","风格":"通用","规格型号":"test"}}, {})
+    assert lookup["model_dimensions_mm"] == {"width":380,"depth":680,"height":760}
+    assert lookup["model_orientation_mapping"] == asset.orientation_mapping
     assert lookup["binding_status"] == "bound"
 
 

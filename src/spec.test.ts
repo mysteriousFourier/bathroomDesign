@@ -437,7 +437,7 @@ describe('dry wet zones and wall finishes', () => {
     )
     const moved = [{x_mm:900,z_mm:0},{x_mm:1800,z_mm:0},{x_mm:1800,z_mm:900},{x_mm:900,z_mm:900}]
     expect(applyWetZoneBoundaryChange(spec, 'wet', moved)).toBe(true)
-    expect(spec.fixtures.find((fixture)=>fixture.id==='drain')).toMatchObject({x_mm:1350,z_mm:450})
+    expect(spec.fixtures.find((fixture)=>fixture.id==='drain')).toMatchObject({x_mm:1500,z_mm:600})
     expect(spec.fixtures.find((fixture)=>fixture.id==='head')).toMatchObject({x_mm:1350,z_mm:0})
     expect(wetZoneBoundaryValid(spec, 'wet', [{x_mm:1700,z_mm:700},{x_mm:2500,z_mm:700},{x_mm:2500,z_mm:1700},{x_mm:1700,z_mm:1700}])).toBe(false)
 

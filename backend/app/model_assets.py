@@ -327,9 +327,12 @@ async def store_model_asset(
 
 def list_model_assets(project_id: str) -> list[ModelAssetResponse]:
     db.get_project(project_id)
-    shared = list_shared_model_assets()
-    shared_ids = {asset.id for asset in shared}
     builtins = [_builtin_response(project_id, asset) for asset in _builtin_assets() if asset.get("asset_type") == "fixture"]
+    builtin_hashes = {asset.sha256 for asset in builtins}
+    # A rebuilt builtin library is authoritative. Do not show an older uploaded
+    # copy of the same bytes beside the freshly generated asset.
+    shared = [asset for asset in list_shared_model_assets() if asset.sha256 not in builtin_hashes]
+    shared_ids = {asset.id for asset in shared}
     return shared + [asset for asset in builtins if asset.id not in shared_ids]
 
 

@@ -5,9 +5,11 @@ import csv
 import hashlib
 import json
 import math
+import os
 import re
 import shutil
 import struct
+import stat
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -17,8 +19,8 @@ Image.MAX_IMAGE_PIXELS = 600_000_000
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-MODEL_SOURCE = Path(r"D:\documents\xwechat_files\wxid_2fydyq34lhbz12_d9e9\msg\file\2026-08\卫生间通用部品2026-08-04")
-SURFACE_SOURCE = Path(r"D:\opc\富邦花园2-4-701\产品数据\墙板")
+MODEL_SOURCE = Path(r"D:\opc\富邦花园2-4-701")
+SURFACE_SOURCE = MODEL_SOURCE / "墙板"
 DIMENSION_SOURCE = PROJECT_ROOT / "outputs" / "bathroom-model-dimensions" / "卫生间通用部品_建模长宽高.json"
 CATALOG_SOURCE = PROJECT_ROOT / "backend" / "data" / "product_catalog.csv"
 PUBLIC_ROOT = PROJECT_ROOT / "public" / "model-library"
@@ -28,10 +30,24 @@ MANIFEST_TARGETS = [
     PROJECT_ROOT / "src" / "generated-model-library.json",
 ]
 CATALOG_JSON_TARGET = PROJECT_ROOT / "src" / "generated-product-catalog.json"
+ORIENTATION_OVERRIDES_PATH = PROJECT_ROOT / "backend" / "data" / "model-assets" / "builtin-orientation-overrides.json"
 
-PRIMARY_EXTENSIONS = {".glb", ".gltf", ".fbx", ".obj"}
-FORMAT_PRIORITY = {".glb": 0, ".gltf": 1, ".fbx": 2, ".obj": 3}
+PRIMARY_EXTENSIONS = {".glb", ".gltf", ".fbx", ".3ds", ".obj"}
 DEPENDENCY_EXTENSIONS = {".bin", ".mtl", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tga", ".dds", ".ktx", ".ktx2", ".basis"}
+MODEL_CATEGORIES = {
+    "地漏", "垃圾桶", "扶手", "散热器", "无障碍淋浴室坐凳001", "柱盆", "水龙头", "洗衣机",
+    "浴室柜", "浴帘_杆", "浴霸", "淋浴隔断", "热水器", "照明", "电气面板", "置物架", "花洒",
+    "角篮", "门窗", "马桶",
+}
+DEFAULT_DIMENSIONS_MM: dict[str, dict[str, float]] = {
+    "散热器": {"width": 500, "depth": 160, "height": 700},
+    "扶手": {"width": 80, "depth": 600, "height": 750},
+    "无障碍淋浴室坐凳001": {"width": 420, "depth": 360, "height": 450},
+    "马桶": {"width": 380, "depth": 680, "height": 760},
+    "洗衣机": {"width": 600, "depth": 620, "height": 850},
+    "热水器": {"width": 720, "depth": 180, "height": 430},
+    "花洒": {"width": 120, "depth": 80, "height": 1100},
+}
 
 
 def safe_id(prefix: str, value: str) -> str:
@@ -45,6 +61,25 @@ def file_sha256(path: Path) -> str:
         while chunk := source.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def clear_generated_directory(path: Path) -> None:
+    """Remove generated files even when source archives carried read-only bits."""
+    def on_error(function, filename, _error):
+        os.chmod(filename, stat.S_IWRITE)
+        function(filename)
+    shutil.rmtree(path, onerror=on_error)
+
+
+def prune_builtin_orientation_overrides(asset_ids: set[str]) -> None:
+    if not ORIENTATION_OVERRIDES_PATH.is_file():
+        return
+    try:
+        payload = json.loads(ORIENTATION_OVERRIDES_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        payload = {}
+    retained = {asset_id: value for asset_id, value in payload.items() if asset_id in asset_ids} if isinstance(payload, dict) else {}
+    ORIENTATION_OVERRIDES_PATH.write_text(json.dumps(retained, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def url_for(path: Path) -> str:
@@ -65,6 +100,8 @@ def load_catalog() -> list[dict[str, str]]:
 
 
 def load_dimensions() -> dict[str, dict[str, object]]:
+    if not DIMENSION_SOURCE.is_file():
+        return {}
     rows = json.loads(DIMENSION_SOURCE.read_text(encoding="utf-8"))
     return {str(row["relativePath"]).replace("\\", "/"): row for row in rows if row.get("status") == "OK"}
 
@@ -78,18 +115,13 @@ def model_category(source_category: str, filename: str) -> str:
 
 
 def selected_model_files() -> list[Path]:
-    files = sorted(
-        (path for path in MODEL_SOURCE.rglob("*") if path.is_file() and path.suffix.lower() in PRIMARY_EXTENSIONS),
+    # Keep every source model. Different exports with the same stem are still
+    # useful variants (for example FBX and GLB), and their relative paths give
+    # them distinct stable asset IDs.
+    return sorted(
+        (path for path in MODEL_SOURCE.rglob("*") if path.is_file() and path.suffix.lower() in PRIMARY_EXTENSIONS and path.relative_to(MODEL_SOURCE).parts[0] in MODEL_CATEGORIES),
         key=lambda item: item.relative_to(MODEL_SOURCE).as_posix(),
     )
-    grouped: dict[tuple[str, str], list[Path]] = {}
-    for path in files:
-        relative = path.relative_to(MODEL_SOURCE)
-        key = (relative.parts[0], path.stem.casefold())
-        grouped.setdefault(key, []).append(path)
-    selected = [sorted(group, key=lambda item: (FORMAT_PRIORITY[item.suffix.lower()], item.stat().st_size))[0] for group in grouped.values()]
-    # Heater_01 is the same geometry as the much smaller 热水器01.glb export.
-    return [path for path in selected if path.name.casefold() != "heater_01.obj"]
 
 
 def copy_dependencies(source: Path, destination_dir: Path) -> int:
@@ -112,6 +144,13 @@ def copy_dependencies(source: Path, destination_dir: Path) -> int:
                 if not target.is_file() or target.stat().st_size != dependency.stat().st_size:
                     shutil.copy2(dependency, target)
                 copied += 1
+                # FBX/OBJ material references commonly contain only a basename
+                # even when the source exporter placed textures beside the model
+                # in a same-stem folder. Keep a root-level copy for that lookup.
+                basename_target = destination_dir / dependency.name
+                if basename_target != target and (not basename_target.is_file() or basename_target.stat().st_size != dependency.stat().st_size):
+                    shutil.copy2(dependency, basename_target)
+                    copied += 1
     if source.suffix.lower() == ".gltf":
         data = json.loads(source.read_text(encoding="utf-8"))
         uris = [item.get("uri") for key in ("buffers", "images") for item in data.get(key, [])]
@@ -122,11 +161,12 @@ def copy_dependencies(source: Path, destination_dir: Path) -> int:
             if decoded.is_absolute() or ".." in decoded.parts:
                 continue
             dependency = next((candidate for candidate in (source.parent / str(uri), source.parent / decoded) if candidate.is_file()), None)
-            target = destination_dir / decoded
-            if dependency and (not target.exists() or target.stat().st_size != dependency.stat().st_size):
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(dependency, target)
-                copied += 1
+            targets = {destination_dir / decoded, destination_dir / Path(str(uri)).name}
+            for target in targets:
+                if dependency and (not target.exists() or target.stat().st_size != dependency.stat().st_size):
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(dependency, target)
+                    copied += 1
     return copied
 
 
@@ -139,6 +179,25 @@ def catalog_codes_by_category(catalog: list[dict[str, str]]) -> dict[str, list[d
     return result
 
 
+def catalog_rows_by_code(catalog: list[dict[str, str]]) -> dict[str, dict[str, str]]:
+    """Index the canonical product rows used to name bound model assets."""
+    return {
+        row["材料编号"].strip(): row
+        for row in catalog
+        if row.get("材料编号", "").strip()
+    }
+
+
+def labels_for_catalog_codes(codes: list[str], catalog_by_code: dict[str, dict[str, str]]) -> list[str]:
+    """Return stable, de-duplicated specification labels in SKU order."""
+    labels: list[str] = []
+    for code in codes:
+        label = (catalog_by_code.get(code, {}).get("规格型号") or "").strip()
+        if label and label not in labels:
+            labels.append(label)
+    return labels
+
+
 def build_fixture_assets(catalog: list[dict[str, str]], dimensions: dict[str, dict[str, object]]) -> list[dict[str, object]]:
     selected = selected_model_files()
     grouped: dict[str, list[Path]] = {}
@@ -146,6 +205,7 @@ def build_fixture_assets(catalog: list[dict[str, str]], dimensions: dict[str, di
         category = model_category(source.relative_to(MODEL_SOURCE).parts[0], source.name)
         grouped.setdefault(category, []).append(source)
     catalog_groups = catalog_codes_by_category(catalog)
+    catalog_by_code = catalog_rows_by_code(catalog)
     assets: list[dict[str, object]] = []
     for category in sorted(grouped):
         sources = sorted(grouped[category], key=lambda item: item.name)
@@ -161,17 +221,26 @@ def build_fixture_assets(catalog: list[dict[str, str]], dimensions: dict[str, di
             destination_dir.mkdir(parents=True, exist_ok=True)
             file_count = copy_dependencies(source, destination_dir)
             dimension = dimensions.get(relative, {})
+            fallback_dimensions = DEFAULT_DIMENSIONS_MM.get(category) or {"width": 600, "depth": 600, "height": 600}
             tier = price_tier(index, len(sources))
             assigned_codes = code_assignments[index]
+            # Only the supplied smart-toilet FBX has been verified against MT3.
+            # Keep other toilet exports in the library without inventing SKU
+            # bindings from category alone.
+            if category == "马桶" and source.name != "智能坐便器.fbx":
+                assigned_codes = []
             # The single bundled washer mesh is a top-loader asset. Keep the
             # front-loader SKU unbound until a matching model is supplied;
             # the UI renders a proportional front-loader proxy in the meantime.
             if category == "洗衣机":
                 assigned_codes = [code for code in assigned_codes if code != "XYJ2-1"]
             target = destination_dir / source.name
+            specification_labels = labels_for_catalog_codes(assigned_codes, catalog_by_code)
             assets.append({
                 "id": asset_id,
-                "label": source.stem,
+                # A bound model is shown by the canonical product specification;
+                # unbound exports keep their source stem until a SKU is verified.
+                "label": " / ".join(specification_labels) if specification_labels else source.stem,
                 "category": category,
                 "source_category": source.relative_to(MODEL_SOURCE).parts[0],
                 "asset_type": "fixture",
@@ -182,9 +251,9 @@ def build_fixture_assets(catalog: list[dict[str, str]], dimensions: dict[str, di
                 "sha256": file_sha256(target),
                 "file_count": file_count,
                 "dimensions_mm": {
-                    "width": round(float(dimension.get("lengthX_mm") or 600), 1),
-                    "depth": round(float(dimension.get("widthZ_mm") or 600), 1),
-                    "height": round(float(dimension.get("heightY_mm") or 600), 1),
+                    "width": round(float(dimension.get("lengthX_mm") or fallback_dimensions["width"]), 1),
+                    "depth": round(float(dimension.get("widthZ_mm") or fallback_dimensions["depth"]), 1),
+                    "height": round(float(dimension.get("heightY_mm") or fallback_dimensions["height"]), 1),
                 },
                 "dimension_status": "verified" if dimension else "review",
                 "price_tier": tier,
@@ -314,7 +383,7 @@ def build_surface_assets(catalog: list[dict[str, str]]) -> list[dict[str, object
 
 
 def main() -> None:
-    for source in (MODEL_SOURCE, SURFACE_SOURCE, DIMENSION_SOURCE, CATALOG_SOURCE):
+    for source in (MODEL_SOURCE, SURFACE_SOURCE, CATALOG_SOURCE):
         if not source.exists():
             raise FileNotFoundError(source)
     public_root = PUBLIC_ROOT.resolve()
@@ -322,8 +391,14 @@ def main() -> None:
     if public_root.parent != expected_parent:
         raise RuntimeError(f"Refusing to rebuild unexpected directory: {public_root}")
     PUBLIC_ROOT.mkdir(parents=True, exist_ok=True)
+    # A rebuild is authoritative: remove stale generated models/materials so
+    # removed source files cannot remain visible in the library.
+    for generated_dir in (PUBLIC_ROOT / "models", PUBLIC_ROOT / "surfaces"):
+        if generated_dir.exists():
+            clear_generated_directory(generated_dir)
     catalog = load_catalog()
     assets = build_fixture_assets(catalog, load_dimensions()) + build_surface_assets(catalog)
+    prune_builtin_orientation_overrides({str(asset["id"]) for asset in assets if asset["asset_type"] == "fixture"})
     manifest = {
         "schema_version": "1.0.0",
         "generated_from": [str(MODEL_SOURCE), str(SURFACE_SOURCE)],
@@ -333,7 +408,7 @@ def main() -> None:
     for target in MANIFEST_TARGETS:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    CATALOG_JSON_TARGET.write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
+    CATALOG_JSON_TARGET.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     fixture_count = sum(asset["asset_type"] == "fixture" for asset in assets)
     surface_count = len(assets) - fixture_count
     print(json.dumps({"assets": len(assets), "fixtures": fixture_count, "surfaces": surface_count, "public_bytes": sum(path.stat().st_size for path in PUBLIC_ROOT.rglob("*") if path.is_file())}, ensure_ascii=False))

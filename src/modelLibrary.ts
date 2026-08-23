@@ -30,7 +30,7 @@ export type BuiltInModelRecord = {
 // available to local fallback layouts as well.
 const sharedModelRecords: BuiltInModelRecord[] = [{
   id: 'ce23ef42c17da53def16083f77c3c0dd',
-  label: '智能坐便器',
+  label: 'MT3 智能马桶（加热、感应冲水、臀洗、杀菌）',
   category: '马桶',
   asset_type: 'fixture',
   format: 'fbx',
@@ -46,31 +46,41 @@ const sharedModelRecords: BuiltInModelRecord[] = [{
   styles: ['通用'],
   source: '共享模型资产库',
 }]
-const records = [...(manifest.assets as BuiltInModelRecord[]), ...sharedModelRecords]
+// Keep explicitly verified shared assets ahead of generated category matches;
+// this preserves SKU snapshots (for example MT3) when a source directory also
+// contains a similarly named raw export.
+const records = [...sharedModelRecords, ...(manifest.assets as BuiltInModelRecord[])]
 
 export const builtInModelRecords = records
 
-export const builtInRoomAssets: RoomModelAsset[] = records.map((asset) => ({
-  id: asset.id,
-  label: asset.label,
-  src: asset.src,
-  format: asset.format,
-  unit: 'm',
-  fit: 'contain',
-  version: 'builtin-1.0.0',
-  sha256: asset.sha256,
-  bytes: asset.bytes,
-  thumbnail: asset.thumbnail,
-  source: asset.asset_type === 'surface' ? '内置表面材质库' : '内置模型库',
-  source_asset_id: asset.id,
-  lifecycle: 'approved' as ModelAssetLifecycle,
-  dimensions_mm: asset.dimensions_mm,
-  category: asset.category,
-  asset_type: asset.asset_type,
-  price_tier: asset.price_tier,
-  catalog_codes: asset.catalog_codes,
-  styles: asset.styles,
-}))
+function roomAssetFromRecord(asset: BuiltInModelRecord): RoomModelAsset {
+  return {
+    id: asset.id,
+    label: asset.label,
+    filename: asset.filename,
+    src: asset.src,
+    format: asset.format,
+    unit: 'm',
+    fit: 'contain',
+    version: 'builtin-1.0.0',
+    sha256: asset.sha256,
+    bytes: asset.bytes,
+    thumbnail: asset.thumbnail,
+    source: asset.asset_type === 'surface' ? '内置表面材质库' : '内置模型库',
+    source_asset_id: asset.id,
+    lifecycle: 'approved' as ModelAssetLifecycle,
+    dimensions_mm: asset.dimensions_mm,
+    category: asset.category,
+    asset_type: asset.asset_type,
+    price_tier: asset.price_tier,
+    catalog_codes: asset.catalog_codes,
+    styles: asset.styles,
+  }
+}
+
+// The API already returns verified shared assets, so omit them from the
+// static fallback list to avoid a duplicate row when both sources load.
+export const builtInRoomAssets: RoomModelAsset[] = records.filter((asset) => asset.id !== 'ce23ef42c17da53def16083f77c3c0dd').map(roomAssetFromRecord)
 
 export function modelAssetForProduct(category: string, code?: string, tier?: BuiltInModelRecord['price_tier']) {
   const categories = category === '适老浴室柜' ? ['适老浴室柜', '浴室柜'] : [category]
@@ -104,5 +114,5 @@ export function surfaceMaterialsForDesignQuote(quote: DesignChatResponse | null)
 }
 
 export function builtInAssetAsRoomAsset(record: BuiltInModelRecord): RoomModelAsset {
-  return builtInRoomAssets.find((asset) => asset.id === record.id) as RoomModelAsset
+  return roomAssetFromRecord(record)
 }

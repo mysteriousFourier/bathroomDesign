@@ -6,6 +6,8 @@ export const defaultWallFinishThicknessMm = 20
 export const defaultWallFinishGapMm = 0
 export const wallBindingSnapDistanceMm = 100
 export const toiletDrainRoughInMm = 305
+export const SHOWER_DRAIN_WALL_CLEARANCE_MM = 50
+export const SHOWER_DRAIN_CENTER_OFFSET_MM = 150
 
 export const fixtureLabels: Record<FixtureKind, string> = {
   toilet: '马桶',
@@ -1092,12 +1094,21 @@ export function applyWetZoneBoundaryChange(spec: RoomSpec, zoneId: string, bound
   zone.boundary = boundary.map((point) => ({ ...point }))
   zone.source = 'user'; zone.confidence = 1
 
-  const generatedShowerItems = spec.fixtures.filter((fixture) => fixture.layout_generated && (
+  const generatedShowerItems = spec.fixtures.filter((fixture) =>
     (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower')
-    || (/花洒/.test(fixture.label) && !/扶手/.test(fixture.label))
-  ))
+    || (fixture.layout_generated && /花洒/.test(fixture.label) && !/扶手/.test(fixture.label)),
+  )
   const drain = generatedShowerItems.find((fixture) => fixture.kind === 'floor_drain')
-  if (drain) { drain.x_mm = Math.round(after.x_mm); drain.z_mm = Math.round(after.z_mm); drain.source = 'derived' }
+  if (drain) {
+    const minX = Math.min(...boundary.map((point) => point.x_mm)); const maxX = Math.max(...boundary.map((point) => point.x_mm))
+    const minZ = Math.min(...boundary.map((point) => point.z_mm)); const maxZ = Math.max(...boundary.map((point) => point.z_mm))
+    // Core placement rule: keep a serviceable 50 mm wall margin and avoid the
+    // standing centre. A stable 150 mm diagonal offset preserves drainage
+    // semantics whenever the wet rectangle has enough room.
+    drain.x_mm = Math.round(Math.min(maxX - SHOWER_DRAIN_WALL_CLEARANCE_MM, Math.max(minX + SHOWER_DRAIN_WALL_CLEARANCE_MM, after.x_mm + Math.min(SHOWER_DRAIN_CENTER_OFFSET_MM, (maxX - minX) / 4))))
+    drain.z_mm = Math.round(Math.min(maxZ - SHOWER_DRAIN_WALL_CLEARANCE_MM, Math.max(minZ + SHOWER_DRAIN_WALL_CLEARANCE_MM, after.z_mm + Math.min(SHOWER_DRAIN_CENTER_OFFSET_MM, (maxZ - minZ) / 4))))
+    if (drain.layout_generated) drain.source = 'derived'
+  }
   const room = finishedRoomBoundary(spec)
   const pointInWetZone = (point: Point2D) => pointOnPolygonBoundary(boundary, point) || pointInPolygon(boundary, point)
   for (const fixture of generatedShowerItems) {

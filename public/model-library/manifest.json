@@ -1,10 +1,10 @@
 {
   "schema_version": "1.0.0",
   "generated_from": [
-    "D:\\documents\\xwechat_files\\wxid_2fydyq34lhbz12_d9e9\\msg\\file\\2026-08\\卫生间通用部品2026-08-04",
-    "D:\\opc\\富邦花园2-4-701\\产品数据\\墙板"
+    "D:\\opc\\富邦花园2-4-701",
+    "D:\\opc\\富邦花园2-4-701\\墙板"
   ],
-  "asset_count": 64,
+  "asset_count": 85,
   "assets": [
     {
       "id": "builtin-cfae087909ac",
@@ -19,11 +19,11 @@
       "sha256": "d5b2a53083f011b190ed71127e313cbb07801ff59bdf4dcb76708bff730117fb",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 100.0,
-        "depth": 100.0,
-        "height": 44.3
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -42,11 +42,11 @@
       "sha256": "72fcbef2c36cabc38e9a01d71ca734f9fc4b0901bc348ada7be2edbcaf8c12ca",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 135.2,
-        "depth": 55.3,
-        "height": 135.2
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
@@ -65,11 +65,34 @@
       "sha256": "1962e50fa4e176dc57ee46e973f062af3ff52818e16dab0fb193ddc1954c294f",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 460.0,
-        "depth": 140.0,
-        "height": 590.0
+        "width": 500.0,
+        "depth": 160.0,
+        "height": 700.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-4c6c570b7e8f",
+      "label": "散热器02",
+      "category": "散热器",
+      "source_category": "散热器",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-4c6c570b7e8f/%E6%95%A3%E7%83%AD%E5%99%A802.fbx",
+      "filename": "散热器02.fbx",
+      "bytes": 1152357,
+      "sha256": "60de68ac30854447db291d5cc101293ccb751d4fbd1e924b04d275d9c0f68bdd",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 500.0,
+        "depth": 160.0,
+        "height": 700.0
+      },
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -88,12 +111,12 @@
       "sha256": "7419ec5022e20f593c65f7efad34558c954a96177928a821e9aff5ef9ad33929",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 460.0,
-        "depth": 140.0,
-        "height": 830.0
+        "width": 500.0,
+        "depth": 160.0,
+        "height": 700.0
       },
-      "dimension_status": "verified",
-      "price_tier": "basic",
+      "dimension_status": "review",
+      "price_tier": "comfort",
       "catalog_codes": [],
       "styles": [],
       "source": "卫生间通用部品2026-08-04"
@@ -111,12 +134,35 @@
       "sha256": "6a18145162c1994ce82e2b0b81a32f5791de28c8fd876b57f875c097569fbc2a",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 319.4,
-        "depth": 108.8,
-        "height": 1856.1
+        "width": 500.0,
+        "depth": 160.0,
+        "height": 700.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-ffa29113640d",
+      "label": "散热器04",
+      "category": "散热器",
+      "source_category": "散热器",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-ffa29113640d/%E6%95%A3%E7%83%AD%E5%99%A804.fbx",
+      "filename": "散热器04.fbx",
+      "bytes": 1791077,
+      "sha256": "96ae5d3ae884061a274b291f29bd2a996b65dbd0913bb066cb2e54619f971225",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 500.0,
+        "depth": 160.0,
+        "height": 700.0
+      },
+      "dimension_status": "review",
+      "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
       "source": "卫生间通用部品2026-08-04"
@@ -134,11 +180,11 @@
       "sha256": "850b03a9d4b9df009300ff2faec3a469af0b487a8b8fba7e6b92adc9e64c6317",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 480.0,
-        "depth": 80.0,
-        "height": 350.0
+        "width": 500.0,
+        "depth": 160.0,
+        "height": 700.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
@@ -157,11 +203,11 @@
       "sha256": "f34902356b08ebb8c2fd989b9def7659a7156f3a3b2a3b0326d00b74520ab65f",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 757.2,
-        "depth": 617.7,
-        "height": 1096.4
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -180,11 +226,11 @@
       "sha256": "880885df450d4217a6457addc2b4430d43ca43b2c8e45ce58a3fb42b5b900bd7",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 692.5,
-        "depth": 561.3,
-        "height": 1118.3
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
@@ -203,11 +249,34 @@
       "sha256": "d5f1d564b4efcc33104e52f9e95da160558003c27d76d550d0c8717acc2f50f6",
       "file_count": 2,
       "dimensions_mm": {
-        "width": 30.0,
-        "depth": 156.1,
-        "height": 101.6
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-6e85bb923490",
+      "label": "洗衣机龙头02",
+      "category": "水龙头",
+      "source_category": "水龙头",
+      "asset_type": "fixture",
+      "format": "obj",
+      "src": "/model-library/models/builtin-6e85bb923490/%E6%B4%97%E8%A1%A3%E6%9C%BA%E9%BE%99%E5%A4%B402.obj",
+      "filename": "洗衣机龙头02.obj",
+      "bytes": 662486,
+      "sha256": "068cc95e8422aba2380c160e68c49341e77c9808004dcf10d2a7fec460cc8b4e",
+      "file_count": 2,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -226,11 +295,11 @@
       "sha256": "d20e78abbed22052f701cdb57ae293aba50f7906a66e7f6aa05252023a5a3c41",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 51.2,
-        "depth": 145.5,
-        "height": 146.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [],
       "styles": [],
@@ -249,14 +318,42 @@
       "sha256": "3224bd3ae5b43db8303b8953ce3204e2a7d689303a444632b6b277d913dae0ab",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 40.4,
-        "depth": 143.0,
-        "height": 142.3
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-36980709c907",
+      "label": "XYJ1-1 涡轮洗衣机 10L 白色",
+      "category": "洗衣机",
+      "source_category": "洗衣机",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-36980709c907/%E6%B3%A2%E8%BD%AE%E6%B4%97%E8%A1%A3%E6%9C%BA04.fbx",
+      "filename": "波轮洗衣机04.fbx",
+      "bytes": 4660302,
+      "sha256": "be4869af860990499c18afe7d8736d6cd39b4d31a16caa42b255b046398327e1",
+      "file_count": 7,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 620.0,
+        "height": 850.0
+      },
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "XYJ1-1"
+      ],
+      "styles": [
+        "素雅",
+        "轻法"
+      ],
       "source": "卫生间通用部品2026-08-04"
     },
     {
@@ -272,26 +369,19 @@
       "sha256": "a964c235c8b24f3ecfc3bcb45bda7590aabb5902edaefc0c94747312a6b4e501",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 608.0,
-        "depth": 653.0,
-        "height": 860.0
+        "width": 600.0,
+        "depth": 620.0,
+        "height": 850.0
       },
-      "dimension_status": "verified",
-      "price_tier": "comfort",
-      "catalog_codes": [
-        "XYJ1-1",
-        "XYJ2-1"
-      ],
-      "styles": [
-        "中古",
-        "素雅",
-        "轻法"
-      ],
+      "dimension_status": "review",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
       "source": "卫生间通用部品2026-08-04"
     },
     {
       "id": "builtin-d6131b95f1ad",
-      "label": "洗面盆04",
+      "label": "YSG1-1 三聚氰胺板 米白色",
       "category": "浴室柜",
       "source_category": "浴室柜",
       "asset_type": "fixture",
@@ -302,21 +392,235 @@
       "sha256": "2693ee1c3a52786ca8632fb7812d870d7cdd9a635591189202991df33f36fd92",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 800.0,
-        "depth": 500.0,
-        "height": 560.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [
-        "YSG1-1",
-        "YSG1-2"
+        "YSG1-1"
       ],
       "styles": [
-        "中古",
         "素雅",
         "轻法"
       ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-1700810cf4d0",
+      "label": "浴室柜02",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-1700810cf4d0/%E6%B5%B4%E5%AE%A4%E6%9F%9C02.fbx",
+      "filename": "浴室柜02.fbx",
+      "bytes": 1254133,
+      "sha256": "f7031c653243848033bad6825d434aa42df50478ee411eebd8dc3486deb497cf",
+      "file_count": 3,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-9e0a42722f6c",
+      "label": "浴室柜02",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-9e0a42722f6c/%E6%B5%B4%E5%AE%A4%E6%9F%9C02.fbx",
+      "filename": "浴室柜02.fbx",
+      "bytes": 1239543,
+      "sha256": "1e6d2ab69b5350dad3bde1e26a2a44cb9582405c0c3f4b57d09df64841cc61fa",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-024b54f30708",
+      "label": "浴室柜03",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-024b54f30708/%E6%B5%B4%E5%AE%A4%E6%9F%9C03.fbx",
+      "filename": "浴室柜03.fbx",
+      "bytes": 105551,
+      "sha256": "4e528b57cefaca63ba64827cdf31a680257256d1b7a69fa2d5688581411e936a",
+      "file_count": 5,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-ee86844f3374",
+      "label": "YSG1-2 三聚氰胺板 深砂灰",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-ee86844f3374/%E6%B5%B4%E5%AE%A4%E6%9F%9C04.fbx",
+      "filename": "浴室柜04.fbx",
+      "bytes": 5485862,
+      "sha256": "37e843d3fec4e899b245d78d6bae41186c04b1d24175c4e57d254ac830acb983",
+      "file_count": 11,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "YSG1-2"
+      ],
+      "styles": [
+        "中古"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-4e6aa7c674d3",
+      "label": "浴室柜12",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-4e6aa7c674d3/%E6%B5%B4%E5%AE%A4%E6%9F%9C12.fbx",
+      "filename": "浴室柜12.fbx",
+      "bytes": 1649496,
+      "sha256": "953c66127b16c6e83a4b49cdce152da53aa2f652271d04bb451f5eac5fa831d5",
+      "file_count": 3,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-1b3bc3a48425",
+      "label": "浴室柜12",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-1b3bc3a48425/%E6%B5%B4%E5%AE%A4%E6%9F%9C12.fbx",
+      "filename": "浴室柜12.fbx",
+      "bytes": 1627381,
+      "sha256": "4f097fd27602be52996970ba9eb6e652a2c0a35583cac76e2e60e3bdc63ebc0b",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-9939b2a3a052",
+      "label": "浴室柜13",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-9939b2a3a052/%E6%B5%B4%E5%AE%A4%E6%9F%9C13.fbx",
+      "filename": "浴室柜13.fbx",
+      "bytes": 12400465,
+      "sha256": "e608dcc44567262aebf98dbc88b867f662cdf0c9688f033a46bafa353fa47715",
+      "file_count": 5,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-6aae822551e2",
+      "label": "YSG2-1 实木 银灰色",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-6aae822551e2/%E6%B5%B4%E5%AE%A4%E6%9F%9C13.fbx",
+      "filename": "浴室柜13.fbx",
+      "bytes": 1859025,
+      "sha256": "1109fe13314ecbb651e82dc0b7c88becfd8274141a82af3425253a3ddcabb118",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "YSG2-1"
+      ],
+      "styles": [
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-c5c72471dd6f",
+      "label": "镜柜02",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-c5c72471dd6f/%E9%95%9C%E6%9F%9C02.fbx",
+      "filename": "镜柜02.fbx",
+      "bytes": 22767,
+      "sha256": "e7429955554495260e409cfff84988b40e2be808c895607212ed2080c1072df8",
+      "file_count": 3,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
       "source": "卫生间通用部品2026-08-04"
     },
     {
@@ -330,22 +634,65 @@
       "filename": "镜柜04.fbx",
       "bytes": 28973,
       "sha256": "b5b95cb56275010758aeca1cad6609b61748c1b80492bf1764fe2c353dee35f3",
-      "file_count": 2,
+      "file_count": 3,
       "dimensions_mm": {
-        "width": 800.0,
-        "depth": 200.0,
-        "height": 800.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-1814e8c30ae3",
+      "label": "镜柜12",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-1814e8c30ae3/%E9%95%9C%E6%9F%9C12.fbx",
+      "filename": "镜柜12.fbx",
+      "bytes": 30269,
+      "sha256": "cc031d86ef243ce05457b604253907e979024fa8bab547d54ab0877331549564",
+      "file_count": 3,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
+      "price_tier": "premium",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-830af2b34ef3",
+      "label": "YSG2-2 实木 深砂灰",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-830af2b34ef3/%E9%95%9C%E6%9F%9C13.fbx",
+      "filename": "镜柜13.fbx",
+      "bytes": 10549752,
+      "sha256": "220dd4d77dd6abd1ce9d20b796852c4180d44cc6f8384b8654171036986413aa",
+      "file_count": 5,
+      "dimensions_mm": {
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
+      },
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [
-        "YSG2-1",
         "YSG2-2"
       ],
       "styles": [
-        "中古",
-        "素雅",
-        "轻法"
+        "中古"
       ],
       "source": "卫生间通用部品2026-08-04"
     },
@@ -362,11 +709,11 @@
       "sha256": "c948cd54f49de167bf0fafc3d78a07271b9eb5a7aa830ee795e2922fe34a0db9",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 1443.8,
-        "depth": 168.8,
-        "height": 1981.1
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -383,13 +730,13 @@
       "filename": "浴帘_杆03.fbx",
       "bytes": 290071,
       "sha256": "14af80f4d5fde5e177353a21430c37c110dc96b73f2503600cdfc531fe399dea",
-      "file_count": 2,
+      "file_count": 3,
       "dimensions_mm": {
-        "width": 880.0,
-        "depth": 791.2,
-        "height": 2154.4
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [],
       "styles": [],
@@ -408,11 +755,11 @@
       "sha256": "7ab92ff1285dd88b22fc33d3da9032825ce354edb2c715b396a956e6661a5f59",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 906.5,
-        "depth": 800.0,
-        "height": 60.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
@@ -432,10 +779,10 @@
       "file_count": 1,
       "dimensions_mm": {
         "width": 600.0,
-        "depth": 300.0,
-        "height": 28.0
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -454,11 +801,11 @@
       "sha256": "6560316058a0e1aaa18748820a078fb0b02cfeae4109dced95850642650589ff",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 300.0,
+        "width": 600.0,
         "depth": 600.0,
-        "height": 42.2
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
@@ -466,7 +813,7 @@
     },
     {
       "id": "builtin-04af31ed4ab8",
-      "label": "无障碍淋浴室坐凳001",
+      "label": "LYY-1",
       "category": "淋浴椅",
       "source_category": "无障碍淋浴室坐凳001",
       "asset_type": "fixture",
@@ -475,13 +822,13 @@
       "filename": "无障碍淋浴室坐凳001.gltf",
       "bytes": 2979,
       "sha256": "db788597a8120b9d41e6662eac1be3a890366bd5676571842cbec81de659a037",
-      "file_count": 2,
+      "file_count": 3,
       "dimensions_mm": {
         "width": 600.0,
-        "depth": 500.0,
-        "height": 100.0
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [
         "LYY-1"
@@ -493,7 +840,7 @@
     },
     {
       "id": "builtin-417fff574c2d",
-      "label": "淋浴隔断01",
+      "label": "不锈钢 0.8mm钢化玻璃 不锈钢色",
       "category": "淋浴隔断",
       "source_category": "淋浴隔断",
       "asset_type": "fixture",
@@ -502,13 +849,13 @@
       "filename": "淋浴隔断01.fbx",
       "bytes": 22820,
       "sha256": "ca59c467250869e25f7bd34b5f33ccb9b116ed4753aa6931427d649da14a60c6",
-      "file_count": 2,
+      "file_count": 3,
       "dimensions_mm": {
-        "width": 900.0,
-        "depth": 40.0,
-        "height": 2184.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [
         "GD1-1"
@@ -521,7 +868,7 @@
     },
     {
       "id": "builtin-c13a8a96eee4",
-      "label": "淋浴隔断02",
+      "label": "不锈钢 0.8mm钢化玻璃 枪灰色",
       "category": "淋浴隔断",
       "source_category": "淋浴隔断",
       "asset_type": "fixture",
@@ -532,11 +879,11 @@
       "sha256": "bbb6c6024af616457d77e367b50badcafd3a000e24c989f80d5a86ed4d2cf232",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 500.3,
-        "depth": 27.9,
-        "height": 2042.5
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [
         "GD1-2"
@@ -549,7 +896,7 @@
     },
     {
       "id": "builtin-29811cae872f",
-      "label": "淋浴隔断04",
+      "label": "钛镁合金 1.0mm钢化玻璃 银白色",
       "category": "淋浴隔断",
       "source_category": "淋浴隔断",
       "asset_type": "fixture",
@@ -558,13 +905,13 @@
       "filename": "淋浴隔断04.fbx",
       "bytes": 2489184,
       "sha256": "77e61dbf0ddb0c26977959b0064cd5fce752e505a7cd37cb3c65e54b49e1eb09",
-      "file_count": 2,
+      "file_count": 3,
       "dimensions_mm": {
-        "width": 2145.0,
-        "depth": 158.4,
-        "height": 2000.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [
         "GD2-1"
@@ -577,7 +924,7 @@
     },
     {
       "id": "builtin-04d0e87ffb23",
-      "label": "淋浴隔断_钻石形",
+      "label": "钛镁合金 1.0mm钢化玻璃 枪灰色",
       "category": "淋浴隔断",
       "source_category": "淋浴隔断",
       "asset_type": "fixture",
@@ -588,11 +935,11 @@
       "sha256": "ee53503d0d370366cc845abad84ef067ca0a3b6ff90ef3741a32f44c8711137c",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 977.0,
-        "depth": 1913.7,
-        "height": 972.2
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [
         "GD2-2"
@@ -604,8 +951,91 @@
       "source": "卫生间通用部品2026-08-04"
     },
     {
+      "id": "builtin-7e01e1a25bb9",
+      "label": "RSQ1-1 60L 二级能效 搪瓷内胆 米白色",
+      "category": "热水器",
+      "source_category": "热水器",
+      "asset_type": "fixture",
+      "format": "obj",
+      "src": "/model-library/models/builtin-7e01e1a25bb9/Heater_01.obj",
+      "filename": "Heater_01.obj",
+      "bytes": 34473308,
+      "sha256": "d5783115d71ea8668e12495c0406a5c5196eb57be92476e9fe9af4705bd2dbc8",
+      "file_count": 6,
+      "dimensions_mm": {
+        "width": 720.0,
+        "depth": 180.0,
+        "height": 430.0
+      },
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "RSQ1-1"
+      ],
+      "styles": [
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-2ee299aadf82",
+      "label": "RSQ1-2 60L 二级能效 搪瓷内胆 玫瑰金",
+      "category": "热水器",
+      "source_category": "热水器",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-2ee299aadf82/%E7%83%AD%E6%B0%B4%E5%99%A8.fbx",
+      "filename": "热水器.fbx",
+      "bytes": 7181924,
+      "sha256": "a6c15d38b03de78b8f37397a6981d4732e76400b4be173240a6d32a064bd31bd",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 720.0,
+        "depth": 180.0,
+        "height": 430.0
+      },
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "RSQ1-2"
+      ],
+      "styles": [
+        "中古"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-c9cc5886563b",
+      "label": "RSQ2-1 60L 一级能效 钛金内胆 米白色",
+      "category": "热水器",
+      "source_category": "热水器",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-c9cc5886563b/%E7%83%AD%E6%B0%B4%E5%99%A801.fbx",
+      "filename": "热水器01.fbx",
+      "bytes": 109662484,
+      "sha256": "1862bccf900c2d20e25635040b0f45b722ee24477057e776fc9479d3f2da4374",
+      "file_count": 5,
+      "dimensions_mm": {
+        "width": 720.0,
+        "depth": 180.0,
+        "height": 430.0
+      },
+      "dimension_status": "review",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "RSQ2-1"
+      ],
+      "styles": [
+        "素雅",
+        "轻法"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
       "id": "builtin-c75e03bf4c39",
-      "label": "热水器01",
+      "label": "RSQ2-2 60L 一级能效 钛金内胆 玫瑰金",
       "category": "热水器",
       "source_category": "热水器",
       "asset_type": "fixture",
@@ -614,24 +1044,19 @@
       "filename": "热水器01.glb",
       "bytes": 25370516,
       "sha256": "d87b046454d8054c13d6940c257d664e9ec426c104c252806352b91de71ccea3",
-      "file_count": 3,
+      "file_count": 5,
       "dimensions_mm": {
-        "width": 780.0,
-        "depth": 450.0,
-        "height": 520.0
+        "width": 720.0,
+        "depth": 180.0,
+        "height": 430.0
       },
-      "dimension_status": "verified",
-      "price_tier": "comfort",
+      "dimension_status": "review",
+      "price_tier": "premium",
       "catalog_codes": [
-        "RSQ1-1",
-        "RSQ1-2",
-        "RSQ2-1",
         "RSQ2-2"
       ],
       "styles": [
-        "中古",
-        "素雅",
-        "轻法"
+        "中古"
       ],
       "source": "卫生间通用部品2026-08-04"
     },
@@ -648,11 +1073,11 @@
       "sha256": "459549c253c82f3adb1ac67b0d7feec698ca599a28d680599c012721b0c43d96",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 299.9,
-        "depth": 599.9,
-        "height": 31.8
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [],
       "styles": [],
@@ -671,11 +1096,11 @@
       "sha256": "5737d8a020465580a92c7cf742d63a5199cd8008673f1d94fa2dd66558a965cb",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 56.3,
-        "depth": 3.8,
-        "height": 56.3
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -694,11 +1119,11 @@
       "sha256": "b082cef5bb79bc236b208dd94ec63304e7d0259df3cc548b3bcc53ad2e580f0e",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 55.8,
-        "depth": 6.5,
-        "height": 55.9
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -717,11 +1142,11 @@
       "sha256": "ca5bc249f784f18278b719159193b338d50ff485b31a8491e3d754d59b080668",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 86.0,
-        "depth": 31.4,
-        "height": 86.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [],
       "styles": [],
@@ -740,11 +1165,11 @@
       "sha256": "a22b3e67237a2abf22169f323e74501c11f0861c2056ab430a758dca53f0832d",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 56.3,
-        "depth": 4.5,
-        "height": 56.3
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [],
       "styles": [],
@@ -761,13 +1186,13 @@
       "filename": "浴霸面板.fbx",
       "bytes": 705667,
       "sha256": "933337a082c88dd65f3529988a808a0fb2f56f2597e535ee6f1df42e4e019fb3",
-      "file_count": 2,
+      "file_count": 3,
       "dimensions_mm": {
-        "width": 47.4,
-        "depth": 4.0,
-        "height": 47.3
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
@@ -786,11 +1211,11 @@
       "sha256": "706286e4c4504b377a5038d7014cd290580594c696386bc72d2846a94f2a52d0",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 106.7,
-        "depth": 40.4,
-        "height": 123.4
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
@@ -807,21 +1232,48 @@
       "filename": "置物架01.fbx",
       "bytes": 8193663,
       "sha256": "ca8a9f26f87c36a6047b8db597ab08193bc9a9a95d72994dca768a30610fc4e1",
-      "file_count": 6,
+      "file_count": 11,
       "dimensions_mm": {
-        "width": 607.9,
-        "depth": 198.9,
-        "height": 618.3
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [],
       "styles": [],
       "source": "卫生间通用部品2026-08-04"
     },
     {
+      "id": "builtin-b336a2a4a19b",
+      "label": "HS1-1 枪灰色",
+      "category": "花洒",
+      "source_category": "花洒",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-b336a2a4a19b/%E5%8F%8C%E5%A4%B4%E5%88%86%E4%BD%93%E5%BC%8F%E8%8A%B1%E6%B4%92_04.fbx",
+      "filename": "双头分体式花洒_04.fbx",
+      "bytes": 22275417,
+      "sha256": "01fb2b39ae3cd2ef81c93dd87d8b7d86eb6f43d1e7ba56c48a2c43b8b241e178",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 120.0,
+        "depth": 80.0,
+        "height": 1100.0
+      },
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [
+        "HS1-1"
+      ],
+      "styles": [
+        "中古"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
       "id": "builtin-79be9e62cd0c",
-      "label": "双头花洒_03",
+      "label": "HS1-2 银白色",
       "category": "花洒",
       "source_category": "花洒",
       "asset_type": "fixture",
@@ -830,20 +1282,18 @@
       "filename": "双头花洒_03.fbx",
       "bytes": 8629154,
       "sha256": "96c272b2ea8973253a4ed17c60cd3998266be6ab18f87c314aa24a600cc3cb60",
-      "file_count": 2,
+      "file_count": 3,
       "dimensions_mm": {
-        "width": 284.7,
-        "depth": 484.9,
-        "height": 1327.1
+        "width": 120.0,
+        "depth": 80.0,
+        "height": 1100.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [
-        "HS1-1",
         "HS1-2"
       ],
       "styles": [
-        "中古",
         "素雅",
         "轻法"
       ],
@@ -851,7 +1301,7 @@
     },
     {
       "id": "builtin-8450a5d05d27",
-      "label": "双头花洒_2",
+      "label": "HS2-1 枪灰色 恒温",
       "category": "花洒",
       "source_category": "花洒",
       "asset_type": "fixture",
@@ -862,41 +1312,66 @@
       "sha256": "749a3a669e5271f175d9286d19d4de719f6310f995ce682279fb3b72dc655140",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 376.5,
-        "depth": 660.1,
-        "height": 1360.4
+        "width": 120.0,
+        "depth": 80.0,
+        "height": 1100.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
+      "price_tier": "comfort",
+      "catalog_codes": [
+        "HS2-1"
+      ],
+      "styles": [
+        "中古"
+      ],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-534566bbc737",
+      "label": "HS2-2 银白色 恒温",
+      "category": "花洒",
+      "source_category": "花洒",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-534566bbc737/%E8%8A%B1%E6%B4%92.fbx",
+      "filename": "花洒.fbx",
+      "bytes": 8739194,
+      "sha256": "a7c7b11e7537d561f7ef2b4f63521932de327f4fdc184b079def96e43f750662",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 120.0,
+        "depth": 80.0,
+        "height": 1100.0
+      },
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [
-        "HS2-1",
         "HS2-2"
       ],
       "styles": [
-        "中古",
         "素雅",
         "轻法"
       ],
       "source": "卫生间通用部品2026-08-04"
     },
     {
-      "id": "builtin-0fb3144ea850",
-      "label": "扶手B",
+      "id": "builtin-1904fb29c6b0",
+      "label": "FSH-1",
       "category": "花洒扶手",
       "source_category": "扶手",
       "asset_type": "fixture",
       "format": "fbx",
-      "src": "/model-library/models/builtin-0fb3144ea850/%E6%89%B6%E6%89%8BB.fbx",
-      "filename": "扶手B.fbx",
+      "src": "/model-library/models/builtin-1904fb29c6b0/FSH-1.fbx",
+      "filename": "FSH-1.fbx",
       "bytes": 104736,
       "sha256": "99cd78895fcafc7865fdfe44d0f0d4873534e1b806df1ce0271a1d1b9dd39f83",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 2500.0,
-        "depth": 2500.0,
-        "height": 400.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [
         "FSH-1"
@@ -919,11 +1394,11 @@
       "sha256": "d4acca567fb83fb65b7b986cd021eb07907779eca3ced9e51ae4663a1fda13f1",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 200.1,
-        "depth": 200.0,
-        "height": 406.3
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [],
       "styles": [],
@@ -942,11 +1417,11 @@
       "sha256": "6283b1cf0fe8b560b547853d457b1dc7412537f91c0dbd8ce5a9aee46cdcdc00",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 1038.0,
-        "depth": 270.0,
-        "height": 2219.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -963,13 +1438,13 @@
       "filename": "垭口套03.fbx",
       "bytes": 814550,
       "sha256": "b113202ea6fe164e5ec7ac9604b30845cf0a0af961ed322ab3e9299e96af80b5",
-      "file_count": 2,
+      "file_count": 3,
       "dimensions_mm": {
-        "width": 845.1,
-        "depth": 270.2,
-        "height": 2006.2
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -988,11 +1463,11 @@
       "sha256": "c93ed6477a0cf325d97a79bdef95fa7620ebe230d9c177592768db62d72c3180",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 835.0,
-        "depth": 200.0,
-        "height": 1305.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "basic",
       "catalog_codes": [],
       "styles": [],
@@ -1011,11 +1486,11 @@
       "sha256": "2d9bb3a46236063aa18f3978e5fcb03ec3cbc3dd14ce3cb86e2f4e961f2df60d",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 950.6,
-        "depth": 50.0,
-        "height": 1300.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [],
       "styles": [],
@@ -1034,11 +1509,11 @@
       "sha256": "a8ce43c4db951ae73f4c6ccea1da058d1f362dd6917fcd105d6645ed1c85ed13",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 1430.0,
-        "depth": 120.0,
-        "height": 1420.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "comfort",
       "catalog_codes": [],
       "styles": [],
@@ -1057,11 +1532,11 @@
       "sha256": "911426c7bd6e050cb13397a7c0724c0b9b44e6264401b45d9ee1de2c3d29dd06",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 1430.0,
-        "depth": 120.0,
-        "height": 1420.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
@@ -1078,13 +1553,13 @@
       "filename": "门03.fbx",
       "bytes": 7122028,
       "sha256": "271fd0d8198ee7eb676f905bdafc8ffa9c93a007c358e466d39711a0d983a8bb",
-      "file_count": 2,
+      "file_count": 3,
       "dimensions_mm": {
-        "width": 750.0,
-        "depth": 200.0,
-        "height": 2000.0
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
@@ -1101,39 +1576,62 @@
       "filename": "门04.fbx",
       "bytes": 818724,
       "sha256": "c779d891311f1dc4b3b2cd506acfc4fd8433205d8db282a681bbf4229f969543",
-      "file_count": 2,
+      "file_count": 3,
       "dimensions_mm": {
-        "width": 270.2,
-        "depth": 845.1,
-        "height": 2006.2
+        "width": 600.0,
+        "depth": 600.0,
+        "height": 600.0
       },
-      "dimension_status": "verified",
+      "dimension_status": "review",
       "price_tier": "premium",
       "catalog_codes": [],
       "styles": [],
       "source": "卫生间通用部品2026-08-04"
     },
     {
-      "id": "builtin-d91bb5e76cd2",
-      "label": "扶手B1",
-      "category": "马桶扶手",
-      "source_category": "扶手",
+      "id": "builtin-78b8e59493c7",
+      "label": "坐便器",
+      "category": "马桶",
+      "source_category": "马桶",
       "asset_type": "fixture",
-      "format": "fbx",
-      "src": "/model-library/models/builtin-d91bb5e76cd2/%E6%89%B6%E6%89%8BB1.fbx",
-      "filename": "扶手B1.fbx",
-      "bytes": 104896,
-      "sha256": "16ef39f9cb3834af169e7b15db6bdfd40bc95ed1a9e6240899bfabcb420c05b4",
+      "format": "3ds",
+      "src": "/model-library/models/builtin-78b8e59493c7/%E5%9D%90%E4%BE%BF%E5%99%A8.3ds",
+      "filename": "坐便器.3ds",
+      "bytes": 1694375,
+      "sha256": "f96ba8967c9db6a0d3fad1330021753ef10cf7dc1e02557ec99c9f94b3cca1c5",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 2500.0,
-        "depth": 2500.0,
-        "height": 400.0
+        "width": 380.0,
+        "depth": 680.0,
+        "height": 760.0
       },
-      "dimension_status": "verified",
-      "price_tier": "comfort",
+      "dimension_status": "review",
+      "price_tier": "basic",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
+      "id": "builtin-9cdeb3c5025a",
+      "label": "MT3 智能马桶（加热、感应冲水、臀洗、杀菌）",
+      "category": "马桶",
+      "source_category": "马桶",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-9cdeb3c5025a/%E6%99%BA%E8%83%BD%E5%9D%90%E4%BE%BF%E5%99%A8.fbx",
+      "filename": "智能坐便器.fbx",
+      "bytes": 135808,
+      "sha256": "ce23ef42c17da53def16083f77c3c0ddbb35c41a7fb68dbb49c3702e530c9b99",
+      "file_count": 1,
+      "dimensions_mm": {
+        "width": 380.0,
+        "depth": 680.0,
+        "height": 760.0
+      },
+      "dimension_status": "review",
+      "price_tier": "premium",
       "catalog_codes": [
-        "FSM-1"
+        "MT3"
       ],
       "styles": [
         "通用"

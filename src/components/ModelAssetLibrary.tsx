@@ -75,6 +75,9 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const dragDepth = useRef(0)
   const previewCaptures = useRef<Record<string, () => string>>({})
   const [uploadedAssets, setUploadedAssets] = useState<ImportedModelAsset[]>([])
+  // Built-in assets are read from the generated manifest, so keep corrections
+  // returned by the API locally until the next manifest/API refresh.
+  const [builtinOverrides, setBuiltinOverrides] = useState<Record<string, Partial<DisplayModelAsset>>>({})
   const [selectedId, setSelectedId] = useState('')
   const [dimensions, setDimensions] = useState<Record<string, Dimensions>>({})
   const [dragging, setDragging] = useState(false)
@@ -101,6 +104,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
       .then((assets) => {
         if (!active) return
         setUploadedAssets(assets)
+        setBuiltinOverrides({})
         setSelectedId(assets[0]?.id ?? '')
       })
       .catch((requestError: Error) => { if (active) setError(requestError.message) })
@@ -109,9 +113,9 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }, [projectId])
 
   const assets = useMemo(() => [
-    ...builtInRoomAssets.filter((asset) => !uploadedAssets.some((uploaded) => uploaded.id === asset.id)).map((asset): DisplayModelAsset => ({ ...asset, filename: asset.label, fileCount: 1, builtIn: true })),
+    ...builtInRoomAssets.filter((asset) => !uploadedAssets.some((uploaded) => uploaded.id === asset.id)).map((asset): DisplayModelAsset => ({ ...asset, ...builtinOverrides[asset.id], filename: asset.filename ?? asset.label, fileCount: 1, builtIn: true })),
     ...uploadedAssets.map(uploadedDisplayAsset),
-  ], [uploadedAssets])
+  ], [builtinOverrides, uploadedAssets])
   const selected = assets.find((asset) => asset.id === selectedId) ?? assets[0]
   const selectedDimensions = selected ? dimensions[selected.id] ?? selected.dimensions_mm : defaultDimensions
   const selectedForRoom = selected && selected.asset_type !== 'surface' ? { ...selected, dimensions_mm: selectedDimensions } : null
@@ -188,7 +192,17 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
     }
   }
 
-  const replaceAsset = (updated: ImportedModelAsset) => setUploadedAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
+  const replaceAsset = (updated: ImportedModelAsset) => {
+    if (updated.library_scope === 'builtin') {
+      const display = uploadedDisplayAsset(updated)
+      setBuiltinOverrides((current) => ({ ...current, [updated.id]: display }))
+      // The API list also contains built-ins after the initial load; update it
+      // as well so the visible asset does not fall back to stale metadata.
+      setUploadedAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
+      return
+    }
+    setUploadedAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
+  }
   const changeCorrectionTag = async (tag: ImportedModelAsset['correction_tag']) => {
     if (!selected || selected.asset_type === 'surface') return
     try {

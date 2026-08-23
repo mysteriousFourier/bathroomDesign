@@ -3,7 +3,7 @@ import graphOutput from './generated-layout-products.json'
 import productCatalog from './generated-product-catalog.json'
 import { dimensionsFor } from './modelDimensions'
 import { builtInAssetAsRoomAsset, exactModelAssetForProduct, modelAssetForProduct, surfaceAssetForProduct, type BuiltInModelRecord } from './modelLibrary'
-import { ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixturePointUsage, nearestWallIndex, projectPointToWall, toiletPlacementFromDrain, wallInwardNormal, wetZoneBoundaryValid } from './spec'
+import { applyWetZoneBoundaryChange, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixturePointUsage, nearestWallIndex, projectPointToWall, SHOWER_DRAIN_CENTER_OFFSET_MM, SHOWER_DRAIN_WALL_CLEARANCE_MM, toiletPlacementFromDrain, wallInwardNormal, wetZoneBoundaryValid } from './spec'
 
 export type DemandProfile = 'standard_shower' | 'laundry' | 'elderly_safe'
 export type BudgetTier = 'basic' | 'comfort' | 'premium'
@@ -52,6 +52,15 @@ const demandLabels: Record<DemandProfile, string> = {
 const budgetLabels: Record<BudgetTier, string> = { basic: '经济档', comfort: '舒适档', premium: '品质档' }
 const layoutLabels: Record<BudgetTier, string> = { basic: '约束求解方案', comfort: '约束求解方案', premium: '约束求解方案' }
 const budgets: BudgetTier[] = ['basic', 'comfort', 'premium']
+
+/** Finished-surface dimensions used by deterministic auto-layout (millimetres). */
+export const BATHROOM_AUTO_LAYOUT_RULES = Object.freeze({
+  shower_min_internal_mm: 800,
+  toilet_front_clearance_mm: 500,
+  shower_drain_wall_clearance_mm: SHOWER_DRAIN_WALL_CLEARANCE_MM,
+  shower_drain_center_offset_mm: SHOWER_DRAIN_CENTER_OFFSET_MM,
+  vanity_height_max_mm: 850,
+})
 
 type GraphProduct = { graph_id: string; code: string; category: string; spec: string; price: number }
 type CatalogProduct = { 材料编号: string; 材料名称: string; 规格型号: string; 人群: string; 风格: string; 单价: string; 数量单位: string; 备注: string }
@@ -141,7 +150,7 @@ function buildLayoutScript(demand:DemandProfile,budget:BudgetTier,spec:RoomSpec)
   const instructions:LayoutInstruction[]=[
     {fixture_role:'wet_zone',wall:wetWall,zone:'wet',near:'shower_drain',min_clearance_mm:0},
     {fixture_role:'vanity',wall:dryWall,zone:'dry',min_clearance_mm:600},
-    {fixture_role:'toilet',wall:serviceWall,zone:'dry',near:'toilet_drain',min_clearance_mm:demand==='elderly_safe'?800:600},
+    {fixture_role:'toilet',wall:serviceWall,zone:'dry',near:'toilet_drain',min_clearance_mm:demand==='elderly_safe'?800:Math.max(600,BATHROOM_AUTO_LAYOUT_RULES.toilet_front_clearance_mm)},
     {fixture_role:'heater',wall:wetWall,zone:'service',near:'wet_zone',min_clearance_mm:0},
   ]
   if(demand==='laundry')instructions.push({fixture_role:'washer',wall:serviceWall,zone:'service',near:'water',min_clearance_mm:600})
@@ -220,6 +229,8 @@ function snapshotAsset(lookup?: ModelLookup): FixtureModelAsset | undefined {
     label: lookup.model_asset_label ?? `${lookup.catalog_code} ${lookup.category}`,
     unit: 'm', fit: 'contain', source: '需求助手产品模型快照',
     source_asset_id: lookup.model_asset_id ?? undefined, lifecycle: 'approved',
+    orientation_view: lookup.model_orientation_view,
+    orientation_mapping: lookup.model_orientation_mapping,
   }
 }
 
@@ -862,7 +873,7 @@ function solveToiletReservation(spec: RoomSpec, item: FixtureSpec | undefined, o
 }
 
 function solveWetZone(spec: RoomSpec, id: string, label: string, preferredSize: number, instruction: LayoutInstruction, occupied: FixtureSpec[], plumbing: FixtureSpec | undefined, trace: { evaluated: number; feasible: number }) {
-  const minimumSize = 800
+  const minimumSize = BATHROOM_AUTO_LAYOUT_RULES.shower_min_internal_mm
   const sizes = [...new Set([preferredSize, 900, minimumSize])].filter((size) => size <= preferredSize && size >= minimumSize)
   let last = fixture(id, 'shower', label, plumbing?.x_mm ?? 0, plumbing?.z_mm ?? 0, minimumSize, minimumSize, 2000)
   for (const size of sizes) {
@@ -915,9 +926,9 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
   const placementFailures:string[]=[]
   if(!wetPlacement.solved)placementFailures.push(shower.label)
   const vanityProduct = graphProduct(demand, demand === 'elderly_safe' ? '适老浴室柜' : '浴室柜', quality, style)
-  const vanityDimensions = dimensionsFor(vanityProduct.category, { width_mm: vanityWidth, depth_mm: 560, height_mm: quality === 2 ? 900 : 850 })
+  const vanityDimensions = dimensionsFor(vanityProduct.category, { width_mm: vanityWidth, depth_mm: 560, height_mm: BATHROOM_AUTO_LAYOUT_RULES.vanity_height_max_mm })
   const vt=semanticTarget(spec,instruction('vanity'),vanityDimensions.width_mm,vanityDimensions.depth_mm),vp={...vt,rotation:0}
-  const vanity = productFixture(`${demand}-${budget}-vanity`, 'vanity', vanityProduct, vp.x, vp.z, { width_mm: vanityWidth, depth_mm: 560, height_mm: quality === 2 ? 900 : 850 }, vp.rotation, 0, true)
+  const vanity = productFixture(`${demand}-${budget}-vanity`, 'vanity', vanityProduct, vp.x, vp.z, { width_mm: vanityWidth, depth_mm: 560, height_mm: BATHROOM_AUTO_LAYOUT_RULES.vanity_height_max_mm }, vp.rotation, 0, true)
   const tt=measuredToiletAnchor?{x:measuredToiletAnchor.x_mm,z:measuredToiletAnchor.z_mm}:{...semanticTarget(spec,instruction('toilet'),toiletWidth,toiletDepth)},tp={...tt,rotation:measuredToiletAnchor?.rotation_deg??0}
   const toiletX = tp.x
   const toiletZ = tp.z
@@ -1201,10 +1212,23 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
     const relative = (value - minimum - offset) / module
     return minimum + offset + (towardMinimum ? Math.floor(relative) : Math.ceil(relative)) * module
     }
-    const exact = [
+    const exact: Cut[] = [
       {axis,keepMinimum:true,cut:centre+halfWet},
       {axis,keepMinimum:false,cut:centre-halfWet},
     ]
+    // The placement solver optimizes the shower envelope first. In an
+    // orthogonal room that envelope can be legal while not sitting at a
+    // convex corner, so restricting dividers to its current coordinates made
+    // application fail late. Also consider the nearest legal corner-sized
+    // rectangles; application will project generated shower items into the
+    // chosen rectangle while measured points remain authoritative.
+    for (const corner of room) {
+      const value = coordinate(corner, axis)
+      exact.push(
+        { axis, keepMinimum:true, cut:value + halfWet * 2 },
+        { axis, keepMinimum:false, cut:value - halfWet * 2 },
+      )
+    }
     // A joint is preferred, but it is not a feasibility constraint. Near an
     // irregular wall the outward joint can land on (or beyond) the room bound
     // and erase the divider, so retain the exact wet-envelope cut as fallback.
@@ -1245,8 +1269,6 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
     const top=Math.min(corner.z_mm,zCut.cut),bottom=Math.max(corner.z_mm,zCut.cut)
     if(right-left<50||bottom-top<50)return false
     const boundary=[{x_mm:left,z_mm:top},{x_mm:right,z_mm:top},{x_mm:right,z_mm:bottom},{x_mm:left,z_mm:bottom}]
-    const wetHalfWidth=wet.width_mm/2,wetHalfDepth=wet.depth_mm/2
-    if(wet.x_mm-wetHalfWidth<left-.01||wet.x_mm+wetHalfWidth>right+.01||wet.z_mm-wetHalfDepth<top-.01||wet.z_mm+wetHalfDepth>bottom+.01)return false
     if(!wetZoneBoundaryValid({...spec,fixtures:[...spec.fixtures,...solution.fixtures],dry_wet_zones:[]},`candidate-${solution.id}`,boundary))return false
     const edges=boundary.map((start,index)=>({start,end:boundary[(index+1)%4]}))
     if(edges.some(({start,end})=>!pointInPolygon((start.x_mm+end.x_mm)/2,(start.z_mm+end.z_mm)/2,room)&&!edgeOnWall(start,end)))return false
@@ -1258,12 +1280,34 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
     // number of source runs is descriptive and must not make the rectangle
     // infeasible.
     if(wallRuns<2)return false
-    return {boundary,wallRuns}
-  }))).filter((candidate):candidate is {boundary:typeof room;wallRuns:number}=>candidate!==false)
+    const projectedWet:FixtureSpec={id:`candidate-wet-${solution.id}`,kind:'shower',label:'淋浴实体',height_mm:2000,rotation_deg:0,source:'derived',confidence:1,...wet,x_mm:(left+right)/2,z_mm:(top+bottom)/2}
+    if(!fixtureInsideRoom(projectedWet,boundary))return false
+    const retained=spec.fixtures.filter(retainFixtureAcrossLayouts)
+    const hasMeasuredShowerDrain=retained.some((item)=>item.kind==='floor_drain'&&fixturePointUsage(item)==='shower')
+    const generated=solution.fixtures
+      .filter((item)=>!(hasMeasuredShowerDrain&&item.kind==='floor_drain'&&fixturePointUsage(item)==='shower'))
+      .map((item)=>({...item,layout_generated:true}))
+    const candidateZone={id:`candidate-${solution.id}`,kind:'wet' as const,label:'候选湿区',boundary:boundary.map((point)=>({...point})),source:'derived' as const,confidence:1}
+    const candidateSpec:RoomSpec={...spec,fixtures:[...retained.map((item)=>({...item})),...generated],dry_wet_zones:[candidateZone]}
+    if(!applyWetZoneBoundaryChange(candidateSpec,candidateZone.id,boundary))return false
+    candidateZone.source='derived'
+    const showerFloorEntities=[projectedWet,...candidateSpec.fixtures.filter((item)=>(item.elevation_mm??0)===0&&(
+      (item.kind==='floor_drain'&&fixturePointUsage(item)==='shower')||/淋浴椅|适老椅/.test(item.label)
+    ))]
+    if(showerFloorEntities.some((item)=>!fixtureInsideRoom(item,boundary)))return false
+    const hardEntities=candidateSpec.fixtures.filter((item)=>
+      (item.elevation_mm??0)===0
+      && !['floor_drain','drain','water','electric'].includes(item.kind)
+      && !/花洒|淋浴椅|适老椅/.test(item.label),
+    )
+    if(hardEntities.some((item)=>overlaps(projectedWet,item,30)))return false
+    const centerDistance=Math.hypot((left+right)/2-wet.x_mm,(top+bottom)/2-wet.z_mm)
+    return {boundary,wallRuns,centerDistance}
+  }))).filter((candidate):candidate is {boundary:typeof room;wallRuns:number;centerDistance:number}=>candidate!==false)
   if (!candidates.length) throw new Error('当前房间无法用两根正交分界线与两条连续墙边围成矩形湿区')
   return candidates.sort((left,right) => {
     const area=(points:typeof room)=>Math.abs(points.reduce((sum,point,index)=>{const next=points[(index+1)%points.length];return sum+point.x_mm*next.z_mm-next.x_mm*point.z_mm},0))/2
-    return area(left.boundary)-area(right.boundary) || left.wallRuns-right.wallRuns
+    return left.centerDistance-right.centerDistance || area(left.boundary)-area(right.boundary) || left.wallRuns-right.wallRuns
   })[0].boundary
 }
 
@@ -1271,11 +1315,17 @@ export function applyLayoutSolution(spec: RoomSpec, solution: LayoutSolution): R
   const blocking = solution.checks.filter((item) => !item.passed && item.severity === 'error')
   if (blocking.length) throw new Error(`方案存在硬错误：${blocking.map((item) => item.code).join('、')}`)
   const retainedFixtures = spec.fixtures.filter(retainFixtureAcrossLayouts)
+  const hasMeasuredShowerDrain = retainedFixtures.some((item) => item.kind === 'floor_drain' && fixturePointUsage(item) === 'shower')
+  const generatedFixtures = solution.fixtures.filter((item) => !(hasMeasuredShowerDrain && item.kind === 'floor_drain' && fixturePointUsage(item) === 'shower'))
   const retainedZones = (spec.dry_wet_zones ?? []).filter((zone) => zone.source !== 'derived')
   const solvedZone = { id: `layout-wet-${solution.id}`, kind: 'wet' as const, label: '自动生成湿区（空间，非家具）', boundary: wetZoneBoundaryForSolution(spec, solution), source: 'derived' as const, confidence: 1 }
   // 热水器吊顶凹槽随方案写入 ceiling_zones；重复应用时替换旧凹槽。
   const ceilingZones = (spec.ceiling_zones ?? []).filter((zone) => zone.id !== HEATER_RECESS_ZONE_ID)
   if (solution.ceiling_recess) ceilingZones.push(solution.ceiling_recess)
-  const next = { ...spec, wall_finish_gap_mm: Math.max(35, spec.wall_finish_gap_mm ?? 0), fixtures: [...retainedFixtures, ...solution.fixtures.map((fixture) => ({ ...fixture, layout_generated: true }))], dry_wet_zones: retainedZones.length ? retainedZones : [solvedZone], ceiling_zones: ceilingZones }
+  const next = { ...spec, wall_finish_gap_mm: Math.max(35, spec.wall_finish_gap_mm ?? 0), fixtures: [...retainedFixtures, ...generatedFixtures.map((fixture) => ({ ...fixture, layout_generated: true }))], dry_wet_zones: retainedZones.length ? retainedZones : [solvedZone], ceiling_zones: ceilingZones }
+  if (!retainedZones.length) {
+    if (!applyWetZoneBoundaryChange(next, solvedZone.id, solvedZone.boundary)) throw new Error('湿区边界应用失败：无法生成合法湿区或同步淋浴实体')
+    solvedZone.source = 'derived'
+  }
   return ensureWallFinishGapsForBoundPoints(next)
 }

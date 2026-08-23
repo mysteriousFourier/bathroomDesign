@@ -2,6 +2,8 @@ import type { FixtureModelAsset, ModelAssetFormat } from './types'
 
 export interface RoomModelAsset extends FixtureModelAsset {
   format: ModelAssetFormat
+  /** Original source filename, retained when the display label is a product specification. */
+  filename?: string
   dimensions_mm: { width: number; depth: number; height: number }
   category?: string
   asset_type?: 'fixture' | 'surface'

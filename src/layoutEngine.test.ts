@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { applyLayoutSolution, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, effectiveLayoutInstruction, fixtureFront, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, heaterMountingPlan, HEATER_MAX_RECESS_MM, HEATER_MIN_BOTTOM_MM, optimizeFloorLayout } from './layoutEngine'
-import { finishedRoomBoundary, fixtureLocalFootprint, manualRoom, projectPointToWall, wallInwardNormal } from './spec'
+import { applyLayoutSolution, BATHROOM_AUTO_LAYOUT_RULES, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, effectiveLayoutInstruction, fixtureFront, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, heaterMountingPlan, HEATER_MAX_RECESS_MM, HEATER_MIN_BOTTOM_MM, optimizeFloorLayout } from './layoutEngine'
+import { clientValidate, finishedRoomBoundary, fixtureLocalFootprint, fixturePointUsage, manualRoom, projectPointToWall, wallInwardNormal, wetZoneBoundaryValid } from './spec'
 import { modelDimensions } from './modelDimensions'
 import graphOutput from './generated-layout-products.json'
 import type { LayoutLevelDecision } from './types'
@@ -69,6 +69,53 @@ describe('deterministic requirement layout engine', () => {
     expect(candidates.every((solution) => solution.checks.every((check) => check.passed || check.severity !== 'error'))).toBe(true)
     expect(new Set(candidates.map((solution) => solution.selected_product_ids.slice().sort().join('|'))).size).toBe(3)
     expect(candidates.every((solution, index) => index === 0 || candidates[index - 1].total_price < solution.total_price)).toBe(true)
+    for (const solution of candidates) {
+      const applied = applyLayoutSolution(moved, solution)
+      const drain = applied.fixtures.find((fixture) => fixture.id === 'shower-drain')!
+      const wet = applied.dry_wet_zones?.find((zone) => zone.kind === 'wet')!
+      expect(drain.source).toBe('measured')
+      expect(applied.fixtures.filter((fixture) => fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower')).toHaveLength(1)
+      expect(drain.x_mm).toBeGreaterThanOrEqual(Math.min(...wet.boundary.map((point) => point.x_mm)) + BATHROOM_AUTO_LAYOUT_RULES.shower_drain_wall_clearance_mm)
+      expect(drain.z_mm).toBeGreaterThanOrEqual(Math.min(...wet.boundary.map((point) => point.z_mm)) + BATHROOM_AUTO_LAYOUT_RULES.shower_drain_wall_clearance_mm)
+      expect(clientValidate(applied).filter((issue) => issue.severity === 'error')).toEqual([])
+    }
+  })
+
+  it('projects every irregular-room alternative to the nearest applicable corner wet zone and keeps its generated drain inside', () => {
+    const measured = manualRoom(4105, 2160, 2200)
+    measured.boundary = [{x_mm:0,z_mm:320},{x_mm:0,z_mm:2160},{x_mm:1255,z_mm:2160},{x_mm:1255,z_mm:1840},{x_mm:4105,z_mm:1840},{x_mm:4105,z_mm:0},{x_mm:2515,z_mm:0},{x_mm:2515,z_mm:610},{x_mm:1900,z_mm:610},{x_mm:1900,z_mm:0},{x_mm:260,z_mm:0},{x_mm:260,z_mm:320}]
+    measured.fixtures.push({id:'toilet-drain',kind:'drain',point_usage:'toilet',label:'马桶排水',x_mm:3596,z_mm:1455,width_mm:110,depth_mm:110,height_mm:10,rotation_deg:0,source:'user',confidence:1})
+    const candidates = generateDeterministicLayoutSolutions(measured)
+    expect(candidates).toHaveLength(3)
+    for (const solution of candidates) {
+      const applied = applyLayoutSolution(measured, solution)
+      const zone = applied.dry_wet_zones?.find((item) => item.kind === 'wet')!
+      const drain = applied.fixtures.find((item) => item.layout_generated && item.kind === 'floor_drain' && fixturePointUsage(item) === 'shower')!
+      expect(wetZoneBoundaryValid(applied, zone.id, zone.boundary)).toBe(true)
+      expect(drain.x_mm).toBeGreaterThanOrEqual(Math.min(...zone.boundary.map((point) => point.x_mm)) + 50)
+      expect(drain.x_mm).toBeLessThanOrEqual(Math.max(...zone.boundary.map((point) => point.x_mm)) - 50)
+      expect(drain.z_mm).toBeGreaterThanOrEqual(Math.min(...zone.boundary.map((point) => point.z_mm)) + 50)
+      expect(drain.z_mm).toBeLessThanOrEqual(Math.max(...zone.boundary.map((point) => point.z_mm)) - 50)
+      const centerX = zone.boundary.reduce((sum, point) => sum + point.x_mm, 0) / zone.boundary.length
+      const centerZ = zone.boundary.reduce((sum, point) => sum + point.z_mm, 0) / zone.boundary.length
+      expect([drain.x_mm, drain.z_mm]).not.toEqual([centerX, centerZ])
+      expect(clientValidate(applied).filter((issue) => issue.severity === 'error')).toEqual([])
+    }
+  })
+
+  it('encodes the supplied finished-surface core placement dimensions as deterministic constraints', () => {
+    expect(BATHROOM_AUTO_LAYOUT_RULES).toMatchObject({
+      shower_min_internal_mm:800,
+      toilet_front_clearance_mm:500,
+      shower_drain_wall_clearance_mm:50,
+      shower_drain_center_offset_mm:150,
+      vanity_height_max_mm:850,
+    })
+    const candidate = generateLayoutSolutions(room)[0]
+    expect(candidate.wet_zone.width_mm).toBeGreaterThanOrEqual(BATHROOM_AUTO_LAYOUT_RULES.shower_min_internal_mm)
+    expect(candidate.wet_zone.depth_mm).toBeGreaterThanOrEqual(BATHROOM_AUTO_LAYOUT_RULES.shower_min_internal_mm)
+    const vanity = candidate.fixtures.find((fixture) => fixture.kind === 'vanity')!
+    expect(vanity.height_mm).toBeLessThanOrEqual(BATHROOM_AUTO_LAYOUT_RULES.vanity_height_max_mm)
   })
 
   it('keeps local fallback layouts inside the finished boundary across room proportions', () => {

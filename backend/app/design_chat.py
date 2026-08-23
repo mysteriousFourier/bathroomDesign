@@ -61,17 +61,29 @@ def _supports_style(attrs,style):
 @lru_cache(maxsize=1)
 def _model_library_assets():
     path=Path(__file__).resolve().parents[1]/"data"/"model_library.json"
-    verified_shared={"id":"ce23ef42c17da53def16083f77c3c0dd","label":"智能坐便器","category":"马桶","format":"fbx","src":"/api/model-assets/ce23ef42c17da53def16083f77c3c0dd/files/%E6%99%BA%E8%83%BD%E5%9D%90%E4%BE%BF%E5%99%A8.fbx","dimensions_mm":{"width":380,"depth":680,"height":760},"catalog_codes":["MT3"]}
+    verified_shared={"id":"ce23ef42c17da53def16083f77c3c0dd","label":"MT3 智能马桶（加热、感应冲水、臀洗、杀菌）","category":"马桶","format":"fbx","src":"/api/model-assets/ce23ef42c17da53def16083f77c3c0dd/files/%E6%99%BA%E8%83%BD%E5%9D%90%E4%BE%BF%E5%99%A8.fbx","dimensions_mm":{"width":380,"depth":680,"height":760},"catalog_codes":["MT3"]}
     try:return [*json.loads(path.read_text(encoding="utf-8")).get("assets",[]),verified_shared]
     except (OSError,ValueError,TypeError):return []
+
+def _corrected_model_dimensions(asset):
+    """Return model bounds in semantic width/depth/height axes after review."""
+    dimensions=dict(asset.get("dimensions_mm") or {})
+    mapping=asset.get("orientation_mapping") or {}
+    physical={"right":dimensions.get("width"),"top":dimensions.get("height"),"front":dimensions.get("depth")}
+    semantic={"left":"width","right":"width","front":"depth","back":"depth","top":"height","bottom":"height"}
+    corrected={}
+    for face,value in physical.items():
+        target=semantic.get(mapping.get(face))
+        if target and value is not None:corrected[target]=value
+    return corrected if set(corrected)=={"width","depth","height"} else dimensions
 
 def _model_lookup(product,style_match):
     attrs=product["attributes"]
     code=attrs.get("材料编号","");category=attrs.get("材料名称","")
     categories=("适老浴室柜","浴室柜") if category=="适老浴室柜" else (category,)
     shared=next((item for item in list_shared_model_assets() if item.binding_status=="bound" and code in item.catalog_codes),None)
-    asset={"id":shared.id,"src":shared.src,"format":shared.format,"label":shared.label,"dimensions_mm":shared.dimensions_mm} if shared else next((item for item in _model_library_assets() if item.get("category") in categories and code in item.get("catalog_codes",[])),None)
-    return {"product_id":product["id"],"catalog_code":code,"category":category,"catalog_style":attrs.get("风格","通用"),"normalized_requested_style":style_match.get("catalog_style"),"spec":attrs.get("规格型号",""),"model_asset_id":asset.get("id") if asset else None,"model_asset_src":asset.get("src") if asset else None,"model_asset_format":asset.get("format") if asset else None,"model_asset_label":asset.get("label") if asset else None,"model_dimensions_mm":asset.get("dimensions_mm") if asset else None,"texture_src":asset.get("texture_src") if asset else None,"layout_fixture_kind":category,"binding_status":"bound" if asset else "awaiting_model_asset"}
+    asset=shared.model_dump(mode="json") if shared else next((item for item in _model_library_assets() if item.get("category") in categories and code in item.get("catalog_codes",[])),None)
+    return {"product_id":product["id"],"catalog_code":code,"category":category,"catalog_style":attrs.get("风格","通用"),"normalized_requested_style":style_match.get("catalog_style"),"spec":attrs.get("规格型号",""),"model_asset_id":asset.get("id") if asset else None,"model_asset_src":asset.get("src") if asset else None,"model_asset_format":asset.get("format") if asset else None,"model_asset_label":asset.get("label") if asset else None,"model_dimensions_mm":_corrected_model_dimensions(asset) if asset else None,"model_orientation_view":asset.get("orientation_view") if asset else None,"model_orientation_mapping":asset.get("orientation_mapping") if asset else None,"texture_src":asset.get("texture_src") if asset else None,"layout_fixture_kind":category,"binding_status":"bound" if asset else "awaiting_model_asset"}
 
 def material_quotes(products,surfaces):
     quotes=[]

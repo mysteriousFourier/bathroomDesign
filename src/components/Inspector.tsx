@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallFinishGap, wallLength, wetZoneBoundaryValid } from '../spec'
+import { applyWetZoneBoundaryChange, cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallFinishGap, wallLength, wetZoneBoundaryValid } from '../spec'
 import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -145,9 +145,7 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
       { x_mm: Math.round(nextBounds.minX), z_mm: Math.round(nextBounds.minZ) }, { x_mm: Math.round(nextBounds.maxX), z_mm: Math.round(nextBounds.minZ) },
       { x_mm: Math.round(nextBounds.maxX), z_mm: Math.round(nextBounds.maxZ) }, { x_mm: Math.round(nextBounds.minX), z_mm: Math.round(nextBounds.maxZ) },
     ]
-    if (!wetZoneBoundaryValid(draft, zone.id, boundary)) return
-    zone.boundary = boundary
-    zone.source = 'user'; zone.confidence = 1
+    applyWetZoneBoundaryChange(draft, zone.id, boundary)
   })
 
   return (

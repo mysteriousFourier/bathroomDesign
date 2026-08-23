@@ -448,7 +448,10 @@ function wetWallContactLength(spec: RoomSpec, item: FixtureSpec) {
     if (!projection) continue
     const inward = wallInwardNormal(boundary, index)
     const halfExtent = Math.abs(inward.x) * item.width_mm / 2 + Math.abs(inward.z) * item.depth_mm / 2
-    if (projection.distance_mm <= halfExtent + 25) {
+    // A wall only counts when it is alongside the shower envelope edge. A
+    // return passing through the middle of the envelope is not wall contact;
+    // rewarding it made concave-room candidates straddle recesses.
+    if (Math.abs(projection.distance_mm - halfExtent) <= 25) {
       contacts += 1
       const start = boundary[index]
       const end = boundary[(index + 1) % boundary.length]
@@ -478,7 +481,18 @@ function fixtureInsideRoom(f: FixtureSpec, polygon: RoomSpec['boundary']) {
   // Keep a 1 mm numeric tolerance so rounding does not turn wall contact into overflow.
   const hw = Math.max(0, f.width_mm / 2 - 1); const hd = Math.max(0, f.depth_mm / 2 - 1)
   const angle=physicalRotation(f.rotation_deg??0)*Math.PI/180,c=Math.cos(angle),s=Math.sin(angle)
-  return [[-hw,-hd],[hw,-hd],[hw,hd],[-hw,hd]].map(([x,z])=>[f.x_mm+x*c-z*s,f.z_mm+x*s+z*c]).every(([x, z]) => pointInPolygon(x, z, polygon))
+  const corners=[[-hw,-hd],[hw,-hd],[hw,hd],[-hw,hd]].map(([x,z])=>[f.x_mm+x*c-z*s,f.z_mm+x*s+z*c])
+  // Concave cut-outs can sit between four valid corners. Sample every edge so
+  // a shower/fixture envelope cannot bridge an out-of-room notch.
+  return corners.flatMap((start,index)=>{
+    const end=corners[(index+1)%corners.length]
+    const length=Math.hypot(end[0]-start[0],end[1]-start[1])
+    const samples=Math.max(1,Math.ceil(length/100))
+    return Array.from({length:samples+1},(_,sample)=>[
+      start[0]+(end[0]-start[0])*sample/samples,
+      start[1]+(end[1]-start[1])*sample/samples,
+    ])
+  }).every(([x,z])=>pointInPolygon(x,z,polygon))
 }
 
 function permittedAssembly(a: FixtureSpec, b: FixtureSpec) {

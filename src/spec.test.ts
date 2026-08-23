@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
+import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
 
 describe('plan line dimensions', () => {
   it('resizes one segment in millimetres while preserving the following shape', () => {
@@ -422,6 +422,23 @@ describe('dry wet zones and wall finishes', () => {
     const overlapping = cloneSpec(spec)
     overlapping.dry_wet_zones![1].boundary = [{ x_mm: 700, z_mm: 0 }, { x_mm: 1600, z_mm: 0 }, { x_mm: 1600, z_mm: 900 }, { x_mm: 700, z_mm: 900 }]
     expect(clientValidate(overlapping).map((issue) => issue.code)).toContain('wet_zone_geometry')
+  })
+
+  it('keeps the toilet dry and moves generated shower points with a dragged wet zone', () => {
+    const spec = manualRoom(3200, 2400, 2600)
+    spec.dry_wet_zones = [{ id:'wet', kind:'wet', label:'湿区', source:'derived', confidence:1, boundary:[
+      {x_mm:0,z_mm:0},{x_mm:900,z_mm:0},{x_mm:900,z_mm:900},{x_mm:0,z_mm:900},
+    ] }]
+    spec.fixtures.push(
+      {id:'toilet',kind:'toilet',label:'马桶',x_mm:2200,z_mm:1200,width_mm:380,depth_mm:680,height_mm:760,rotation_deg:0,source:'derived',confidence:1,layout_generated:true},
+      {id:'drain',kind:'floor_drain',point_usage:'shower',label:'湿区地漏',x_mm:450,z_mm:450,width_mm:80,depth_mm:80,height_mm:10,rotation_deg:0,source:'derived',confidence:1,layout_generated:true},
+      {id:'head',kind:'other',label:'花洒',x_mm:450,z_mm:0,width_mm:120,depth_mm:80,height_mm:1100,rotation_deg:0,source:'derived',confidence:1,layout_generated:true,bound_wall_index:0},
+    )
+    const moved = [{x_mm:900,z_mm:0},{x_mm:1800,z_mm:0},{x_mm:1800,z_mm:900},{x_mm:900,z_mm:900}]
+    expect(applyWetZoneBoundaryChange(spec, 'wet', moved)).toBe(true)
+    expect(spec.fixtures.find((fixture)=>fixture.id==='drain')).toMatchObject({x_mm:1350,z_mm:450})
+    expect(spec.fixtures.find((fixture)=>fixture.id==='head')).toMatchObject({x_mm:1350,z_mm:0})
+    expect(wetZoneBoundaryValid(spec, 'wet', [{x_mm:1700,z_mm:700},{x_mm:2500,z_mm:700},{x_mm:2500,z_mm:1700},{x_mm:1700,z_mm:1700}])).toBe(false)
   })
 
   it('only binds nearby points and snaps them onto the finished wall surface', () => {

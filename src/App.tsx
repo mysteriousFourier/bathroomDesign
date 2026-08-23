@@ -17,7 +17,7 @@ import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTa
 import { fixtureModelAssetFromLibrary, modelAssetPointKind, type RoomModelAsset } from './modelAssets'
 import { applyLayoutSolution, generateDeterministicLayoutSolutions, generateLayoutSolutions, type LayoutSolution } from './layoutEngine'
 import { surfaceMaterialsForDesignQuote } from './modelLibrary'
-import { clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, updateOpeningFromLine, wallLength, wetZoneBoundaryValid } from './spec'
+import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, updateOpeningFromLine, wallLength } from './spec'
 import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
@@ -614,12 +614,19 @@ export default function App() {
 
   const applyAutoLayout = (solution: LayoutSolution, baseSpec = spec, navigateToModel = true) => {
     if (!baseSpec) return
-    const next = applyLayoutSolution(cloneSpec(baseSpec), solution)
-    commitSpec(next)
-    setActiveLayout(solution)
-    setSelection({ type: 'room' })
-    if (navigateToModel) setMode('model')
-    showMessage('success', `已在三维房间显示“${solution.title}”，${solution.fixtures.length} 个实体按量房坐标和真实高度落地`)
+    try {
+      const next = applyLayoutSolution(cloneSpec(baseSpec), solution)
+      commitSpec(next)
+      setActiveLayout(solution)
+      setSelection({ type: 'room' })
+      setLayoutError(null)
+      if (navigateToModel) setMode('model')
+      showMessage('success', `已在三维房间显示“${solution.title}”，${solution.fixtures.length} 个实体按量房坐标和真实高度落地`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setLayoutError(`“${solution.title}”不可应用：${message}`)
+      showMessage('error', `方案切换失败：${message}`)
+    }
   }
 
   const runModelAutoLayout = async () => {
@@ -799,8 +806,7 @@ export default function App() {
                   }}
                   onZoneChange={(id, boundary) => {
                     const next = cloneSpec(spec)
-                    const zone = next.dry_wet_zones?.find((item) => item.id === id)
-                    if (zone && wetZoneBoundaryValid(next, id, boundary)) { zone.boundary = boundary; zone.source = 'user'; zone.confidence = 1; commitSpec(next) }
+                    if (applyWetZoneBoundaryChange(next, id, boundary)) commitSpec(next)
                   }}
                 />
                 : <Suspense fallback={<ModelLoadingFallback />}><ModelCanvas ref={modelRef} spec={spec} selection={selection} onSelect={setSelection} layoutInfo={activeLayout ? { title: activeLayout.title, level: activeLayout.budget === 'basic' ? 'level1' : activeLayout.budget === 'comfort' ? 'level2' : 'level3', totalPrice: activeLayout.total_price, lines: [...activeLayout.product_lines.map((line) => ({ name: line.category, quantity: line.quantity, unit: line.unit, price: line.price, spec: `${line.code} ${line.spec}` })), ...activeLayout.material_lines.map((line) => ({ name: line.category, quantity: line.quantity, unit: line.unit, price: line.subtotal, spec: `${line.code} ${line.spec}` }))] } : null} surfaceMaterials={appliedSurfaces ? { wall: appliedSurfaces.wall?.texture_src ? { textureSrc: appliedSurfaces.wall.texture_src, widthMm: appliedSurfaces.wall.dimensions_mm.width, heightMm: appliedSurfaces.wall.dimensions_mm.height } : undefined, floor: appliedSurfaces.floor?.texture_src ? { textureSrc: appliedSurfaces.floor.texture_src, widthMm: appliedSurfaces.floor.dimensions_mm.width, depthMm: appliedSurfaces.floor.dimensions_mm.depth, rotationDeg: activeLayout?.floor_layout.rotation_deg, offsetXmm: activeLayout?.floor_layout.offset_x_mm, offsetZmm: activeLayout?.floor_layout.offset_z_mm, layoutDescription: activeLayout?.floor_layout.description } : undefined } : undefined} /></Suspense>}

@@ -1015,7 +1015,51 @@ export function wetZoneBoundaryValid(spec: RoomSpec, zoneId: string, boundary: P
     return [start, ...[0.25, 0.5, 0.75].map((ratio) => ({ x_mm: start.x_mm + (end.x_mm - start.x_mm) * ratio, z_mm: start.z_mm + (end.z_mm - start.z_mm) * ratio }))]
   })
   if (samples.some((point) => !pointOnPolygonBoundary(roomBoundary, point) && !pointInPolygon(roomBoundary, point))) return false
+  // The toilet is a dry-zone fixture. Check its rotated physical footprint,
+  // rather than only its centre, before accepting a wet-zone drag/resize.
+  const toiletIntersects = spec.fixtures.some((fixture) => {
+    if (fixture.kind !== 'toilet') return false
+    const angle = (fixture.rotation_deg ?? 0) * Math.PI / 180
+    const c = Math.cos(angle); const s = Math.sin(angle)
+    const halfWidth = fixture.width_mm / 2; const halfDepth = fixture.depth_mm / 2
+    const footprint = [[-halfWidth,-halfDepth],[halfWidth,-halfDepth],[halfWidth,halfDepth],[-halfWidth,halfDepth]].map(([x,z]) => ({
+      x_mm: fixture.x_mm + x*c-z*s,
+      z_mm: fixture.z_mm + x*s+z*c,
+    }))
+    return polygonsOverlap(boundary, footprint)
+  })
+  if (toiletIntersects) return false
   return !(spec.dry_wet_zones ?? []).some((zone) => zone.id !== zoneId && zone.kind === 'wet' && polygonsOverlap(boundary, zone.boundary))
+}
+
+export function applyWetZoneBoundaryChange(spec: RoomSpec, zoneId: string, boundary: Point2D[]) {
+  const zone = spec.dry_wet_zones?.find((item) => item.id === zoneId && item.kind === 'wet')
+  if (!zone || !wetZoneBoundaryValid(spec, zoneId, boundary)) return false
+  const center = (points: Point2D[]) => ({
+    x_mm: points.reduce((sum, point) => sum + point.x_mm, 0) / points.length,
+    z_mm: points.reduce((sum, point) => sum + point.z_mm, 0) / points.length,
+  })
+  const before = center(zone.boundary); const after = center(boundary)
+  const dx = after.x_mm-before.x_mm; const dz = after.z_mm-before.z_mm
+  zone.boundary = boundary.map((point) => ({ ...point }))
+  zone.source = 'user'; zone.confidence = 1
+
+  const generatedShowerItems = spec.fixtures.filter((fixture) => fixture.layout_generated && (
+    (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower')
+    || (/花洒/.test(fixture.label) && !/扶手/.test(fixture.label))
+  ))
+  const drain = generatedShowerItems.find((fixture) => fixture.kind === 'floor_drain')
+  if (drain) { drain.x_mm = Math.round(after.x_mm); drain.z_mm = Math.round(after.z_mm); drain.source = 'derived' }
+  for (const fixture of generatedShowerItems) {
+    if (fixture === drain) continue
+    fixture.x_mm = Math.round(fixture.x_mm + dx); fixture.z_mm = Math.round(fixture.z_mm + dz)
+    if (fixture.bound_wall_index !== null && fixture.bound_wall_index !== undefined) {
+      const projection = projectPointToWall(finishedRoomBoundary(spec), fixture.bound_wall_index, fixture)
+      if (projection) { fixture.x_mm = Math.round(projection.point.x_mm); fixture.z_mm = Math.round(projection.point.z_mm) }
+    }
+    fixture.source = 'derived'
+  }
+  return true
 }
 
 export function clientValidate(spec: RoomSpec): ValidationIssue[] {

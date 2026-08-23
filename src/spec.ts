@@ -1008,7 +1008,11 @@ function polygonsOverlap(left: Point2D[], right: Point2D[]) {
 }
 
 export function wetZoneBoundaryValid(spec: RoomSpec, zoneId: string, boundary: Point2D[]) {
-  if (boundary.length < 3 || hasSelfIntersection(boundary)) return false
+  if (boundary.length !== 4 || hasSelfIntersection(boundary)) return false
+  const xs = [...new Set(boundary.map((point) => point.x_mm))]
+  const zs = [...new Set(boundary.map((point) => point.z_mm))]
+  if (xs.length !== 2 || zs.length !== 2) return false
+  if (!xs.every((x) => zs.every((z) => boundary.some((point) => point.x_mm === x && point.z_mm === z)))) return false
   const roomBoundary = finishedRoomBoundary(spec)
   const samples = boundary.flatMap((start, index) => {
     const end = boundary[(index + 1) % boundary.length]
@@ -1039,8 +1043,7 @@ export function applyWetZoneBoundaryChange(spec: RoomSpec, zoneId: string, bound
     x_mm: points.reduce((sum, point) => sum + point.x_mm, 0) / points.length,
     z_mm: points.reduce((sum, point) => sum + point.z_mm, 0) / points.length,
   })
-  const before = center(zone.boundary); const after = center(boundary)
-  const dx = after.x_mm-before.x_mm; const dz = after.z_mm-before.z_mm
+  const after = center(boundary)
   zone.boundary = boundary.map((point) => ({ ...point }))
   zone.source = 'user'; zone.confidence = 1
 
@@ -1050,12 +1053,23 @@ export function applyWetZoneBoundaryChange(spec: RoomSpec, zoneId: string, bound
   ))
   const drain = generatedShowerItems.find((fixture) => fixture.kind === 'floor_drain')
   if (drain) { drain.x_mm = Math.round(after.x_mm); drain.z_mm = Math.round(after.z_mm); drain.source = 'derived' }
+  const room = finishedRoomBoundary(spec)
+  const pointInWetZone = (point: Point2D) => pointOnPolygonBoundary(boundary, point) || pointInPolygon(boundary, point)
   for (const fixture of generatedShowerItems) {
     if (fixture === drain) continue
-    fixture.x_mm = Math.round(fixture.x_mm + dx); fixture.z_mm = Math.round(fixture.z_mm + dz)
-    if (fixture.bound_wall_index !== null && fixture.bound_wall_index !== undefined) {
-      const projection = projectPointToWall(finishedRoomBoundary(spec), fixture.bound_wall_index, fixture)
-      if (projection) { fixture.x_mm = Math.round(projection.point.x_mm); fixture.z_mm = Math.round(projection.point.z_mm) }
+    const candidates = room.map((_, wallIndex) => {
+      const projection = projectPointToWall(room, wallIndex, after)
+      return projection ? { ...projection, wall_index: wallIndex } : null
+    })
+      .filter((projection): projection is NonNullable<typeof projection> => !!projection && pointInWetZone(projection.point))
+      .sort((left, right) => left.distance_mm - right.distance_mm)
+    const projection = candidates[0]
+    if (projection) {
+      fixture.x_mm = Math.round(projection.point.x_mm); fixture.z_mm = Math.round(projection.point.z_mm)
+      fixture.bound_wall_index = projection.wall_index
+    } else {
+      fixture.x_mm = Math.round(after.x_mm); fixture.z_mm = Math.round(after.z_mm)
+      fixture.bound_wall_index = null
     }
     fixture.source = 'derived'
   }

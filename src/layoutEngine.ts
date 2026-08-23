@@ -3,7 +3,7 @@ import graphOutput from './generated-layout-products.json'
 import productCatalog from './generated-product-catalog.json'
 import { dimensionsFor } from './modelDimensions'
 import { builtInAssetAsRoomAsset, exactModelAssetForProduct, modelAssetForProduct, surfaceAssetForProduct, type BuiltInModelRecord } from './modelLibrary'
-import { ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixturePointUsage, nearestWallIndex, projectPointToWall, toiletPlacementFromDrain, wallInwardNormal } from './spec'
+import { ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixturePointUsage, nearestWallIndex, projectPointToWall, toiletPlacementFromDrain, wallInwardNormal, wetZoneBoundaryValid } from './spec'
 
 export type DemandProfile = 'standard_shower' | 'laundry' | 'elderly_safe'
 export type BudgetTier = 'basic' | 'comfort' | 'premium'
@@ -1245,6 +1245,7 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
     const boundary=[{x_mm:left,z_mm:top},{x_mm:right,z_mm:top},{x_mm:right,z_mm:bottom},{x_mm:left,z_mm:bottom}]
     const wetHalfWidth=wet.width_mm/2,wetHalfDepth=wet.depth_mm/2
     if(wet.x_mm-wetHalfWidth<left-.01||wet.x_mm+wetHalfWidth>right+.01||wet.z_mm-wetHalfDepth<top-.01||wet.z_mm+wetHalfDepth>bottom+.01)return false
+    if(!wetZoneBoundaryValid({...spec,fixtures:[...spec.fixtures,...solution.fixtures],dry_wet_zones:[]},`candidate-${solution.id}`,boundary))return false
     const edges=boundary.map((start,index)=>({start,end:boundary[(index+1)%4]}))
     if(edges.some(({start,end})=>!pointInPolygon((start.x_mm+end.x_mm)/2,(start.z_mm+end.z_mm)/2,room)&&!edgeOnWall(start,end)))return false
     const wallEdges=edges.filter(({start,end})=>edgeOnWall(start,end))

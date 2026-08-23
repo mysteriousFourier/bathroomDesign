@@ -418,6 +418,7 @@ describe('dry wet zones and wall finishes', () => {
     expect(wetZoneBoundaryValid(spec, 'wet-2', [{ x_mm: 900, z_mm: 0 }, { x_mm: 1800, z_mm: 0 }, { x_mm: 1800, z_mm: 900 }, { x_mm: 900, z_mm: 900 }])).toBe(true)
     expect(wetZoneBoundaryValid(spec, 'wet-2', [{ x_mm: 700, z_mm: 0 }, { x_mm: 1600, z_mm: 0 }, { x_mm: 1600, z_mm: 900 }, { x_mm: 700, z_mm: 900 }])).toBe(false)
     expect(wetZoneBoundaryValid(spec, 'wet-2', [{ x_mm: 2500, z_mm: 1600 }, { x_mm: 3200, z_mm: 1600 }, { x_mm: 3200, z_mm: 2200 }, { x_mm: 2500, z_mm: 2200 }])).toBe(false)
+    expect(wetZoneBoundaryValid(spec, 'wet-2', [{ x_mm: 1000, z_mm: 0 }, { x_mm: 1900, z_mm: 0 }, { x_mm: 1700, z_mm: 900 }, { x_mm: 1000, z_mm: 900 }])).toBe(false)
     expect(cloneSpec(spec).dry_wet_zones?.map((zone) => zone.kind)).toEqual(['wet', 'wet'])
     const overlapping = cloneSpec(spec)
     overlapping.dry_wet_zones![1].boundary = [{ x_mm: 700, z_mm: 0 }, { x_mm: 1600, z_mm: 0 }, { x_mm: 1600, z_mm: 900 }, { x_mm: 700, z_mm: 900 }]

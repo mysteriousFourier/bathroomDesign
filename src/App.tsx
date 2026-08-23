@@ -201,6 +201,7 @@ export default function App() {
   const [activeLayout, setActiveLayout] = useState<LayoutSolution | null>(null)
   const [layoutSolutions, setLayoutSolutions] = useState<LayoutSolution[]>([])
   const [layoutError, setLayoutError] = useState<string | null>(null)
+  const layoutBaseSpecRef = useRef<RoomSpec | null>(null)
   const [designQuote, setDesignQuote] = useState<DesignChatResponse | null>(null)
   const modelRef = useRef<ModelCanvasHandle>(null)
   const projectRef = useRef<Project | null>(null)
@@ -624,6 +625,8 @@ export default function App() {
   const runModelAutoLayout = async () => {
     if (!spec || busy === 'layout') return
     const sourceSpec = cloneSpec(spec)
+    // Preview every solution in a generated batch from the same room snapshot.
+    layoutBaseSpecRef.current = cloneSpec(sourceSpec)
     const sourceProjectId = project?.id
     setBusy('layout')
     setLayoutError(null)
@@ -672,7 +675,7 @@ export default function App() {
     if (projectRef.current?.id !== sourceProjectId || specRef.current !== spec) {
       throw new Error('布局生成期间房间数据已改变，已保留当前编辑内容；请基于最新房型重新生成布局')
     }
-    applyAutoLayout(selected, specRef.current ?? sourceSpec, false)
+    applyAutoLayout(selected, layoutBaseSpecRef.current, false)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setLayoutError(message)
@@ -719,7 +722,7 @@ export default function App() {
               <button className={mode === 'library' ? 'active' : ''} onClick={() => setMode('library')}><Box size={16} />模型库</button>
               <button className={mode === 'model' ? 'active' : ''} onClick={() => canPreview && setMode('model')} disabled={!canPreview}><BoxSelect size={16} />三维预览</button>
             </div>
-            {mode === 'review' && <SolutionList spec={spec} solutions={layoutSolutions} selectedSolution={activeLayout} onSelectSolution={applyAutoLayout} onFocusSolution={(solution) => applyAutoLayout(solution, specRef.current ?? spec, false)} onOpenModel={() => canPreview && setMode('model')} onStartAutoLayout={runModelAutoLayout} layoutRunning={busy === 'layout'} layoutError={layoutError} />}
+            {mode === 'review' && <SolutionList spec={spec} solutions={layoutSolutions} selectedSolution={activeLayout} onSelectSolution={(solution) => applyAutoLayout(solution, layoutBaseSpecRef.current ?? spec)} onFocusSolution={(solution) => applyAutoLayout(solution, layoutBaseSpecRef.current ?? spec, false)} onOpenModel={() => canPreview && setMode('model')} onStartAutoLayout={runModelAutoLayout} layoutRunning={busy === 'layout'} layoutError={layoutError} />}
             {mode === 'annotation'
               ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
               : mode === 'library'

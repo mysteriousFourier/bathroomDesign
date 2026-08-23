@@ -3,6 +3,26 @@ import type { ModelImportFile } from './modelImport'
 
 const defaultTimeoutMs = 90_000
 
+type ApiErrorDetail = string | Array<{ loc?: Array<string | number>; msg?: string; message?: string }> | Record<string, unknown>
+
+export function formatApiErrorDetail(detail: ApiErrorDetail | undefined, fallback: string) {
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => {
+      const location = item.loc?.filter((part) => part !== 'body').join('.')
+      const description = item.msg ?? item.message
+      if (!description) return null
+      return location ? `${location}：${description}` : description
+    }).filter((item): item is string => !!item)
+    if (messages.length) return messages.join('；')
+  }
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    const description = detail.message ?? detail.msg
+    if (typeof description === 'string' && description.trim()) return description
+  }
+  return fallback
+}
+
 async function request<T>(url: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), init?.timeoutMs ?? defaultTimeoutMs)
@@ -22,8 +42,8 @@ async function request<T>(url: string, init?: RequestInit & { timeoutMs?: number
   if (!response.ok) {
     let message = `请求失败 (${response.status})`
     try {
-      const body = await response.json() as { detail?: string }
-      if (body.detail) message = body.detail
+      const body = await response.json() as { detail?: ApiErrorDetail }
+      message = formatApiErrorDetail(body.detail, message)
     } catch {
       // Keep the status-based message for non-JSON failures.
     }

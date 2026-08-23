@@ -325,6 +325,24 @@ describe('deterministic requirement layout engine', () => {
     })).toBe(true)
   })
 
+  it('uses a measured wall corner that is not a global room-bounds corner', () => {
+    const stepped = manualRoom(3000, 3000, 2700)
+    // Plus-shaped measured room: none of the four global bbox corners belongs
+    // to the room, while the right-hand arm still has valid convex wall corners.
+    stepped.boundary = [
+      {x_mm:1000,z_mm:0},{x_mm:2000,z_mm:0},{x_mm:2000,z_mm:1000},
+      {x_mm:3000,z_mm:1000},{x_mm:3000,z_mm:2000},{x_mm:2000,z_mm:2000},
+      {x_mm:2000,z_mm:3000},{x_mm:1000,z_mm:3000},{x_mm:1000,z_mm:2000},
+      {x_mm:0,z_mm:2000},{x_mm:0,z_mm:1000},{x_mm:1000,z_mm:1000},
+    ]
+    const solution = structuredClone(solutions[0])
+    solution.wet_zone = { x_mm:2500, z_mm:1500, width_mm:800, depth_mm:800 }
+    solution.checks = solution.checks.map((item) => ({...item,passed:true}))
+    const wetBoundary = applyLayoutSolution(stepped, solution).dry_wet_zones![0].boundary
+    expect(wetBoundary).toHaveLength(4)
+    expect(wetBoundary.every((point) => point.x_mm >= 2000 && point.z_mm >= 1000 && point.z_mm <= 2000)).toBe(true)
+  })
+
   it('replaces legacy generated points without deleting measured points', () => {
     const legacy = structuredClone(room)
     legacy.fixtures.push(

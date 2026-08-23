@@ -1218,13 +1218,16 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
     const [a,b,c,d]=horizontal?[start.x_mm,end.x_mm,wallStart.x_mm,wallEnd.x_mm]:[start.z_mm,end.z_mm,wallStart.z_mm,wallEnd.z_mm]
     return Math.min(Math.max(a,b),Math.max(c,d))-Math.max(Math.min(a,b),Math.min(c,d))>.01
   }).length
-  const xValues=room.map((point)=>point.x_mm),zValues=room.map((point)=>point.z_mm)
-  const minX=Math.min(...xValues),maxX=Math.max(...xValues),minZ=Math.min(...zValues),maxZ=Math.max(...zValues)
   const primaryCuts=axisCuts(dividerAxis),secondaryCuts=axisCuts(dividerAxis==='x'?'z':'x')
-  const candidates = primaryCuts.flatMap((first)=>secondaryCuts.map((second) => {
+  const candidates = primaryCuts.flatMap((first)=>secondaryCuts.flatMap((second) => room.map((corner) => {
     const xCut=first.axis==='x'?first:second,zCut=first.axis==='z'?first:second
-    const left=xCut.keepMinimum?minX:xCut.cut,right=xCut.keepMinimum?xCut.cut:maxX
-    const top=zCut.keepMinimum?minZ:zCut.cut,bottom=zCut.keepMinimum?zCut.cut:maxZ
+    // Do not assume the usable corner is one of the four global bounding-box
+    // corners. Real measured rooms contain returns, pipe-box steps and other
+    // orthogonal topology; any convex finished-wall corner may close the two
+    // wall sides of the rectangular wet area.
+    const left=Math.min(corner.x_mm,xCut.cut),right=Math.max(corner.x_mm,xCut.cut)
+    const top=Math.min(corner.z_mm,zCut.cut),bottom=Math.max(corner.z_mm,zCut.cut)
+    if(right-left<50||bottom-top<50)return false
     const boundary=[{x_mm:left,z_mm:top},{x_mm:right,z_mm:top},{x_mm:right,z_mm:bottom},{x_mm:left,z_mm:bottom}]
     const wetHalfWidth=wet.width_mm/2,wetHalfDepth=wet.depth_mm/2
     if(wet.x_mm-wetHalfWidth<left-.01||wet.x_mm+wetHalfWidth>right+.01||wet.z_mm-wetHalfDepth<top-.01||wet.z_mm+wetHalfDepth>bottom+.01)return false
@@ -1233,10 +1236,14 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
     const wallEdges=edges.filter(({start,end})=>edgeOnWall(start,end))
     if(wallEdges.length!==2)return false
     const wallRuns=wallEdges.reduce((sum,{start,end})=>sum+wallRunCount(start,end),0)
-    if(wallRuns<2||wallRuns>3)return false
+    // Raw measurement topology may split one straight wall side at arbitrary
+    // annotation points. Geometry requires two continuous wall sides; the
+    // number of source runs is descriptive and must not make the rectangle
+    // infeasible.
+    if(wallRuns<2)return false
     return {boundary,wallRuns}
-  })).filter((candidate):candidate is {boundary:typeof room;wallRuns:number}=>candidate!==false)
-  if (!candidates.length) throw new Error('当前房间无法用两根正交分界线与 2–3 段墙边围成矩形湿区')
+  }))).filter((candidate):candidate is {boundary:typeof room;wallRuns:number}=>candidate!==false)
+  if (!candidates.length) throw new Error('当前房间无法用两根正交分界线与两条连续墙边围成矩形湿区')
   return candidates.sort((left,right) => {
     const area=(points:typeof room)=>Math.abs(points.reduce((sum,point,index)=>{const next=points[(index+1)%points.length];return sum+point.x_mm*next.z_mm-next.x_mm*point.z_mm},0))/2
     return area(left.boundary)-area(right.boundary) || left.wallRuns-right.wallRuns

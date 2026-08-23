@@ -1036,9 +1036,54 @@ export function wetZoneBoundaryValid(spec: RoomSpec, zoneId: string, boundary: P
   return !(spec.dry_wet_zones ?? []).some((zone) => zone.id !== zoneId && zone.kind === 'wet' && polygonsOverlap(boundary, zone.boundary))
 }
 
+function rectangularWetBoundary(boundary: Point2D[]) {
+  if (!boundary.length) return null
+  const minX = Math.min(...boundary.map((point) => point.x_mm))
+  const maxX = Math.max(...boundary.map((point) => point.x_mm))
+  const minZ = Math.min(...boundary.map((point) => point.z_mm))
+  const maxZ = Math.max(...boundary.map((point) => point.z_mm))
+  if (maxX - minX < 300 || maxZ - minZ < 300) return null
+  return [{ x_mm: minX, z_mm: minZ }, { x_mm: maxX, z_mm: minZ }, { x_mm: maxX, z_mm: maxZ }, { x_mm: minX, z_mm: maxZ }]
+}
+
+/** Resolve a free wet-zone drag to the closest legal axis-aligned rectangle. */
+export function nearestValidWetZoneBoundary(spec: RoomSpec, zoneId: string, requested: Point2D[]) {
+  const rectangle = rectangularWetBoundary(requested)
+  if (!rectangle) return null
+  if (wetZoneBoundaryValid(spec, zoneId, rectangle)) return rectangle
+  const requestedCenter = {
+    x_mm: (rectangle[0].x_mm + rectangle[2].x_mm) / 2,
+    z_mm: (rectangle[0].z_mm + rectangle[2].z_mm) / 2,
+  }
+  const width = rectangle[1].x_mm - rectangle[0].x_mm
+  const depth = rectangle[2].z_mm - rectangle[1].z_mm
+  const room = finishedRoomBoundary(spec)
+  const bounds = roomBounds(room)
+  const xCandidates = new Set<number>([requestedCenter.x_mm, bounds.minX + width / 2, bounds.maxX - width / 2])
+  const zCandidates = new Set<number>([requestedCenter.z_mm, bounds.minZ + depth / 2, bounds.maxZ - depth / 2])
+  for (let x = bounds.minX + width / 2; x <= bounds.maxX - width / 2; x += 25) xCandidates.add(x)
+  for (let z = bounds.minZ + depth / 2; z <= bounds.maxZ - depth / 2; z += 25) zCandidates.add(z)
+  let best: { boundary: Point2D[]; distance: number } | null = null
+  for (const centerX of xCandidates) for (const centerZ of zCandidates) {
+    const candidate = [
+      { x_mm: centerX - width / 2, z_mm: centerZ - depth / 2 },
+      { x_mm: centerX + width / 2, z_mm: centerZ - depth / 2 },
+      { x_mm: centerX + width / 2, z_mm: centerZ + depth / 2 },
+      { x_mm: centerX - width / 2, z_mm: centerZ + depth / 2 },
+    ]
+    if (!wetZoneBoundaryValid(spec, zoneId, candidate)) continue
+    const distance = Math.hypot(centerX - requestedCenter.x_mm, centerZ - requestedCenter.z_mm)
+    if (!best || distance < best.distance) best = { boundary: candidate, distance }
+  }
+  return best?.boundary ?? null
+}
+
 export function applyWetZoneBoundaryChange(spec: RoomSpec, zoneId: string, boundary: Point2D[]) {
   const zone = spec.dry_wet_zones?.find((item) => item.id === zoneId && item.kind === 'wet')
-  if (!zone || !wetZoneBoundaryValid(spec, zoneId, boundary)) return false
+  if (!zone) return false
+  const resolvedBoundary = nearestValidWetZoneBoundary(spec, zoneId, boundary)
+  if (!resolvedBoundary) return false
+  boundary = resolvedBoundary
   const center = (points: Point2D[]) => ({
     x_mm: points.reduce((sum, point) => sum + point.x_mm, 0) / points.length,
     z_mm: points.reduce((sum, point) => sum + point.z_mm, 0) / points.length,

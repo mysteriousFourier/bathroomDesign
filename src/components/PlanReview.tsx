@@ -1,6 +1,6 @@
 import { CircleDot, DoorOpen, Droplet, Focus, Grid2X2, Move, Plug, Spline, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, openingLine, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength, wetZoneBoundaryValid } from '../spec'
+import { dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, openingLine, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength } from '../spec'
 import type { Asset, FixtureKind, FixturePointUsage, OpeningSpec, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
 
 type OpeningDrag = { pointerId: number; id: string; mode: 'move' | 'start' | 'end'; startPointer: Point2D; originStart: Point2D; originEnd: Point2D; currentStart: Point2D; currentEnd: Point2D }
@@ -312,10 +312,11 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
               const deltaZ = Math.max(room.minZ - originalBounds.minZ, Math.min(room.maxZ - originalBounds.maxZ, requestedZ))
               boundary = zone.original.map((point) => ({ x_mm: point.x_mm + deltaX, z_mm: point.z_mm + deltaZ }))
             }
-            if (wetZoneBoundaryValid(spec, zone.id, boundary)) {
-              zone.draft = boundary
-              setZoneDraft({ id: zone.id, boundary })
-            }
+            // Keep pointer interaction continuous. A vertex drag temporarily
+            // produces a non-rectangular four-point draft; validation and
+            // nearest-valid snapping belong to pointer-up, not every frame.
+            zone.draft = boundary
+            setZoneDraft({ id: zone.id, boundary })
             return
           }
           const opening = openingDrag.current

@@ -440,6 +440,12 @@ describe('dry wet zones and wall finishes', () => {
     expect(spec.fixtures.find((fixture)=>fixture.id==='drain')).toMatchObject({x_mm:1350,z_mm:450})
     expect(spec.fixtures.find((fixture)=>fixture.id==='head')).toMatchObject({x_mm:1350,z_mm:0})
     expect(wetZoneBoundaryValid(spec, 'wet', [{x_mm:1700,z_mm:700},{x_mm:2500,z_mm:700},{x_mm:2500,z_mm:1700},{x_mm:1700,z_mm:1700}])).toBe(false)
+
+    const requestedOverToilet = [{x_mm:1700,z_mm:700},{x_mm:2500,z_mm:700},{x_mm:2500,z_mm:1700},{x_mm:1700,z_mm:1700}]
+    expect(applyWetZoneBoundaryChange(spec, 'wet', requestedOverToilet)).toBe(true)
+    const snapped = spec.dry_wet_zones?.find((zone)=>zone.id==='wet')?.boundary ?? []
+    expect(snapped).not.toEqual(requestedOverToilet)
+    expect(wetZoneBoundaryValid(spec, 'wet', snapped)).toBe(true)
   })
 
   it('only binds nearby points and snaps them onto the finished wall surface', () => {

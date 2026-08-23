@@ -728,7 +728,9 @@ function retainFixtureAcrossLayouts(fixture: FixtureSpec) {
 
 function searchPlacement(spec: RoomSpec, item: FixtureSpec, occupied: FixtureSpec[], instruction: LayoutInstruction, plumbing?: FixtureSpec, trace = { evaluated: 0, feasible: 0 }, anchor?: PlacementAnchor) {
   instruction = effectiveLayoutInstruction(item, instruction)
-  const b = rectangleBounds(spec); const step = 100
+  // Hard-collision avoidance must not depend on a coarse 100 mm lattice:
+  // compact measured rooms often have only a narrow legal interval.
+  const b = rectangleBounds(spec); const step = 25
   const rearGap = requiredRearWallGap(item)
   const boundary = layoutBoundary(spec)
   const hostWall = instruction.wall === 'nearest_plumbing' ? wallNearestPoint(spec, plumbing ?? item) : instruction.wall

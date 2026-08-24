@@ -5,7 +5,7 @@ import pytest
 
 import backend.app.design_chat as design_chat_module
 from backend.app.knowledge_graph import ProductKnowledgeGraph, equipment_rules
-from backend.app.design_chat import PROMPT, QUOTE_TOOL, REQUIREMENT_TOOL, _layout_candidate_blockers, _safe_model_message, calculate_design_quote, default_product_ids, design_chat, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, normalize_assistant_message, requirement_state, requirement_state_from_model, resolve_style, select_furniture_quotes, surface_estimate
+from backend.app.design_chat import PROMPT, QUOTE_TOOL, REQUIREMENT_TOOL, _budget_ceiling, _layout_candidate_blockers, _safe_model_message, calculate_design_quote, default_product_ids, design_chat, furniture_candidate_groups, furniture_price_range, furniture_quotes, material_quotes, normalize_assistant_message, requirement_state, requirement_state_from_model, resolve_style, select_furniture_quotes, surface_estimate
 
 
 def test_normalize_assistant_message_removes_markdown_marks():
@@ -23,6 +23,35 @@ def test_accessible_rule_forbids_partition():
     assert "适老浴室柜" in result["必须设备"]
     assert result["不能有的设备"]==["淋浴隔断"]
     assert "淋浴隔断" not in result["可有可无设备"]
+
+def test_standard_user_can_require_shower_partition_without_accessible_profile():
+    result=equipment_rules("成人使用，没有适老需求，需要淋浴隔断")
+    assert "淋浴隔断" in result["必须设备"]
+    assert result["不能有的设备"] == []
+
+def test_partition_candidate_is_not_filtered_for_standard_requirements():
+    product={"id":"partition","attributes":{"材料编号":"GD1-1","材料名称":"淋浴隔断","风格":"素雅","单价":"800"}}
+    result=furniture_quotes([product],{"catalog_style":"素雅"})
+    assert [item["家具名称"] for item in result] == ["淋浴隔断"]
+
+def test_model_requirement_state_preserves_explicit_partition_request():
+    messages=[{"role":"user","content":"成人使用，没有适老需求，需要淋浴隔断，喜欢素雅，预算2万元"}]
+    state=requirement_state_from_model({"audience":["成人"],"functions":["淋浴","坐便","洗漱"],"catalog_style":"素雅","style_terms":[],"budget_text":"2万元","delegated_standard_functions":False},messages)
+    assert "淋浴隔断" in state["collected"]["功能需求"]
+    assert state["complete"] is True
+
+def test_negative_partition_request_is_not_captured_as_required_equipment():
+    state=requirement_state([{"role":"user","content":"成人使用，不需要淋浴隔断，喜欢素雅，预算2万元"}])
+    assert "淋浴隔断" not in state["collected"]["功能需求"]
+
+@pytest.mark.parametrize(("budget", "ceiling"), [("2w-4w", 40000), ("2W - 4W", 40000), ("2w以内", 20000)])
+def test_budget_parser_accepts_w_shorthand(budget: str, ceiling: int):
+    assert _budget_ceiling(budget) == ceiling
+
+def test_requirement_state_completes_for_w_budget_shorthand():
+    state = requirement_state([{"role": "user", "content": "成人淋浴、坐便、洗漱，喜欢素雅，预算2w-4w"}])
+    assert state["complete"] is True
+    assert state["collected"]["预期价格区间"] == "2w-4w"
 
 def test_storage_maps_to_user_mandated_bathroom_cabinet_category():
     assert equipment_rules("需要洗漱和收纳")["必须设备"] == ["浴室柜"]
@@ -134,12 +163,13 @@ def test_model_requirement_state_handles_semantics_outside_keyword_fallback():
     assert state["collected"]=={"使用人群":["老人"],"功能需求":["淋浴","坐便","洗漱"],"喜好风格":["中古"],"预期价格区间":"两到四万"}
 
 @pytest.mark.asyncio
-async def test_design_chat_uses_model_understanding_before_server_quote(tmp_path,monkeypatch):
+@pytest.mark.parametrize("budget_text", ["两到四万", "2w-4w"])
+async def test_design_chat_uses_model_understanding_before_server_quote(tmp_path,monkeypatch,budget_text):
     graph=ProductKnowledgeGraph(tmp_path/"graph.json")
     catalog=Path(__file__).parents[1]/"data"/"product_catalog.csv"
     graph.import_catalog(catalog.name,catalog.read_bytes())
     messages=[
-        {"role":"user","content":"给家里的长辈用，做得有老电影质感，控制在两到四万"},
+        {"role":"user","content":f"给家里的长辈用，做得有老电影质感，控制在{budget_text}"},
         {"role":"assistant","content":"日常功能怎么安排？"},
         {"role":"user","content":"都交给你，按日常需要安排"},
     ]
@@ -151,7 +181,7 @@ async def test_design_chat_uses_model_understanding_before_server_quote(tmp_path
     async def fake_post(_client,_url,**kwargs):
         calls.append(kwargs["json"])
         if len(calls)==1:
-            arguments={"audience":["老人"],"functions":[],"catalog_style":"中古","style_terms":["老电影质感"],"budget_text":"两到四万","delegated_standard_functions":True}
+            arguments={"audience":["老人"],"functions":[],"catalog_style":"中古","style_terms":["老电影质感"],"budget_text":budget_text,"delegated_standard_functions":True}
             return Response({"role":"assistant","content":None,"tool_calls":[{"id":"requirements-1","type":"function","function":{"name":"capture_design_requirements","arguments":json.dumps(arguments,ensure_ascii=False)}}]})
         if len(calls)==2:
             return Response({"role":"assistant","content":None,"tool_calls":[]})

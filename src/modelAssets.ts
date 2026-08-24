@@ -44,8 +44,12 @@ export function fixtureModelAssetFromLibrary(asset: RoomModelAsset): FixtureMode
 /** Refresh model metadata snapshots already embedded in room fixtures. */
 export function refreshFixtureModelAsset(fixtures: FixtureSpec[], asset: RoomModelAsset) {
   let changed = false
+  const assetIds = new Set([asset.id, asset.source_asset_id, ...(asset.legacy_source_ids ?? [])].filter((id): id is string => !!id))
   fixtures.forEach((fixture) => {
-    if (fixture.model_asset?.id !== asset.id && fixture.model_asset?.source_asset_id !== asset.id && fixture.model_asset?.source_asset_id !== asset.source_asset_id) return
+    const snapshot = fixture.model_asset
+    if (!snapshot) return
+    const fixtureIds = [snapshot.id, snapshot.source_asset_id, ...(snapshot.legacy_source_ids ?? [])].filter((id): id is string => !!id)
+    if (!fixtureIds.some((id) => assetIds.has(id))) return
     fixture.model_asset = fixtureModelAssetFromLibrary(asset)
     changed = true
   })

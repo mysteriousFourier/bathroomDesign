@@ -946,52 +946,9 @@ def test_merge_segment_edge_chains_keeps_more_complete_photo_topology() -> None:
     assert merged == photo_topology
 
 
-def test_verified_plan_edge_chain_applies_only_to_matching_file_and_topology(tmp_path, monkeypatch) -> None:
-    source = tmp_path / "verified.jpg"
-    source.write_bytes(b"verified-plan")
-    shape = ShapeTraceResult(corners=[
-        ShapeCorner(x=0, y=0),
-        ShapeCorner(x=0, y=100),
-        ShapeCorner(x=100, y=100),
-        ShapeCorner(x=100, y=0),
-    ], closed=True)
-    digest = hashlib.sha256(source.read_bytes()).hexdigest()
-    monkeypatch.setitem(ai.VERIFIED_PLAN_EDGE_CHAINS, digest, (
-        ("down", 2000), ("right", 3000), ("up", 2000), ("left", 3000),
-    ))
-
-    edges = ai._verified_plan_edge_chain(source, 0, shape)
-
-    assert [(edge.direction, edge.length_mm) for edge in edges] == [
-        ("down", 2000), ("right", 3000), ("up", 2000), ("left", 3000),
-    ]
-    assert ai._verified_plan_edge_chain(source, 90, shape) == []
-
-
-def test_verified_plan_opening_applies_only_to_matching_file_and_host_wall(tmp_path, monkeypatch) -> None:
-    source = tmp_path / "verified.jpg"
-    source.write_bytes(b"verified-door")
-    digest = hashlib.sha256(source.read_bytes()).hexdigest()
-    monkeypatch.setitem(ai.VERIFIED_PLAN_OPENINGS, digest, (
-        ("D1", 1, 400, 800, 2055, "hinged", "inward"),
-    ))
-    edges = [
-        BoundaryEdge(direction="down", length_mm=1840),
-        BoundaryEdge(direction="right", length_mm=1255),
-    ]
-
-    openings = ai._verified_plan_openings(source, 0, edges)
-
-    assert len(openings) == 1
-    assert openings[0].model_dump(exclude={"wall_binding", "line"}) == {
-        "id": "opening-d1", "kind": "door", "wall_index": 1, "offset_mm": 400,
-        "width_mm": 800, "height_mm": 2055, "thickness_mm": 100, "sill_mm": 0,
-        "label": "D1", "source": "measured", "confidence": 0.99,
-        "swing_direction": "inward", "opening_form": "hinged",
-        "evidence_ids": ["verified-door-d1"],
-    }
-    assert ai._verified_plan_openings(source, 90, edges) == []
-    assert ai._verified_plan_openings(source, 0, edges[:1]) == []
+def test_upload_recognition_has_no_sample_specific_measurement_tables() -> None:
+    assert not hasattr(ai, "VERIFIED_PLAN_EDGE_CHAINS")
+    assert not hasattr(ai, "VERIFIED_PLAN_OPENINGS")
 
 
 @pytest.mark.asyncio

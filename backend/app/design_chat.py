@@ -3,7 +3,7 @@ from functools import lru_cache
 from itertools import product
 from pathlib import Path
 from .config import settings
-from .knowledge_graph import equipment_rules
+from .knowledge_graph import _partition_requested, equipment_rules
 from .provider import serialized_post
 from .model_assets import list_shared_model_assets
 
@@ -16,7 +16,7 @@ PROMPT="""你是室内设计师“小和”，唯一目标是通过多轮对话�
 1. 每轮先调用 capture_design_requirements，理解完整对话中用户明确说过或明确委托你决定的内容；不得把助手单方面建议当成用户确认。
 2. 优先补齐：使用人群、功能需求、喜好风格、预期价格区间；上下文的 missing_fields 是唯一追问依据。像真人设计师一样逐步聊：先接住用户刚说的具体生活困扰，用用户自己的词简短复述，再只问一个最影响下一步方案的问题。用户在功能追问后明确说“没特别要求”“你看着来”时，接受“常规卫浴”而且不要重复追问。禁止一轮连问多个字段，禁止让用户按表格格式回答。
 3. 空间尺寸和面积只能引用“量房用量”，禁止要求用户另报面积，禁止从聊天文字提取或覆盖尺寸。
-4. 设备只能服从“设备规则”；“不能有的设备”优先级最高，绝不能推荐、报价或用近义词变相推荐。适老、老人或轮椅场景禁止淋浴隔断。
+4. 设备只能服从“设备规则”；“不能有的设备”优先级最高，绝不能推荐、报价或用近义词变相推荐。仅当设备规则明确列入“不能有的设备”时才禁止淋浴隔断；普通场景用户明确要求时应正常保留并报价。
 5. 风格只能服从“风格归一结果”。口语风格词要说明其最接近的知识图谱风格；低置信或多候选时给出候选感受并请用户确认，逐轮收敛，禁止生造清单风格。
 6. 产品和价格只能引用工具返回的服务端报价结果。需求理解完成后，服务端负责知识图谱检索、选品及 calculate_design_quote 确定性计算；禁止自行心算、改写金额或输出结果外金额。报价只能称清单测算，不得称成交价。
 6. 对天气、旅游等实时或题外问题，只说明无法获得可靠实时信息，不作事实判断，然后自然接回 missing_fields。
@@ -103,7 +103,7 @@ def furniture_quotes(products,style_match=None):
     quotes=[]
     for product in products:
         attrs=product["attributes"];category=attrs.get("材料名称","")
-        if category in MATERIAL_CATEGORIES or category=="淋浴隔断" or not _supports_style(attrs,(style_match or {}).get("catalog_style")):continue
+        if category in MATERIAL_CATEGORIES or not _supports_style(attrs,(style_match or {}).get("catalog_style")):continue
         price=_number(attrs.get("单价"))
         if price is None:continue
         quotes.append({"product_id":product["id"],"材料编号":attrs.get("材料编号",""),"家具名称":category,"规格型号":attrs.get("规格型号",""),"风格":attrs.get("风格","通用"),"匹配风格":(style_match or {}).get("catalog_style"),"风格匹配依据":(style_match or {}).get("user_terms",[]),"数量":1,"单位":attrs.get("数量单位") or "件","单价":price,"家具小计":price,"model_lookup":_model_lookup(product,style_match or {}),"来源":product.get("retrieval",{}).get("source",f"product_catalog:{product['id']}")})
@@ -151,8 +151,16 @@ def _budget_number(value):
         else:return None
     return float(total+current)
 
+def _normalize_budget_text(value):
+    """Normalize common shorthand before validating a user/model budget."""
+    text = str(value or "").strip().lower()
+    # Chinese users commonly write 2w-4w in chat; treat w/W as 万 while
+    # preserving the original text in the collected requirement state.
+    return re.sub(r"(?<=\d)\s*w", "万", text)
+
 def _budget_ceiling(value):
-    matches=re.findall(r"(\d+(?:\.\d+)?|[零一二两三四五六七八九十百千]+(?:点[零一二三四五六七八九]+)?)\s*(万元|万|元)",str(value or ""))
+    normalized=_normalize_budget_text(value)
+    matches=re.findall(r"(\d+(?:\.\d+)?|[零一二两三四五六七八九十百千]+(?:点[零一二三四五六七八九]+)?)\s*(万元|万|元)",normalized)
     if not matches:return None
     amounts=[number*(10000 if unit.startswith("万") else 1) for raw,unit in matches if (number:=_budget_number(raw)) is not None]
     return max(amounts) if amounts else None
@@ -196,7 +204,7 @@ def default_product_ids(materials,furniture,rules):
 
 QUOTE_TOOL={"type":"function","function":{"name":"calculate_design_quote","description":"按产品唯一 ID 计算墙板、地砖和吊顶材料报价。家具由服务端按全部合规候选计算组合价格区间。","parameters":{"type":"object","properties":{"product_ids":{"type":"array","items":{"type":"string"},"description":"只从材料候选中各选择一个墙板、地砖和吊顶产品；不得传入家具 ID。"}},"required":["product_ids"],"additionalProperties":False}}}
 
-REQUIREMENT_TOOL={"type":"function","function":{"name":"capture_design_requirements","description":"根据完整对话理解并结构化卫生间需求。只记录用户明确表达或明确委托设计师决定的内容。","parameters":{"type":"object","properties":{"audience":{"type":"array","items":{"type":"string","enum":["老人","父母","儿童","轮椅","成人"]}},"functions":{"type":"array","items":{"type":"string","enum":["淋浴","坐便","洗漱","洗衣","收纳","扶手","坐浴"]}},"catalog_style":{"type":"string","enum":["","素雅","轻法","中古"]},"style_terms":{"type":"array","items":{"type":"string"}},"budget_text":{"type":"string","description":"保留用户预算原文，如 2-4万；未知时传空字符串。"},"delegated_standard_functions":{"type":"boolean","description":"用户是否用常规卫浴、日常使用、你看着来等表达明确委托采用常规淋浴、坐便、洗漱配置。"}},"required":["audience","functions","catalog_style","style_terms","budget_text","delegated_standard_functions"],"additionalProperties":False}}}
+REQUIREMENT_TOOL={"type":"function","function":{"name":"capture_design_requirements","description":"根据完整对话理解并结构化卫生间需求。只记录用户明确表达或明确委托设计师决定的内容。","parameters":{"type":"object","properties":{"audience":{"type":"array","items":{"type":"string","enum":["老人","父母","儿童","轮椅","成人"]}},"functions":{"type":"array","items":{"type":"string","enum":["淋浴","坐便","洗漱","洗衣","收纳","扶手","坐浴","淋浴隔断"]}},"catalog_style":{"type":"string","enum":["","素雅","轻法","中古"]},"style_terms":{"type":"array","items":{"type":"string"}},"budget_text":{"type":"string","description":"保留用户预算原文，如 2-4万；未知时传空字符串。"},"delegated_standard_functions":{"type":"boolean","description":"用户是否用常规卫浴、日常使用、你看着来等表达明确委托采用常规淋浴、坐便、洗漱配置。"}},"required":["audience","functions","catalog_style","style_terms","budget_text","delegated_standard_functions"],"additionalProperties":False}}}
 
 LAYOUT_ROLES=("wet_zone","vanity","toilet","heater","washer","grab_bars")
 LAYOUT_WALLS=("north","south","east","west","nearest_plumbing")
@@ -289,6 +297,8 @@ def requirement_state(messages):
     text=" ".join(x["content"] for x in messages if x["role"]=="user")
     audience=[x for x in ("老人","父母","儿童","轮椅","成人") if x in text]
     functions=[x for x in ("洗澡","淋浴","坐便","洗漱","洗衣","收纳","扶手","坐浴") if x in text]
+    if _partition_requested(text):
+        functions.append("淋浴隔断")
     default_functions=["淋浴","坐便","洗漱"]
     if any(term in text for term in ("常规卫浴","基础卫浴","基本卫浴")):
         functions=default_functions
@@ -302,7 +312,7 @@ def requirement_state(messages):
                 break
     style_match=resolve_style(messages);styles=[style_match["catalog_style"]] if style_match["catalog_style"] else []
     amount=r"(?:\d+(?:\.\d+)?|[零一二两三四五六七八九十百千]+(?:点[零一二三四五六七八九]+)?)"
-    money=rf"{amount}\s*(?:万元|万|元)"
+    money=rf"{amount}\s*(?:万元|万|元|[wW])"
     budget_match=re.search(rf"({amount}\s*[-到至~]\s*{money}|{money}(?:\s*[-到至~]\s*{money})?)",text)
     collected={"使用人群":audience,"功能需求":functions,"喜好风格":styles,"预期价格区间":budget_match.group(1) if budget_match else None}
     missing=[key for key,value in collected.items() if not value]
@@ -312,7 +322,7 @@ def requirement_state_from_model(arguments,messages):
     """Validate model understanding; deterministic parsing only fills omitted valid facts."""
     if not isinstance(arguments,dict):arguments={}
     fallback=requirement_state(messages)
-    allowed_audience={"老人","父母","儿童","轮椅","成人"};allowed_functions={"淋浴","坐便","洗漱","洗衣","收纳","扶手","坐浴"}
+    allowed_audience={"老人","父母","儿童","轮椅","成人"};allowed_functions={"淋浴","坐便","洗漱","洗衣","收纳","扶手","坐浴","淋浴隔断"}
     audience_values=arguments.get("audience") if isinstance(arguments.get("audience"),list) else []
     function_values=arguments.get("functions") if isinstance(arguments.get("functions"),list) else []
     style_values=arguments.get("style_terms") if isinstance(arguments.get("style_terms"),list) else []
@@ -322,6 +332,10 @@ def requirement_state_from_model(arguments,messages):
         functions=list(dict.fromkeys([*functions,"淋浴","坐便","洗漱"]))
     audience=audience or fallback["collected"]["使用人群"]
     functions=functions or fallback["collected"]["功能需求"]
+    # Preserve explicit user-selected optional equipment even when the model
+    # only returns the standard bathroom functions.
+    if "淋浴隔断" in fallback["collected"]["功能需求"] and "淋浴隔断" not in functions:
+        functions.append("淋浴隔断")
     catalog_style=str(arguments.get("catalog_style") or "")
     if catalog_style not in CATALOG_STYLES:catalog_style=fallback["style_match"].get("catalog_style") or ""
     style_terms=list(dict.fromkeys(str(value).strip() for value in style_values if str(value).strip()))

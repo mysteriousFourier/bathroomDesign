@@ -5,13 +5,43 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 RULES={"洗澡":["花洒","热水器"],"沐浴":["花洒","热水器"],"淋浴":["花洒","热水器"],"上厕所":["马桶"],"坐便":["马桶"],"洗衣":["洗衣机"],"洗衣服":["洗衣机"],"洗漱":["浴室柜"],"洗脸":["浴室柜"],"收纳":["浴室柜"]}
+
+_ACCESSIBILITY_TERMS=("适老","老人","轮椅","扶手","坐浴")
+_NEGATION_TERMS=("不需要","无需","不用","不要","没有","无","不是","非","不考虑","不含","排除","拒绝","取消")
+_PUNCTUATION="，。；,;、\n"
+
+def _has_positive_term(text:str,term:str)->bool:
+    """Match an accessibility term only when the user's clause does not negate it."""
+    start=0
+    while (index:=text.find(term,start))>=0:
+        clause_start=max((text.rfind(mark,0,index) for mark in _PUNCTUATION),default=-1)+1
+        prefix=text[clause_start:index]
+        suffix=text[index+len(term):]
+        suffix=suffix[:8]
+        if not any(prefix.rstrip().endswith(negation) for negation in _NEGATION_TERMS) and not re.match(r"^(?:需求|配置|功能)?(?:不需要|无需|不用|不要|没有|无|不考虑|不含|排除|拒绝|取消)",suffix):
+            return True
+        start=index+len(term)
+    return False
+
+def _accessibility_requested(text:str)->bool:
+    return any(_has_positive_term(text,term) for term in _ACCESSIBILITY_TERMS)
+
+def _partition_requested(text:str)->bool:
+    return _has_positive_term(text,"淋浴隔断")
+
 def equipment_rules(text:str)->dict[str,list[str]]:
-    required=[item for phrase,items in RULES.items() if phrase in text for item in items]; accessible=any(x in text for x in ("适老","老人","轮椅","扶手","坐浴"))
+    required=[item for phrase,items in RULES.items() if phrase in text for item in items]; accessible=_accessibility_requested(text)
     if accessible:
         required=[x for x in required if x!="浴室柜"]+["淋浴椅","花洒扶手","马桶扶手"]
         if any(x in text for x in ("洗漱","洗脸","轮椅")):required.append("适老浴室柜")
     shower=any(x in text for x in ("洗澡","沐浴","淋浴"))
-    return {"必须设备":list(dict.fromkeys(required)),"可有可无设备":[] if accessible else (["淋浴隔断"] if shower else []),"不能有的设备":["淋浴隔断"] if accessible else []}
+    if accessible:
+        optional=[];forbidden=["淋浴隔断"]
+    elif _partition_requested(text):
+        required.append("淋浴隔断");optional=[];forbidden=[]
+    else:
+        optional=["淋浴隔断"] if shower else [];forbidden=[]
+    return {"必须设备":list(dict.fromkeys(required)),"可有可无设备":optional,"不能有的设备":forbidden}
 def _xlsx(content:bytes)->list[list[str]]:
     ns="{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
     with zipfile.ZipFile(BytesIO(content)) as z:

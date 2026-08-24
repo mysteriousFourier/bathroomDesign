@@ -121,29 +121,6 @@ DIMENSION_TRANSCRIPTION_PROMPT = """
 
 PLAN_SYMBOL_REGION = ImageBBox(x_min=130, y_min=260, x_max=720, y_max=830)
 
-VERIFIED_PLAN_EDGE_CHAINS: dict[str, tuple[tuple[str, int], ...]] = {
-    "730063335afdc908ea91b569e1516a8df0f82c399d8fcaff4ebd9b03b24773b4": (
-        ("down", 1840),
-        ("right", 1255),
-        ("up", 320),
-        ("right", 2855),
-        ("up", 1840),
-        ("left", 1590),
-        ("down", 610),
-        ("left", 615),
-        ("up", 610),
-        ("left", 1640),
-        ("down", 320),
-        ("left", 260),
-    ),
-}
-
-VERIFIED_PLAN_OPENINGS: dict[str, tuple[tuple[str, int, int, int, int, str, str], ...]] = {
-    "730063335afdc908ea91b569e1516a8df0f82c399d8fcaff4ebd9b03b24773b4": (
-        ("D1", 1, 400, 800, 2055, "hinged", "inward"),
-    ),
-}
-
 PLAN_REGION_PROMPT = """
 你只负责读取这张手绘测量图局部。输出一个 JSON 对象，包含 evidence 和 uncertain。
 evidence 每项字段为 id、kind、text、bbox、orientation、related_to、view_id、confidence。
@@ -2633,70 +2610,6 @@ def _merge_segment_edge_chains(primary: list[BoundaryEdge], fallback: list[Bound
         edge if edge.length_mm is not None else fallback[index]
         for index, edge in enumerate(primary)
     ]
-
-
-def _verified_plan_edge_chain(
-    path: Path,
-    rotation: int,
-    shape: ShapeTraceResult | None,
-) -> list[BoundaryEdge]:
-    if rotation != 0 or shape is None:
-        return []
-    try:
-        verified = VERIFIED_PLAN_EDGE_CHAINS.get(hashlib.sha256(path.read_bytes()).hexdigest())
-    except OSError:
-        return []
-    if verified is None or _shape_directions(shape) != [direction for direction, _ in verified]:
-        return []
-    return [
-        BoundaryEdge(
-            direction=direction,
-            length_mm=length_mm,
-            role=_edge_role(shape, index),
-            evidence_ids=[],
-            confidence=0.9 if index == 3 else 0.99,
-        )
-        for index, (direction, length_mm) in enumerate(verified)
-    ]
-
-
-def _verified_plan_openings(
-    path: Path,
-    rotation: int,
-    edges: list[BoundaryEdge],
-) -> list[OpeningSpec]:
-    if rotation != 0:
-        return []
-    try:
-        verified = VERIFIED_PLAN_OPENINGS.get(hashlib.sha256(path.read_bytes()).hexdigest())
-    except OSError:
-        return []
-    if verified is None:
-        return []
-    openings: list[OpeningSpec] = []
-    for code, wall_index, offset_mm, width_mm, height_mm, opening_form, swing_direction in verified:
-        if wall_index >= len(edges):
-            return []
-        host_length = edges[wall_index].length_mm
-        if host_length is None or offset_mm + width_mm > host_length:
-            return []
-        openings.append(OpeningSpec(
-            id=f"opening-{code.lower()}",
-            kind="door",
-            wall_index=wall_index,
-            offset_mm=offset_mm,
-            width_mm=width_mm,
-            height_mm=height_mm,
-            thickness_mm=100,
-            sill_mm=0,
-            label=code,
-            source=SourceKind.measured,
-            confidence=0.99,
-            opening_form=opening_form,
-            swing_direction=swing_direction,
-            evidence_ids=[f"verified-door-{code.lower()}"],
-        ))
-    return openings
 
 
 def _segment_edge_chain_from_visual_evidence(
@@ -7550,7 +7463,8 @@ async def analyze_floorplan_fast(
         local_edge_chain = _segment_edge_chain_from_visual_evidence(shape, ocr_assist) if shape is not None else []
         direct_edge_chain = _direct_edge_chain_from_report(report, ocr_assist)
         edge_chain = _merge_segment_edge_chains(direct_edge_chain, local_edge_chain)
-        edge_chain = _verified_plan_edge_chain(path, rotation, shape) or edge_chain
+        # Every measurement must come from the current image evidence or the
+        # current recognition pass. Never substitute data from a known sample.
     provisional = _provisional_room_spec(
         shape,
         ocr_assist,
@@ -7561,28 +7475,6 @@ async def analyze_floorplan_fast(
     )
     if provisional is None or not provisional.plan_annotation or len(provisional.plan_annotation.boundary) < 3:
         raise AIResponseError("单次视觉识别未取得可用的房间轮廓；未生成空结果")
-    verified_openings = _verified_plan_openings(path, rotation, edge_chain)
-    if verified_openings:
-        provisional.openings = verified_openings
-        provisional.observations.extend(
-            Observation(
-                field=f"visual_evidence:{opening.evidence_ids[0]}",
-                value=f"{opening.label} CG 0 CK {opening.width_mm} CH {opening.height_mm}",
-                source=SourceKind.measured,
-                asset_id=asset_id,
-                bbox=ImageBBox(x_min=180, y_min=570, x_max=300, y_max=740),
-                confidence=opening.confidence,
-                note="当前量房原图已人工核对的门洞位置、尺寸和开启方向",
-                semantic_role="door_position",
-                rotation_degrees=rotation,
-                target_id=(
-                    f"wall:{opening.wall_index}@"
-                    f"{opening.offset_mm / edge_chain[opening.wall_index].length_mm:.6f}:"
-                    f"{(opening.offset_mm + opening.width_mm) / edge_chain[opening.wall_index].length_mm:.6f}"
-                ),
-            )
-            for opening in verified_openings
-        )
     provisional.plan_lines = _materialize_direct_plan_lines(report, shape, provisional.boundary)
     return provisional
 

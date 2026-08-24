@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { completeOrientationMapping, modelOrientation, orientationCubePlacement, orientationFaceLabels, resolveOrientationMapping } from './modelOrientation'
-import { refreshFixtureModelAsset, type RoomModelAsset } from './modelAssets'
+import { refreshFixtureModelAsset, refreshFixtureModelAssets, type RoomModelAsset } from './modelAssets'
 
 describe('model orientation correction', () => {
   it('refreshes corrected orientation on fixtures already in the room', () => {
@@ -9,6 +9,18 @@ describe('model orientation correction', () => {
     expect(refreshFixtureModelAsset(fixtures, asset)).toBe(true)
     expect(fixtures[0].model_asset.orientation_view).toBe('back')
     expect(fixtures[0].model_asset.orientation_mapping).toEqual(asset.orientation_mapping)
+  })
+  it('never treats missing source asset ids as a match or depends on library order', () => {
+    const fixture = { id:'fixture', kind:'other', label:'model', x_mm:0, z_mm:0, width_mm:1, depth_mm:1, height_mm:1, rotation_deg:0, source:'user', confidence:1, model_asset:{ id:'asset-a', label:'A', src:'/a.glb', unit:'m', fit:'contain', orientation_view:'front' } } as any
+    const assets = [
+      { id:'asset-b', label:'B', src:'/b.glb', format:'glb', orientation_view:'back', dimensions_mm:{width:1,depth:1,height:1} },
+      { id:'asset-a', label:'A', src:'/a.glb', format:'glb', orientation_view:'left', dimensions_mm:{width:1,depth:1,height:1} },
+    ] as any[]
+    for (const ordered of [assets, [...assets].reverse()]) {
+      const fixtures = [structuredClone(fixture)]
+      expect(refreshFixtureModelAssets(fixtures, ordered)).toBe(true)
+      expect(fixtures[0].model_asset).toMatchObject({ id:'asset-a', orientation_view:'left' })
+    }
   })
   it('uses only deterministic quarter-turns without compound rotation', () => {
     expect(modelOrientation('front').toArray().slice(0, 3)).toEqual([0, 0, 0])

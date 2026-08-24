@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyLayoutSolution, BATHROOM_AUTO_LAYOUT_RULES, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, effectiveLayoutInstruction, fixtureFront, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, heaterMountingPlan, HEATER_MAX_RECESS_MM, HEATER_MIN_BOTTOM_MM, optimizeFloorLayout } from './layoutEngine'
+import { applyLayoutSolution, BATHROOM_AUTO_LAYOUT_RULES, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, effectiveLayoutInstruction, fixtureFront, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, heaterMountingPlan, HEATER_MAX_RECESS_MM, HEATER_MIN_BOTTOM_MM, optimizeFloorLayout, reattachWallDependentFixtures, resolveFixtureDrag, syncDraggedFixtureServicePoints } from './layoutEngine'
 import { clientValidate, finishedRoomBoundary, fixtureLocalFootprint, fixturePointUsage, manualRoom, projectPointToWall, wallInwardNormal, wetZoneBoundaryValid } from './spec'
 import { modelDimensions } from './modelDimensions'
 import graphOutput from './generated-layout-products.json'
@@ -10,6 +10,71 @@ describe('deterministic requirement layout engine', () => {
   const room = manualRoom(3200, 2600, 2700)
   room.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 1300, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'measured', confidence: 1 })
   const solutions = generateLayoutSolutions(room)
+
+  it('keeps manually dragged furniture inside the room and away from other furniture', () => {
+    const editable = manualRoom(2400, 2000, 2600)
+    editable.fixtures.push(
+      { id:'moving', kind:'vanity', label:'浴室柜', x_mm:500, z_mm:500, width_mm:600, depth_mm:500, height_mm:850, rotation_deg:0, source:'user', confidence:1 },
+      { id:'fixed', kind:'toilet', label:'马桶', x_mm:1200, z_mm:1000, width_mm:500, depth_mm:700, height_mm:760, rotation_deg:0, source:'user', confidence:1 },
+    )
+    const outside = resolveFixtureDrag(editable, 'moving', { x_mm:-400, z_mm:-300 })!
+    expect(outside.x_mm).toBeGreaterThan(0)
+    expect(outside.z_mm).toBeGreaterThan(0)
+    const collision = resolveFixtureDrag(editable, 'moving', { x_mm:1200, z_mm:1000 })!
+    expect(Math.hypot(collision.x_mm-1200, collision.z_mm-1000)).toBeGreaterThan(0)
+  })
+
+  it('keeps manually dragged heaters rear-snapped to a finished wall', () => {
+    const editable = manualRoom(2400, 2000, 2600)
+    editable.fixtures.push({ id:'heater', kind:'other', label:'热水器', x_mm:1200, z_mm:1000, width_mm:700, depth_mm:300, height_mm:500, elevation_mm:1600, rotation_deg:0, source:'user', confidence:1 })
+    const heater = resolveFixtureDrag(editable, 'heater', { x_mm:80, z_mm:900 })!
+    expect(heater.bound_wall_index).not.toBeNull()
+    const projection = projectPointToWall(finishedRoomBoundary({ ...editable, wall_finish_gap_mm:35 }), heater.bound_wall_index!, heater)!
+    expect(projection.distance_mm).toBeGreaterThanOrEqual(heater.depth_mm / 2)
+    expect(projection.distance_mm).toBeLessThanOrEqual(heater.depth_mm / 2 + 40)
+  })
+
+  it('moves generated shower and washer service points with their dragged fixture', () => {
+    const editable = manualRoom(3000, 2200, 2600)
+    editable.fixtures.push(
+      { id:'shower', kind:'other', label:'花洒', x_mm:800, z_mm:0, width_mm:120, depth_mm:80, height_mm:1100, rotation_deg:0, source:'derived', confidence:1, bound_wall_index:0, layout_generated:true },
+      { id:'shower-cold', kind:'water', label:'自动花洒冷水点', x_mm:725, z_mm:0, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'derived', confidence:1, bound_wall_index:0, point_usage:'shower', layout_generated:true },
+      { id:'washer', kind:'other', label:'洗衣机', x_mm:2700, z_mm:700, width_mm:600, depth_mm:650, height_mm:850, rotation_deg:90, source:'derived', confidence:1, bound_wall_index:1, layout_generated:true },
+      { id:'washer-water', kind:'water', label:'自动洗衣机给水点', x_mm:3000, z_mm:580, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'derived', confidence:1, bound_wall_index:1, layout_generated:true },
+    )
+    const shower = editable.fixtures.find((item) => item.id === 'shower')!
+    Object.assign(shower, resolveFixtureDrag(editable, shower.id, { x_mm:100, z_mm:1200 }))
+    syncDraggedFixtureServicePoints(editable, shower)
+    expect(editable.fixtures.find((item) => item.id === 'shower-cold')?.bound_wall_index).toBe(shower.bound_wall_index)
+    const washer = editable.fixtures.find((item) => item.id === 'washer')!
+    Object.assign(washer, resolveFixtureDrag(editable, washer.id, { x_mm:1300, z_mm:2100 }))
+    syncDraggedFixtureServicePoints(editable, washer)
+    expect(editable.fixtures.find((item) => item.id === 'washer-water')?.bound_wall_index).toBe(washer.bound_wall_index)
+  })
+
+  it('rear-snaps wall devices and their points after passive room changes', () => {
+    const editable = manualRoom(3000, 2200, 2600)
+    editable.fixtures.push(
+      { id:'washer', kind:'other', label:'洗衣机', x_mm:2675, z_mm:900, width_mm:600, depth_mm:650, height_mm:850, rotation_deg:90, source:'derived', confidence:1, bound_wall_index:1, layout_generated:true },
+      { id:'washer-water', kind:'water', label:'自动洗衣机给水点', x_mm:2965, z_mm:780, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'derived', confidence:1, bound_wall_index:1, layout_generated:true },
+    )
+    // Simulate a parent/boundary update that moves the east wall while leaving
+    // the child device at its stale absolute coordinate.
+    editable.boundary[1].x_mm = 3600
+    editable.boundary[2].x_mm = 3600
+    reattachWallDependentFixtures(editable)
+    const washer = editable.fixtures.find((item) => item.id === 'washer')!
+    const point = editable.fixtures.find((item) => item.id === 'washer-water')!
+    expect(washer.bound_wall_index).toBe(1)
+    expect(washer.rotation_deg).toBe(90)
+    const projection = projectPointToWall(finishedRoomBoundary(editable), 1, washer)!
+    // 325 mm rotated rear half-depth + 50 mm appliance clearance + the
+    // finished-surface offset used by the layout boundary.
+    expect(projection.distance_mm).toBeGreaterThanOrEqual(400)
+    expect(projection.distance_mm).toBeLessThanOrEqual(420)
+    expect(point.bound_wall_index).toBe(1)
+    expect(projectPointToWall(finishedRoomBoundary(editable), 1, point)?.distance_mm).toBeLessThanOrEqual(40)
+  })
 
   it('checks every door, respects reverse wall direction, and differentiates outward/sliding doors', () => {
     const multi = manualRoom(3000, 2400, 2600)

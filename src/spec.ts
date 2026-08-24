@@ -1057,16 +1057,17 @@ export function nearestValidWetZoneBoundary(spec: RoomSpec, zoneId: string, requ
     x_mm: (rectangle[0].x_mm + rectangle[2].x_mm) / 2,
     z_mm: (rectangle[0].z_mm + rectangle[2].z_mm) / 2,
   }
-  const width = rectangle[1].x_mm - rectangle[0].x_mm
-  const depth = rectangle[2].z_mm - rectangle[1].z_mm
+  const requestedWidth = rectangle[1].x_mm - rectangle[0].x_mm
+  const requestedDepth = rectangle[2].z_mm - rectangle[1].z_mm
   const room = finishedRoomBoundary(spec)
   const bounds = roomBounds(room)
-  const xCandidates = new Set<number>([requestedCenter.x_mm, bounds.minX + width / 2, bounds.maxX - width / 2])
-  const zCandidates = new Set<number>([requestedCenter.z_mm, bounds.minZ + depth / 2, bounds.maxZ - depth / 2])
-  for (let x = bounds.minX + width / 2; x <= bounds.maxX - width / 2; x += 25) xCandidates.add(x)
-  for (let z = bounds.minZ + depth / 2; z <= bounds.maxZ - depth / 2; z += 25) zCandidates.add(z)
   let best: { boundary: Point2D[]; distance: number } | null = null
-  for (const centerX of xCandidates) for (const centerZ of zCandidates) {
+  const trySize = (width: number, depth: number) => {
+    const xCandidates = new Set<number>([requestedCenter.x_mm, bounds.minX + width / 2, bounds.maxX - width / 2])
+    const zCandidates = new Set<number>([requestedCenter.z_mm, bounds.minZ + depth / 2, bounds.maxZ - depth / 2])
+    for (let x = bounds.minX + width / 2; x <= bounds.maxX - width / 2; x += 25) xCandidates.add(x)
+    for (let z = bounds.minZ + depth / 2; z <= bounds.maxZ - depth / 2; z += 25) zCandidates.add(z)
+    for (const centerX of xCandidates) for (const centerZ of zCandidates) {
     const candidate = [
       { x_mm: centerX - width / 2, z_mm: centerZ - depth / 2 },
       { x_mm: centerX + width / 2, z_mm: centerZ - depth / 2 },
@@ -1076,8 +1077,17 @@ export function nearestValidWetZoneBoundary(spec: RoomSpec, zoneId: string, requ
     if (!wetZoneBoundaryValid(spec, zoneId, candidate)) continue
     const distance = Math.hypot(centerX - requestedCenter.x_mm, centerZ - requestedCenter.z_mm)
     if (!best || distance < best.distance) best = { boundary: candidate, distance }
+    }
   }
-  return best?.boundary ?? null
+  // Preserve the requested size whenever a legal translation exists. Only if
+  // it does not, progressively retract the blocked edge(s) to a 300 mm floor.
+  trySize(requestedWidth, requestedDepth)
+  for (let shrink = 25; !best && (requestedWidth - shrink >= 300 || requestedDepth - shrink >= 300); shrink += 25) {
+    if (requestedWidth - shrink >= 300) trySize(requestedWidth - shrink, requestedDepth)
+    if (requestedDepth - shrink >= 300) trySize(requestedWidth, requestedDepth - shrink)
+    if (requestedWidth - shrink >= 300 && requestedDepth - shrink >= 300) trySize(requestedWidth - shrink, requestedDepth - shrink)
+  }
+  return (best as { boundary: Point2D[]; distance: number } | null)?.boundary ?? null
 }
 
 export function applyWetZoneBoundaryChange(spec: RoomSpec, zoneId: string, boundary: Point2D[]) {

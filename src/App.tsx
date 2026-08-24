@@ -15,7 +15,7 @@ import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { fixtureModelAssetFromLibrary, modelAssetPointKind, type RoomModelAsset } from './modelAssets'
-import { applyLayoutSolution, generateDeterministicLayoutSolutions, generateLayoutSolutions, type LayoutSolution } from './layoutEngine'
+import { applyLayoutSolution, generateDeterministicLayoutSolutions, generateLayoutSolutions, reattachWallDependentFixtures, resolveFixtureDrag, syncDraggedFixtureServicePoints, type LayoutSolution } from './layoutEngine'
 import { surfaceMaterialsForDesignQuote } from './modelLibrary'
 import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, updateOpeningFromLine, wallLength } from './spec'
 import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
@@ -395,6 +395,10 @@ export default function App() {
     if (!spec) return
     const pendingAnnotationTopology = !!next.plan_annotation && !next.plan_annotation.confirmed && next.plan_annotation.boundary.length !== next.boundary.length
     if (!pendingAnnotationTopology) syncOpeningBindings(next, spec)
+    // Inspector/room edits can move a fixture passively without invoking the
+    // plan drag resolver. Wall-dependent devices must still follow their bound
+    // finished wall with their rear face, rotation and generated points intact.
+    reattachWallDependentFixtures(next)
     next.issues = clientValidate(next)
     setHistory((items) => [...items.slice(-39), cloneSpec(spec)])
     setFuture([]); setSpec(next); setDirty(true)
@@ -780,10 +784,11 @@ export default function App() {
                     const next = cloneSpec(spec)
                     const fixture = next.fixtures.find((item) => item.id === id)
                     if (fixture) {
-                      const snap = snapPointToNearestWall(finishedRoomBoundary(next), { x_mm: x, z_mm: z })
-                      fixture.x_mm = snap?.point.x_mm ?? x; fixture.z_mm = snap?.point.z_mm ?? z
-                      fixture.bound_wall_index = snap?.wall_index ?? null
+                      const resolved = resolveFixtureDrag(next, id, { x_mm: x, z_mm: z })
+                      if (!resolved) return
+                      Object.assign(fixture, resolved)
                       fixture.source = 'user'; fixture.confidence = 1; fixture.layout_generated = false
+                      syncDraggedFixtureServicePoints(next, fixture)
                       if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') next.dry_wet_zones = generateDryWetZones(next)
                       commitSpec(next)
                     }

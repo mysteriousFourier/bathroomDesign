@@ -1,6 +1,7 @@
 import { CircleDot, DoorOpen, Droplet, Focus, Grid2X2, Move, Plug, Spline, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, openingLine, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength } from '../spec'
+import { resolveFixtureDrag } from '../layoutEngine'
 import type { Asset, FixtureKind, FixturePointUsage, OpeningSpec, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
 
 type OpeningDrag = { pointerId: number; id: string; mode: 'move' | 'start' | 'end'; startPointer: Point2D; originStart: Point2D; originEnd: Point2D; currentStart: Point2D; currentEnd: Point2D }
@@ -42,7 +43,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
   const panSession = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null)
   const suppressCanvasClick = useRef(false)
   const [zoneDraft, setZoneDraft] = useState<{ id: string; boundary: Point2D[] } | null>(null)
-  const zoneSession = useRef<{ pointerId: number; id: string; start: Point2D; original: Point2D[]; vertex: number | null; draft: Point2D[] } | null>(null)
+  const zoneSession = useRef<{ pointerId: number; id: string; start: Point2D; original: Point2D[]; vertices: number[] | null; draft: Point2D[] } | null>(null)
   const openingDrag = useRef<OpeningDrag | null>(null)
   const [openingDragState, setOpeningDragState] = useState<OpeningDrag | null>(null)
   const openingCreate = useRef<OpeningCreate | null>(null)
@@ -77,12 +78,12 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
       ? { x_mm: candidate.x_mm, z_mm: anchor.z_mm }
       : { x_mm: anchor.x_mm, z_mm: candidate.z_mm }
   )
-  const startZoneDrag = (event: ReactPointerEvent<SVGGElement | SVGCircleElement>, id: string, boundary: Point2D[], vertex: number | null) => {
+  const startZoneDrag = (event: ReactPointerEvent<SVGGElement | SVGCircleElement>, id: string, boundary: Point2D[], vertices: number[] | null) => {
     if (!onZoneChange || event.button !== 0) return
     event.preventDefault(); event.stopPropagation()
     const svg = event.currentTarget.ownerSVGElement!
     const original = boundary.map((point) => ({ ...point }))
-    zoneSession.current = { pointerId: event.pointerId, id, start: roomPoint(svg, event.clientX, event.clientY), original, vertex, draft: original }
+    zoneSession.current = { pointerId: event.pointerId, id, start: roomPoint(svg, event.clientX, event.clientY), original, vertices, draft: original }
     setZoneDraft({ id, boundary: original })
     onSelect({ type: 'dry_wet_zone', id })
     svg.setPointerCapture(event.pointerId)
@@ -280,6 +281,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           }
           const targetIsPanSurface = event.target === event.currentTarget || (event.target instanceof SVGElement && event.target.dataset.panSurface === 'true')
           if (event.button !== 0 || !targetIsPanSurface) return
+          event.preventDefault()
           const point = svgPoint(event.currentTarget, event.clientX, event.clientY)
           panSession.current = { pointerId: event.pointerId, x: point.x, y: point.y, panX: pan.x, panY: pan.y }
           event.currentTarget.setPointerCapture(event.pointerId)
@@ -299,11 +301,13 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
             const current = roomPoint(event.currentTarget, event.clientX, event.clientY)
             const room = roomBounds(roomBoundary)
             let boundary: Point2D[]
-            if (zone.vertex !== null) {
-              boundary = zone.original.map((point, index) => index === zone.vertex ? {
-                x_mm: Math.max(room.minX, Math.min(room.maxX, current.x_mm)),
-                z_mm: Math.max(room.minZ, Math.min(room.maxZ, current.z_mm)),
-              } : point)
+            if (zone.vertices !== null) {
+              const horizontalEdge = zone.vertices.length === 2 && zone.original[zone.vertices[0]].z_mm === zone.original[zone.vertices[1]].z_mm
+              const verticalEdge = zone.vertices.length === 2 && zone.original[zone.vertices[0]].x_mm === zone.original[zone.vertices[1]].x_mm
+              boundary = zone.original.map((point, index) => !zone.vertices!.includes(index) ? point : {
+                x_mm: verticalEdge || zone.vertices!.length === 1 ? Math.max(room.minX, Math.min(room.maxX, current.x_mm)) : point.x_mm,
+                z_mm: horizontalEdge || zone.vertices!.length === 1 ? Math.max(room.minZ, Math.min(room.maxZ, current.z_mm)) : point.z_mm,
+              })
             } else {
               const originalBounds = roomBounds(zone.original)
               const requestedX = current.x_mm - zone.start.x_mm
@@ -416,10 +420,12 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           const centerX = boundary.reduce((sum, point) => sum + sx(point.x_mm), 0) / boundary.length
           const centerZ = boundary.reduce((sum, point) => sum + sz(point.z_mm), 0) / boundary.length
           const selected = selection.type === 'dry_wet_zone' && selection.id === zone.id
+          const edges = boundary.map((point, index) => ({ indices: [index, (index + 1) % boundary.length], x: (point.x_mm + boundary[(index + 1) % boundary.length].x_mm) / 2, z: (point.z_mm + boundary[(index + 1) % boundary.length].z_mm) / 2 }))
           return <g key={zone.id} className={`dry-wet-zone ${zone.kind}${selected ? ' selected' : ''}`} onPointerDown={(event) => startZoneDrag(event, zone.id, boundary, null)} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'dry_wet_zone', id: zone.id }) }}>
             <polygon points={zonePoints} />
             <text x={centerX} y={centerZ + 4}>{zone.label}</text>
-            {selected && boundary.map((point, index) => <circle key={`${zone.id}-handle-${index}`} className="dry-wet-zone-handle" cx={sx(point.x_mm)} cy={sz(point.z_mm)} r="7" onPointerDown={(event) => startZoneDrag(event, zone.id, boundary, index)} />)}
+            {boundary.map((point, index) => <circle key={`${zone.id}-handle-${index}`} className="dry-wet-zone-handle corner" cx={sx(point.x_mm)} cy={sz(point.z_mm)} r="7" onPointerDown={(event) => startZoneDrag(event, zone.id, boundary, [index])} />)}
+            {edges.map((edge, index) => <circle key={`${zone.id}-edge-${index}`} className={`dry-wet-zone-handle edge ${edge.indices[0] % 2 === 0 ? 'horizontal' : 'vertical'}`} cx={sx(edge.x)} cy={sz(edge.z)} r="6" onPointerDown={(event) => startZoneDrag(event, zone.id, boundary, edge.indices)} />)}
           </g>
         })}
         {(spec.ceiling_zones ?? []).map((zone) => {
@@ -518,7 +524,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           const pointShape = fixturePointShape(fixture.kind)
           const pointSize = Math.max(width, depth)
           return (
-            <g key={fixture.id} className={selected ? 'fixture-shape selected' : 'fixture-shape'} transform={`translate(${sx(fixture.x_mm)} ${sz(fixture.z_mm)}) rotate(${fixture.rotation_deg})`} onPointerDown={(event) => {
+            <g key={fixture.id} className={selected ? 'fixture-shape selected' : 'fixture-shape'} data-fixture-id={fixture.id} data-x-mm={fixture.x_mm} data-z-mm={fixture.z_mm} data-bound-wall-index={fixtureBoundWallIndex(spec, fixture) ?? ''} transform={`translate(${sx(fixture.x_mm)} ${sz(fixture.z_mm)}) rotate(${fixture.rotation_deg})`} onPointerDown={(event) => {
+              event.preventDefault()
               event.stopPropagation()
               onSelect({ type: 'fixture', id: fixture.id })
               const target = event.currentTarget
@@ -529,7 +536,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
                 const point = svg.createSVGPoint()
                 point.x = moveEvent.clientX; point.y = moveEvent.clientY
                 const local = point.matrixTransform(layer.getScreenCTM()!.inverse())
-                target.setAttribute('transform', `translate(${local.x} ${local.y}) rotate(${fixture.rotation_deg})`)
+                const resolved = resolveFixtureDrag(spec, fixture.id, { x_mm: mmX(local.x), z_mm: mmZ(local.y) })
+                if (resolved) target.setAttribute('transform', `translate(${sx(resolved.x_mm)} ${sz(resolved.z_mm)}) rotate(${resolved.rotation_deg})`)
               }
               const up = (upEvent: PointerEvent) => {
                 const point = svg.createSVGPoint()

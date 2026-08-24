@@ -266,7 +266,8 @@ p, h1, h2, figure { margin: 0; }
 .canvas-tool-select select option { color: var(--ink); background: var(--surface); }
 .canvas-toolbar .cutaway-status { min-height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: rgb(250 249 246 / 82%); color: var(--muted); font-size: 10px; white-space: nowrap; }
 .canvas-toolbar .cutaway-status.active { border-color: #9fbaab; background: var(--green-soft); color: var(--green); font-weight: 700; }
-.plan-canvas { display: block; width: calc(100% - 28px); height: calc(100% - 14px); margin: 0 14px 14px; border: 1px solid var(--line-strong); background: #faf9f6; box-shadow: var(--shadow-1); touch-action: none; }
+.plan-canvas { display: block; width: calc(100% - 28px); height: calc(100% - 14px); margin: 0 14px 14px; border: 1px solid var(--line-strong); background: #faf9f6; box-shadow: var(--shadow-1); touch-action: none; user-select: none; -webkit-user-select: none; }
+.plan-canvas text { user-select: none; -webkit-user-select: none; }
 .plan-canvas [data-pan-surface="true"] { cursor: grab; }
 .plan-canvas:active [data-pan-surface="true"] { cursor: grabbing; }
 .wall-finish-body { fill: #e6e5df; stroke: #4d534c; stroke-width: 0.8; vector-effect: non-scaling-stroke; }
@@ -280,7 +281,9 @@ p, h1, h2, figure { margin: 0; }
 .dry-wet-zone text { text-anchor: middle; font: 700 11px "Microsoft YaHei", sans-serif; paint-order: stroke; stroke: #fff; stroke-width: 4; pointer-events: none; }
 .dry-wet-zone.dry text { fill: #515851; }
 .dry-wet-zone.wet text { fill: #1f5875; }
-.dry-wet-zone-handle { fill: #fff; stroke: #20231f; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: move; }
+.dry-wet-zone-handle { fill: #fff; stroke: #20231f; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: nwse-resize; }
+.dry-wet-zone-handle.edge.horizontal { cursor: ns-resize; }
+.dry-wet-zone-handle.edge.vertical { cursor: ew-resize; }
 .ceiling-zone polygon { fill: rgb(202 172 101 / 20%); stroke: #9a782a; stroke-width: 2; stroke-dasharray: 7 4; vector-effect: non-scaling-stroke; }
 .ceiling-zone text { fill: #765b1b; text-anchor: middle; font: 10px Consolas, monospace; pointer-events: none; }
 .ocr-evidence rect { fill: rgb(37 99 235 / 7%); stroke: #3d7bd9; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }

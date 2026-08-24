@@ -3,7 +3,7 @@ import graphOutput from './generated-layout-products.json'
 import productCatalog from './generated-product-catalog.json'
 import { dimensionsFor } from './modelDimensions'
 import { builtInAssetAsRoomAsset, exactModelAssetForProduct, modelAssetForProduct, surfaceAssetForProduct, type BuiltInModelRecord } from './modelLibrary'
-import { applyWetZoneBoundaryChange, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixturePointUsage, nearestWallIndex, projectPointToWall, SHOWER_DRAIN_CENTER_OFFSET_MM, SHOWER_DRAIN_WALL_CLEARANCE_MM, toiletPlacementFromDrain, wallInwardNormal, wetZoneBoundaryValid } from './spec'
+import { applyWetZoneBoundaryChange, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixturePointUsage, nearestWallIndex, projectPointToWall, SHOWER_DRAIN_CENTER_OFFSET_MM, SHOWER_DRAIN_WALL_CLEARANCE_MM, snapPointToNearestWall, toiletPlacementFromDrain, wallInwardNormal, wetZoneBoundaryValid } from './spec'
 
 export type DemandProfile = 'standard_shower' | 'laundry' | 'elderly_safe'
 export type BudgetTier = 'basic' | 'comfort' | 'premium'
@@ -375,10 +375,9 @@ function rearWallDistance(spec: RoomSpec, item: FixtureSpec, wall: Exclude<Seman
   return projection.distance_mm - halfDepth
 }
 
-function snapRearToWall(spec: RoomSpec, item: FixtureSpec, wall: Exclude<SemanticWall, 'nearest_plumbing'>, gapMm: number) {
+function snapRearToWallIndex(spec: RoomSpec, item: FixtureSpec, wallIndex: number, gapMm: number) {
   const boundary = layoutBoundary(spec)
-  const wallIndex = wallIndexForSemantic(spec, wall, item)
-  const resolvedWall = semanticWallForIndex(spec, wallIndex) ?? wall
+  const resolvedWall = semanticWallForIndex(spec, wallIndex) ?? wallNearestPoint(spec, item)
   const rotation = wallFacingRotation(resolvedWall)
   item.rotation_deg = rotation
   const projection = projectPointToWall(boundary, wallIndex, item)
@@ -408,6 +407,10 @@ function snapRearToWall(spec: RoomSpec, item: FixtureSpec, wall: Exclude<Semanti
     break
   }
   item.bound_wall_index = wallIndex
+}
+
+function snapRearToWall(spec: RoomSpec, item: FixtureSpec, wall: Exclude<SemanticWall, 'nearest_plumbing'>, gapMm: number) {
+  snapRearToWallIndex(spec, item, wallIndexForSemantic(spec, wall, item), gapMm)
 }
 
 function snapWallMountedFixtureAwayFromOpenings(spec: RoomSpec, item: FixtureSpec, preferredWall: Exclude<SemanticWall, 'nearest_plumbing'>, gapMm: number) {
@@ -552,6 +555,44 @@ function wallServicePoint(spec: RoomSpec, wall: Exclude<SemanticWall, 'nearest_p
   return result
 }
 
+/** Keep derived service points on the same finished wall as a dragged appliance. */
+export function syncDraggedFixtureServicePoints(spec: RoomSpec, anchor: FixtureSpec) {
+  const wall = semanticWallForIndex(spec, anchor.bound_wall_index) ?? wallNearestPoint(spec, anchor)
+  const replace = (point: FixtureSpec, offset: number, elevation: number) => Object.assign(point, wallServicePoint(spec, wall, anchor, offset, elevation, point.label, point.kind as 'water'|'electric', point.id, point.point_usage))
+  if (/花洒/.test(anchor.label) && !/扶手/.test(anchor.label)) {
+    spec.fixtures.filter((item) => item.layout_generated && item.kind === 'water' && /自动花洒/.test(item.label)).forEach((point) => replace(point, /热/.test(point.label) ? 75 : -75, 1050))
+  }
+  if (/洗衣机/.test(anchor.label)) {
+    spec.fixtures.filter((item) => item.layout_generated && /自动洗衣机/.test(item.label) && (item.kind === 'water' || item.kind === 'electric')).forEach((point) => replace(point, point.kind === 'electric' ? 120 : -120, point.kind === 'electric' ? 1200 : 1100))
+  }
+}
+
+/**
+ * Re-attach every wall-dependent appliance after an indirect room/spec edit.
+ *
+ * Direct dragging already resolves a fixture against a wall. Room resizing,
+ * finish regeneration, inspector coordinate edits and other parent changes can
+ * move the wall (or the fixture) without going through that drag path. Preserve
+ * the bound segment when it is still valid, then recompute rotation and the
+ * rear-face offset from the new finished surface. Generated service points are
+ * re-projected only after their appliance has reached its final wall.
+ */
+export function reattachWallDependentFixtures(spec: RoomSpec) {
+  const boundary = layoutBoundary(spec)
+  const anchors: FixtureSpec[] = []
+  for (const item of spec.fixtures) {
+    const gap = requiredRearWallGap(item)
+    if (gap === undefined) continue
+    const bound = item.bound_wall_index
+    const wallIndex = bound !== null && bound !== undefined && bound >= 0 && bound < boundary.length
+      ? bound
+      : nearestWallIndex(boundary, item) ?? 0
+    snapRearToWallIndex(spec, item, wallIndex, gap)
+    anchors.push(item)
+  }
+  anchors.forEach((anchor) => syncDraggedFixtureServicePoints(spec, anchor))
+}
+
 function isSpatialWetZone(item: FixtureSpec) {
   return item.kind === 'shower' && /淋浴(?:湿)?区/.test(item.label)
 }
@@ -616,6 +657,53 @@ export function blocksWindowEnvelope(spec: RoomSpec, f: FixtureSpec) {
 
 function blocksFurnitureOpeningEnvelope(spec: RoomSpec, f: FixtureSpec) {
   return blocksDoorEnvelope(spec, f) || blocksWindowEnvelope(spec, f)
+}
+
+/**
+ * Resolve a direct-plan drag to the closest legal physical placement.
+ *
+ * The plan editor previously committed the cursor coordinate verbatim. That
+ * allowed a fixture centre to remain inside the room while its model body was
+ * outside a finished wall, inside another fixture, or in a door envelope.
+ * Wall-mounted/service fixtures also lost the rear-face attachment used by the
+ * automatic solver. Keep manual editing on the same physical rules instead.
+ */
+export function resolveFixtureDrag(spec: RoomSpec, fixtureId: string, requested: { x_mm: number; z_mm: number }) {
+  const fixture = spec.fixtures.find((item) => item.id === fixtureId)
+  if (!fixture) return null
+  const pointFixture = ['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(fixture.kind)
+  if (pointFixture) {
+    const snap = snapPointToNearestWall(layoutBoundary(spec), requested)
+    return { ...fixture, x_mm: snap?.point.x_mm ?? requested.x_mm, z_mm: snap?.point.z_mm ?? requested.z_mm, bound_wall_index: snap?.wall_index ?? null }
+  }
+  const boundary = layoutBoundary(spec)
+  const occupied = spec.fixtures.filter((item) => item.id !== fixtureId && !['floor_drain', 'drain', 'water', 'electric'].includes(item.kind))
+  const rearGap = requiredRearWallGap(fixture)
+  const legal = (candidate: FixtureSpec) => fixtureInsideRoom(candidate, boundary)
+    && !blocksFurnitureOpeningEnvelope(spec, candidate)
+    && !occupied.some((other) => !permittedAssembly(candidate, other) && overlaps(candidate, other, BODY_GAP_MM))
+  const place = (x_mm: number, z_mm: number) => {
+    const candidate = { ...fixture, x_mm, z_mm }
+    if (rearGap !== undefined) snapRearToWall(spec, candidate, wallNearestPoint(spec, candidate), rearGap)
+    else moveInsideRoomPolygon(spec, candidate)
+    return candidate
+  }
+
+  const direct = place(requested.x_mm, requested.z_mm)
+  if (legal(direct)) return direct
+  const bounds = rectangleBounds(spec)
+  const maxRadius = Math.ceil(Math.hypot(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) / 25) * 25
+  for (let radius = 25; radius <= maxRadius; radius += 25) {
+    const offsets: Array<[number, number]> = []
+    for (let delta = -radius; delta <= radius; delta += 25) {
+      offsets.push([delta, -radius], [delta, radius], [-radius, delta], [radius, delta])
+    }
+    for (const [dx, dz] of offsets) {
+      const candidate = place(requested.x_mm + dx, requested.z_mm + dz)
+      if (legal(candidate)) return candidate
+    }
+  }
+  return { ...fixture }
 }
 type PlacementAnchor = { x_mm: number; z_mm: number; rotation_deg?: number; locked?: boolean; max_distance_mm?: number }
 

@@ -134,6 +134,8 @@ export interface FixtureSpec {
   height_mm: number
   elevation_mm?: number
   rotation_deg: number
+  /** Installation surface used by layout and 3D rendering. */
+  mounting_surface?: 'floor' | 'wall' | 'ceiling'
   source: SourceKind
   confidence: number
   evidence_ids?: string[]

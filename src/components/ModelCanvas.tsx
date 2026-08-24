@@ -2,7 +2,7 @@ import { ContactShadows, Edges, Grid, OrbitControls, PerspectiveCamera, useGLTF,
 import { Canvas, type ThreeEvent, useFrame, useLoader, useThree } from '@react-three/fiber'
 import { ChevronLeft, ChevronRight, Eye, EyeOff, Focus, Layers, Move3d, ReceiptText, SquareDashed } from 'lucide-react'
 import { Component, Suspense, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Box3, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, Group, RepeatWrapping, Shape, SRGBColorSpace, Vector3 } from 'three'
+import { Box3, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, Group, Path, RepeatWrapping, Shape, SRGBColorSpace, Vector3 } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
@@ -126,6 +126,25 @@ function CeilingZoneMesh({ boundary, heightMm }: { boundary: { x_mm: number; z_m
     <meshStandardMaterial color="#d4c69f" roughness={0.9} side={DoubleSide} />
     <Edges color="#8a6725" />
   </mesh>
+}
+
+function ceilingCutoutPath(fixture: FixtureSpec) {
+  const halfWidth = fixture.width_mm / 2
+  const halfDepth = fixture.depth_mm / 2
+  const angle = (fixture.rotation_deg ?? 0) * Math.PI / 180
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  const corners = [[-halfWidth, -halfDepth], [halfWidth, -halfDepth], [halfWidth, halfDepth], [-halfWidth, halfDepth]]
+    .map(([x, z]) => ({ x_mm: fixture.x_mm + x * cos - z * sin, z_mm: fixture.z_mm + x * sin + z * cos }))
+  const path = new Path()
+  corners.forEach((point, index) => {
+    const x = point.x_mm / 1000
+    const y = -point.z_mm / 1000
+    if (index === 0) path.moveTo(x, y)
+    else path.lineTo(x, y)
+  })
+  path.closePath()
+  return path
 }
 
 function modelAssetFormat(asset: FixtureModelAsset) {
@@ -281,6 +300,20 @@ function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, o
     shape.closePath()
     return shape
   }, [roomBoundary])
+  const ceilingShape = useMemo(() => {
+    const shape = new Shape()
+    roomBoundary.forEach((point, index) => {
+      const x = point.x_mm / 1000
+      const y = -point.z_mm / 1000
+      if (index === 0) shape.moveTo(x, y)
+      else shape.lineTo(x, y)
+    })
+    shape.closePath()
+    spec.fixtures.filter((fixture) => fixture.mounting_surface === 'ceiling').forEach((fixture) => {
+      shape.holes.push(ceilingCutoutPath(fixture))
+    })
+    return shape
+  }, [roomBoundary, spec.fixtures])
   const wallLayers = useMemo(() => wallLayerQuads(spec), [spec])
   const bounds = useMemo(() => roomBounds(roomBoundary), [roomBoundary])
   const height = (spec.height_mm ?? 2600) / 1000
@@ -291,7 +324,7 @@ function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, o
         {surfaceMaterials?.floor ? <TexturedMaterial src={surfaceMaterials.floor.textureSrc} {...physicalWorldTextureTransform(surfaceMaterials.floor.rotationDeg?surfaceMaterials.floor.depthMm:surfaceMaterials.floor.widthMm, surfaceMaterials.floor.rotationDeg?surfaceMaterials.floor.widthMm:surfaceMaterials.floor.depthMm, bounds.minX-(surfaceMaterials.floor.offsetXmm??0), -bounds.minZ-(surfaceMaterials.floor.offsetZmm??0))} emphasizeJoints={emphasizeJoints} /> : <meshStandardMaterial color="#c8c6bd" roughness={0.84} side={DoubleSide} />}
       </mesh>
       {showCeiling && <mesh position={[0, height, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <shapeGeometry args={[floorShape]} /><meshStandardMaterial color="#dedfd9" roughness={0.9} side={DoubleSide} transparent opacity={0.72} />
+        <shapeGeometry args={[ceilingShape]} /><meshStandardMaterial color="#dedfd9" roughness={0.9} side={DoubleSide} transparent opacity={0.72} />
       </mesh>}
       {showCeiling && (spec.ceiling_zones ?? []).map((zone) => <CeilingZoneMesh key={zone.id} boundary={zone.boundary} heightMm={zone.height_mm} />)}
       {spec.boundary.map((start, index) => {

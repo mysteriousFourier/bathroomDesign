@@ -689,6 +689,16 @@ describe('heater ceiling mounting rule', () => {
     expect(applyLayoutSolution(applied, solution).ceiling_zones?.filter((zone) => zone.id === recess.id)).toHaveLength(1)
   })
 
+  it('adds a built-in bathroom heater as a ceiling-embedded light', () => {
+    const testRoom = manualRoom(3200, 2600, 2600)
+    const solution = generateDeterministicLayoutSolutions(testRoom)[0]
+    const light = solution.fixtures.find((fixture) => fixture.mounting_surface === 'ceiling')!
+    expect(light.label).toContain('浴霸')
+    expect(light.model_asset).toMatchObject({ label: expect.stringContaining('浴霸'), format: 'fbx' })
+    expect(light.elevation_mm! + light.height_mm).toBe(testRoom.height_mm)
+    expect(solution.checks.find((check) => check.code === 'CEILING-LIGHT')).toMatchObject({ passed: true, severity: 'error' })
+  })
+
   it('removes a generated heater recess when switching to a solution that does not need it', () => {
     const low = manualRoom(3200, 2600, 2200)
     const lowSolution = generateLayoutSolutions(low)[0]

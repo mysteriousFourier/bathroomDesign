@@ -32,4 +32,12 @@ describe('demand assistant surface application', () => {
     expect(modelAssetForProduct('洗衣机', 'XYJ2-1')).toBeUndefined()
     expect(modelAssetForProduct('洗衣机', 'XYJ1-1')).toMatchObject({ catalog_codes: ['XYJ1-1'] })
   })
+
+  it('exposes the built-in bathroom heater models for ceiling lighting', () => {
+    expect(modelAssetForProduct('浴霸')).toMatchObject({
+      category: '浴霸',
+      asset_type: 'fixture',
+      format: 'fbx',
+    })
+  })
 })

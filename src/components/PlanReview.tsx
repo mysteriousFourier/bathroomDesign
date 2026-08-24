@@ -1,6 +1,6 @@
 import { CircleDot, DoorOpen, Droplet, Focus, Grid2X2, Move, Plug, Spline, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, openingLine, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength } from '../spec'
+import { dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, nearestValidWetZoneBoundary, openingLine, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength } from '../spec'
 import { resolveFixtureDrag } from '../layoutEngine'
 import type { Asset, FixtureKind, FixturePointUsage, OpeningSpec, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
 
@@ -319,8 +319,9 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
             // Keep pointer interaction continuous. A vertex drag temporarily
             // produces a non-rectangular four-point draft; validation and
             // nearest-valid snapping belong to pointer-up, not every frame.
-            zone.draft = boundary
-            setZoneDraft({ id: zone.id, boundary })
+            const constrained = nearestValidWetZoneBoundary(spec, zone.id, boundary) ?? zone.draft
+            zone.draft = constrained
+            setZoneDraft({ id: zone.id, boundary: constrained })
             return
           }
           const opening = openingDrag.current

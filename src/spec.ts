@@ -1035,6 +1035,36 @@ export function wetZoneBoundaryValid(spec: RoomSpec, zoneId: string, boundary: P
     return polygonsOverlap(boundary, footprint)
   })
   if (toiletIntersects) return false
+  // A wet floor is a use zone, so it must stay clear of the complete door
+  // motion/passage envelope just like floor furniture does. Keep this check
+  // local to spec.ts to avoid coupling the canonical wet-zone validator to
+  // the layout solver.
+  const blocksDoorMotion = spec.openings.filter((opening) => opening.kind === 'door').some((door) => {
+    if (door.wall_index < 0 || door.wall_index >= roomBoundary.length) return false
+    const start = roomBoundary[door.wall_index]
+    const end = roomBoundary[(door.wall_index + 1) % roomBoundary.length]
+    const length = Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm)
+    if (!length) return false
+    const tangent = { x: (end.x_mm - start.x_mm) / length, z: (end.z_mm - start.z_mm) / length }
+    const inward = wallInwardNormal(roomBoundary, door.wall_index)
+    const form = door.opening_form ?? 'unknown'
+    const swing = door.swing_direction ?? 'unknown'
+    const depth = (form === 'sliding' || form === 'pocket' || form === 'folding' || swing === 'outward') ? 300 : Math.max(800, door.width_mm)
+    const center = {
+      x_mm: start.x_mm + tangent.x * (door.offset_mm + door.width_mm / 2) + inward.x * depth / 2,
+      z_mm: start.z_mm + tangent.z * (door.offset_mm + door.width_mm / 2) + inward.z * depth / 2,
+    }
+    const halfTangent = door.width_mm / 2
+    const halfInward = depth / 2
+    const envelope = [
+      { x_mm: center.x_mm - tangent.x * halfTangent - inward.x * halfInward, z_mm: center.z_mm - tangent.z * halfTangent - inward.z * halfInward },
+      { x_mm: center.x_mm + tangent.x * halfTangent - inward.x * halfInward, z_mm: center.z_mm + tangent.z * halfTangent - inward.z * halfInward },
+      { x_mm: center.x_mm + tangent.x * halfTangent + inward.x * halfInward, z_mm: center.z_mm + tangent.z * halfTangent + inward.z * halfInward },
+      { x_mm: center.x_mm - tangent.x * halfTangent + inward.x * halfInward, z_mm: center.z_mm - tangent.z * halfTangent + inward.z * halfInward },
+    ]
+    return polygonsOverlap(boundary, envelope)
+  })
+  if (blocksDoorMotion) return false
   return !(spec.dry_wet_zones ?? []).some((zone) => zone.id !== zoneId && zone.kind === 'wet' && polygonsOverlap(boundary, zone.boundary))
 }
 
@@ -1061,7 +1091,7 @@ export function nearestValidWetZoneBoundary(spec: RoomSpec, zoneId: string, requ
   const requestedDepth = rectangle[2].z_mm - rectangle[1].z_mm
   const room = finishedRoomBoundary(spec)
   const bounds = roomBounds(room)
-  let best: { boundary: Point2D[]; distance: number } | null = null
+  let best: { boundary: Point2D[]; distance: number; area: number } | null = null
   const trySize = (width: number, depth: number) => {
     const xCandidates = new Set<number>([requestedCenter.x_mm, bounds.minX + width / 2, bounds.maxX - width / 2])
     const zCandidates = new Set<number>([requestedCenter.z_mm, bounds.minZ + depth / 2, bounds.maxZ - depth / 2])
@@ -1076,18 +1106,40 @@ export function nearestValidWetZoneBoundary(spec: RoomSpec, zoneId: string, requ
     ]
     if (!wetZoneBoundaryValid(spec, zoneId, candidate)) continue
     const distance = Math.hypot(centerX - requestedCenter.x_mm, centerZ - requestedCenter.z_mm)
-    if (!best || distance < best.distance) best = { boundary: candidate, distance }
+    const area = width * depth
+    if (!best || distance < best.distance - 0.01 || (Math.abs(distance - best.distance) <= 0.01 && area > best.area)) best = { boundary: candidate, distance, area }
     }
   }
   // Preserve the requested size whenever a legal translation exists. Only if
   // it does not, progressively retract the blocked edge(s) to a 300 mm floor.
+  // First resolve at the requested drop centre. This makes a whole-zone drag
+  // visibly shrink into the largest available local rectangle instead of
+  // jumping elsewhere at its original size.
+  const localBoundary = (width: number, depth: number) => [
+    { x_mm: requestedCenter.x_mm - width / 2, z_mm: requestedCenter.z_mm - depth / 2 },
+    { x_mm: requestedCenter.x_mm + width / 2, z_mm: requestedCenter.z_mm - depth / 2 },
+    { x_mm: requestedCenter.x_mm + width / 2, z_mm: requestedCenter.z_mm + depth / 2 },
+    { x_mm: requestedCenter.x_mm - width / 2, z_mm: requestedCenter.z_mm + depth / 2 },
+  ]
+  for (let shrink = 0; shrink <= Math.max(requestedWidth, requestedDepth) - 300; shrink += 25) {
+    const sizes = [
+      [requestedWidth - shrink, requestedDepth],
+      [requestedWidth, requestedDepth - shrink],
+      [requestedWidth - shrink, requestedDepth - shrink],
+    ].filter(([width, depth]) => width >= 300 && depth >= 300)
+    const local = sizes.map(([width, depth]) => localBoundary(width, depth)).filter((candidate) => wetZoneBoundaryValid(spec, zoneId, candidate))
+    if (local.length) return local.sort((a, b) => {
+      const area = (points: Point2D[]) => (points[1].x_mm - points[0].x_mm) * (points[2].z_mm - points[1].z_mm)
+      return area(b) - area(a)
+    })[0]
+  }
   trySize(requestedWidth, requestedDepth)
   for (let shrink = 25; !best && (requestedWidth - shrink >= 300 || requestedDepth - shrink >= 300); shrink += 25) {
     if (requestedWidth - shrink >= 300) trySize(requestedWidth - shrink, requestedDepth)
     if (requestedDepth - shrink >= 300) trySize(requestedWidth, requestedDepth - shrink)
     if (requestedWidth - shrink >= 300 && requestedDepth - shrink >= 300) trySize(requestedWidth - shrink, requestedDepth - shrink)
   }
-  return (best as { boundary: Point2D[]; distance: number } | null)?.boundary ?? null
+  return (best as { boundary: Point2D[]; distance: number; area: number } | null)?.boundary ?? null
 }
 
 export function applyWetZoneBoundaryChange(spec: RoomSpec, zoneId: string, boundary: Point2D[]) {

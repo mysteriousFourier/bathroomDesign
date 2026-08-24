@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { completeOrientationMapping, modelOrientation, orientationCubePlacement, orientationFaceLabels, resolveOrientationMapping } from './modelOrientation'
+import { refreshFixtureModelAsset, type RoomModelAsset } from './modelAssets'
 
 describe('model orientation correction', () => {
+  it('refreshes corrected orientation on fixtures already in the room', () => {
+    const fixtures = [{ id:'fixture', kind:'other', label:'model', x_mm:0, z_mm:0, width_mm:1, depth_mm:1, height_mm:1, rotation_deg:0, source:'user', confidence:1, model_asset:{ id:'asset', label:'old', src:'/asset.glb', unit:'m', fit:'contain', orientation_view:'front' } }] as any[]
+    const asset = { ...fixtures[0].model_asset, format:'glb', dimensions_mm:{width:1,depth:1,height:1}, orientation_view:'back', orientation_mapping:{back:'front',front:'back',top:'top'} } as RoomModelAsset
+    expect(refreshFixtureModelAsset(fixtures, asset)).toBe(true)
+    expect(fixtures[0].model_asset.orientation_view).toBe('back')
+    expect(fixtures[0].model_asset.orientation_mapping).toEqual(asset.orientation_mapping)
+  })
   it('uses only deterministic quarter-turns without compound rotation', () => {
     expect(modelOrientation('front').toArray().slice(0, 3)).toEqual([0, 0, 0])
     expect(modelOrientation('top').toArray().slice(0, 3)).toEqual([Math.PI / 2, 0, 0])

@@ -63,11 +63,12 @@ function fileSize(bytes?: number) {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
-export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAddToRoom, onOpenRoom }: {
+export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAddToRoom, onAssetUpdated, onOpenRoom }: {
   projectId: string
   canAddToRoom: boolean
   usedAssetIds: string[]
   onAddToRoom: (asset: RoomModelAsset) => void
+  onAssetUpdated?: (asset: RoomModelAsset) => void
   onOpenRoom: () => void
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -193,6 +194,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }
 
   const replaceAsset = (updated: ImportedModelAsset) => {
+    onAssetUpdated?.(uploadedDisplayAsset(updated))
     if (updated.library_scope === 'builtin') {
       const display = uploadedDisplayAsset(updated)
       setBuiltinOverrides((current) => ({ ...current, [updated.id]: display }))

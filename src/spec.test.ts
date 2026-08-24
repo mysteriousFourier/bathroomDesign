@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
+import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestValidWetZoneBoundary, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
 
 describe('plan line dimensions', () => {
   it('resizes one segment in millimetres while preserving the following shape', () => {
@@ -557,5 +557,22 @@ describe('dry wet zones and wall finishes', () => {
     spec.fixtures.push({ id: 'floating', kind: 'water', label: '给水', x_mm: 1200, z_mm: 1600, width_mm: 40, depth_mm: 40, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: 0 })
 
     expect(clientValidate(spec).map((issue) => issue.code)).toEqual(expect.arrayContaining(['fixture_bind_kind', 'fixture_wall_binding', 'fixture_wall_not_snapped']))
+  })
+
+  it('keeps wet zones out of an inward door motion envelope', () => {
+    const spec = manualRoom(3000, 2400, 2600)
+    spec.openings = [{ id:'door', kind:'door', label:'门', wall_index:0, offset_mm:100, width_mm:800, height_mm:2100, sill_mm:0, opening_form:'hinged', swing_direction:'inward', source:'user', confidence:1 }]
+    expect(wetZoneBoundaryValid(spec, 'wet', [{x_mm:100,z_mm:50},{x_mm:900,z_mm:50},{x_mm:900,z_mm:850},{x_mm:100,z_mm:850}])).toBe(false)
+    expect(wetZoneBoundaryValid(spec, 'wet', [{x_mm:1800,z_mm:1200},{x_mm:2700,z_mm:1200},{x_mm:2700,z_mm:2100},{x_mm:1800,z_mm:2100}])).toBe(true)
+  })
+
+  it('shrinks a wet-zone drop at its requested centre before translating it away', () => {
+    const spec = manualRoom(2400, 1800, 2600)
+    spec.fixtures.push({ id:'toilet', kind:'toilet', label:'马桶', x_mm:1900, z_mm:900, width_mm:500, depth_mm:700, height_mm:700, rotation_deg:0, source:'user', confidence:1 })
+    const result = nearestValidWetZoneBoundary(spec, 'wet', [{x_mm:200,z_mm:500},{x_mm:2200,z_mm:500},{x_mm:2200,z_mm:1300},{x_mm:200,z_mm:1300}])!
+    const centerX = (result[0].x_mm + result[2].x_mm) / 2
+    expect(centerX).toBe(1200)
+    expect(result[1].x_mm - result[0].x_mm).toBeLessThan(2000)
+    expect(wetZoneBoundaryValid(spec, 'wet', result)).toBe(true)
   })
 })

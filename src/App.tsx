@@ -14,7 +14,7 @@ import { selectAutomaticLayoutSolution, SolutionList } from './components/Soluti
 import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
-import { fixtureModelAssetFromLibrary, modelAssetPointKind, type RoomModelAsset } from './modelAssets'
+import { fixtureModelAssetFromLibrary, modelAssetPointKind, refreshFixtureModelAsset, refreshFixtureModelAssets, type RoomModelAsset } from './modelAssets'
 import { applyLayoutSolution, generateDeterministicLayoutSolutions, generateLayoutSolutions, reattachWallDependentFixtures, resolveFixtureDrag, syncDraggedFixtureServicePoints, type LayoutSolution } from './layoutEngine'
 import { surfaceMaterialsForDesignQuote } from './modelLibrary'
 import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, updateOpeningFromLine, wallLength } from './spec'
@@ -282,6 +282,23 @@ export default function App() {
       if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [project?.id, project?.status, showMessage])
+
+  // Orientation is edited at runtime, while room fixtures contain snapshots.
+  // Reconcile both newly loaded and previously saved rooms with the authoritative
+  // library so corrected models do not require remove/re-add or a page restart.
+  useEffect(() => {
+    if (!project?.id) return
+    let cancelled = false
+    void studioApi.modelAssets(project.id).then((assets) => {
+      if (cancelled) return
+      setSpec((current) => {
+        if (!current) return current
+        const next = cloneSpec(current)
+        return refreshFixtureModelAssets(next.fixtures, assets) ? next : current
+      })
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [project?.id])
 
   const selectProject = async (id: string) => {
     if (dirty && !window.confirm('当前修改尚未保存，确定切换项目吗？')) return
@@ -616,6 +633,12 @@ export default function App() {
     showMessage('success', `${asset.label} 已加入房间`)
   }
 
+  const updateRoomModelAsset = (asset: RoomModelAsset) => {
+    if (!spec) return
+    const next = cloneSpec(spec)
+    if (refreshFixtureModelAsset(next.fixtures, asset)) commitSpec(next)
+  }
+
   const applyAutoLayout = (solution: LayoutSolution, baseSpec = spec, navigateToModel = true) => {
     if (!baseSpec) return
     try {
@@ -737,7 +760,7 @@ export default function App() {
             {mode === 'annotation'
               ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
               : mode === 'library'
-                ? <Suspense fallback={<ModelLoadingFallback />}><ModelAssetLibrary projectId={project.id} canAddToRoom={!!spec && canPreview} usedAssetIds={spec.fixtures.flatMap((fixture) => fixture.model_asset?.id ? [fixture.model_asset.id] : [])} onAddToRoom={addModelAssetToRoom} onOpenRoom={() => canPreview && setMode('model')} /></Suspense>
+                ? <Suspense fallback={<ModelLoadingFallback />}><ModelAssetLibrary projectId={project.id} canAddToRoom={!!spec && canPreview} usedAssetIds={spec.fixtures.flatMap((fixture) => fixture.model_asset?.id ? [fixture.model_asset.id] : [])} onAddToRoom={addModelAssetToRoom} onAssetUpdated={updateRoomModelAsset} onOpenRoom={() => canPreview && setMode('model')} /></Suspense>
               : mode === 'review' || !canPreview
                 ? <PlanReview
                   key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`}

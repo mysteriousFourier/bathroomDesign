@@ -50,7 +50,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
   const [openingCreateState, setOpeningCreateState] = useState<OpeningCreate | null>(null)
   const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
   const wallBodies = useMemo(() => wallLayerPolygons(spec), [spec])
-  const bounds = useMemo(() => roomBounds([...spec.boundary, ...roomBoundary, ...wallBodies.flatMap((body) => [...body.finish, ...body.wall])]), [spec.boundary, roomBoundary, wallBodies])
+  const bounds = useMemo(() => roomBounds([...spec.boundary, ...roomBoundary, ...wallBodies.flatMap((body) => [...body.finish, ...body.cavity, ...body.wall])]), [spec.boundary, roomBoundary, wallBodies])
   const scale = Math.min((canvasWidth - pad * 2) / Math.max(bounds.width, 1), (canvasHeight - pad * 2) / Math.max(bounds.depth, 1))
   const offsetX = (canvasWidth - bounds.width * scale) / 2 - bounds.minX * scale
   const offsetZ = (canvasHeight - bounds.depth * scale) / 2 - bounds.minZ * scale

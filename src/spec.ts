@@ -900,7 +900,7 @@ export function wallLayerQuads(spec: RoomSpec) {
 }
 
 export function wallLayerPolygons(spec: RoomSpec) {
-  return wallLayerQuads(spec).flatMap(({ wall_index: index, finish, wall }) => {
+  return wallLayerQuads(spec).flatMap(({ wall_index: index, finish, cavity, wall }) => {
     const next = (index + 1) % spec.boundary.length
     const wallRuns = wallRunParts(spec, index).filter((part) => part.kind === 'wall' && part.length_mm > 0)
     return wallRuns.map((part) => ({
@@ -909,6 +909,7 @@ export function wallLayerPolygons(spec: RoomSpec) {
       start_mm: part.start_mm,
       end_mm: part.end_mm,
       finish: sliceWallQuadByDistance(finish, spec.boundary[index], spec.boundary[next], part.start_mm, part.end_mm),
+      cavity: sliceWallQuadByDistance(cavity, spec.boundary[index], spec.boundary[next], part.start_mm, part.end_mm),
       wall: sliceWallQuadByDistance(wall, spec.boundary[index], spec.boundary[next], part.start_mm, part.end_mm),
     }))
   })

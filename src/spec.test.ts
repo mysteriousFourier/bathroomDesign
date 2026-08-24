@@ -479,6 +479,7 @@ describe('dry wet zones and wall finishes', () => {
     expect(layers[0].wall[2]).toEqual(layers[1].wall[3])
     expect(layers[0].wall[0]).toEqual({ x_mm: -20, z_mm: -20 })
     expect(layers[0].wall[3]).toEqual({ x_mm: -220, z_mm: -220 })
+    expect(layers[0].cavity).toHaveLength(4)
   })
 
   it('cuts openings perpendicular to mitered wall faces', () => {

@@ -1,6 +1,6 @@
 import { ContactShadows, Edges, Grid, OrbitControls, PerspectiveCamera, useGLTF, useTexture } from '@react-three/drei'
 import { Canvas, type ThreeEvent, useFrame, useLoader, useThree } from '@react-three/fiber'
-import { ChevronLeft, ChevronRight, Eye, EyeOff, Focus, Layers, Move3d, ReceiptText, SquareDashed } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, EyeOff, Focus, Layers, Move3d, ReceiptText, SquareDashed, Waves } from 'lucide-react'
 import { Component, Suspense, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Box3, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, Group, Path, RepeatWrapping, Shape, SRGBColorSpace, Vector3 } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
@@ -11,6 +11,7 @@ import { uniformModelScale } from '../modelScale'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerQuads, wallLength } from '../spec'
 import { physicalTextureTransform, physicalWorldTextureTransform } from '../surfaceTexture'
+import { routePlumbing, type PipeSegment } from '../plumbing'
 import type { FixtureModelAsset, FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
 
 export interface ModelCanvasHandle {
@@ -287,7 +288,15 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
   )
 }
 
-function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; cutaway: boolean; hiddenWallIndexes: number[]; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
+function Pipe({ item }:{ item:PipeSegment }) {
+  const dx=(item.to.x_mm-item.from.x_mm)/1000, dy=(item.to.y_mm-item.from.y_mm)/1000, dz=(item.to.z_mm-item.from.z_mm)/1000
+  return <mesh position={[(item.from.x_mm+item.to.x_mm)/2000,(item.from.y_mm+item.to.y_mm)/2000,(item.from.z_mm+item.to.z_mm)/2000]}>
+    <boxGeometry args={[Math.max(Math.abs(dx),.026),Math.max(Math.abs(dy),.026),Math.max(Math.abs(dz),.026)]}/>
+    <meshStandardMaterial color={item.temperature==='hot'?'#dc3f36':'#1976d2'} roughness={.35}/><Edges color={item.temperature==='hot'?'#8e1f19':'#0c4380'}/>
+  </mesh>
+}
+
+function RoomModel({ spec, selection, showCeiling, showPlumbing, cutaway, hiddenWallIndexes, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; showPlumbing:boolean; cutaway: boolean; hiddenWallIndexes: number[]; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
   const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
   const floorShape = useMemo(() => {
     const shape = new Shape()
@@ -317,6 +326,7 @@ function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, o
   const wallLayers = useMemo(() => wallLayerQuads(spec), [spec])
   const bounds = useMemo(() => roomBounds(roomBoundary), [roomBoundary])
   const height = (spec.height_mm ?? 2600) / 1000
+  const plumbing=useMemo(()=>routePlumbing(spec),[spec])
   return (
     <group ref={groupRef} userData={{ schema_version: spec.schema_version, unit: 'meter', room_name: spec.name }} onClick={() => onSelect({ type: 'room' })}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
@@ -332,11 +342,12 @@ function RoomModel({ spec, selection, showCeiling, cutaway, hiddenWallIndexes, o
         return <Wall key={index} spec={spec} index={index} layers={wallLayers[index]} selected={selection.type === 'room'} onSelect={() => onSelect({ type: 'room' })} surface={surfaceMaterials?.wall} emphasizeJoints={emphasizeJoints} />
       })}
       {spec.fixtures.map((fixture) => <Fixture key={fixture.id} fixture={fixture} selected={selection.type === 'fixture' && selection.id === fixture.id} onSelect={() => onSelect({ type: 'fixture', id: fixture.id })} />)}
+      {showPlumbing && plumbing?.segments.map(item=><Pipe key={item.id} item={item}/>)}
     </group>
   )
 }
 
-function CameraAwareRoom({ spec, selection, showCeiling, cutaway, onHiddenWallsChange, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; cutaway: boolean; onHiddenWallsChange: (indexes: number[]) => void; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
+function CameraAwareRoom({ spec, selection, showCeiling, showPlumbing, cutaway, onHiddenWallsChange, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; showPlumbing:boolean; cutaway: boolean; onHiddenWallsChange: (indexes: number[]) => void; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
   const { camera } = useThree()
   const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
   const [hiddenWallIndexes, setHiddenWallIndexes] = useState<number[]>([])
@@ -359,7 +370,7 @@ function CameraAwareRoom({ spec, selection, showCeiling, cutaway, onHiddenWallsC
     onHiddenWallsChange(next)
   })
 
-  return <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} hiddenWallIndexes={hiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
+  return <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} showPlumbing={showPlumbing} cutaway={cutaway} hiddenWallIndexes={hiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
 }
 
 type QuoteLine = { name: string; quantity: number; unit: string; price: number; spec: string }
@@ -367,6 +378,8 @@ type LayoutInfo = { title: string; level: 'level1' | 'level2' | 'level3'; totalP
 
 export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selection: Selection; onSelect: (selection: Selection) => void; layoutInfo?: LayoutInfo | null; surfaceMaterials?: SurfaceMaterials }>(function ModelCanvas({ spec, selection, onSelect, layoutInfo, surfaceMaterials }, ref) {
   const [showCeiling, setShowCeiling] = useState(false)
+  const [showPlumbing,setShowPlumbing]=useState(true)
+  const [plumbingOpen,setPlumbingOpen]=useState(false)
   const [cutaway, setCutaway] = useState(true)
   const [hiddenWallIndexes, setHiddenWallIndexes] = useState<number[]>([])
   const [cameraKey, setCameraKey] = useState(0)
@@ -377,6 +390,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
   const bounds = roomBounds(roomBoundary)
   const center = roomCentroid(roomBoundary)
   const extent = Math.max(bounds.width, bounds.depth, spec.height_mm ?? 2600) / 1000
+  const plumbing=useMemo(()=>routePlumbing(spec),[spec])
 
   useImperativeHandle(ref, () => ({
     async exportGLB(filename: string) {
@@ -398,11 +412,14 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
         <div>
           <span className={cutaway ? 'cutaway-status active' : 'cutaway-status'}>{cutaway ? `剖切隐藏 ${hiddenWallIndexes.length ? hiddenWallIndexes.map((index) => `W${index + 1}`).join('、') : '自动判定中'}` : '完整墙体'}</span>
           <button className="icon-button" onClick={() => setShowCeiling((value) => !value)} title={showCeiling ? '隐藏顶板' : '显示顶板'}>{showCeiling ? <EyeOff size={17} /> : <Eye size={17} />}</button>
+          <button className={showPlumbing?'icon-button active-tool':'icon-button'} onClick={()=>setShowPlumbing(value=>!value)} title={showPlumbing?'隐藏给水管':'显示给水管'} aria-pressed={showPlumbing}><Waves size={17}/></button>
+          <button className={plumbingOpen?'icon-button active-tool':'icon-button'} onClick={()=>setPlumbingOpen(value=>!value)} title="给水管网详情"><Layers size={17}/></button>
           <button className={cutaway ? 'icon-button active-tool' : 'icon-button'} onClick={() => setCutaway((value) => !value)} title={cutaway ? '显示完整墙体' : '开启剖切视图'}><Layers size={17} /></button>
           {surfaceMaterials && <button className={emphasizeJoints ? 'icon-button active-tool' : 'icon-button'} onClick={() => setEmphasizeJoints((value) => !value)} title={emphasizeJoints ? '关闭板缝加粗' : '开启板缝加粗'} aria-pressed={emphasizeJoints}><SquareDashed size={17} /></button>}
           <button className="icon-button" onClick={() => setCameraKey((value) => value + 1)} title="重置视角"><Focus size={17} /></button>
         </div>
       </div>
+      {plumbingOpen&&plumbing&&<aside className="plumbing-drawer" data-testid="plumbing-drawer"><header><Waves size={16}/>给水管网</header><p>进水点 ({plumbing.inlet.x_mm}, {plumbing.inlet.z_mm}) → 分水点 ({plumbing.manifold.x_mm}, {plumbing.manifold.z_mm})</p><p>总长 {plumbing.total_mm} mm · 末端距离极差 {plumbing.imbalance_mm} mm</p>{plumbing.segments.filter(item=>item.fixture_id&&item.id.endsWith('-drop')).map(item=><code key={item.id}>{item.temperature==='hot'?'热水':'冷水'} · 点位上方 ({item.from.x_mm}, {item.from.z_mm}) → 设备点位 · {item.length_mm} mm</code>)}</aside>}
       {layoutInfo && <div className={quoteOpen ? 'quote-drawer-shell open' : 'quote-drawer-shell'}>
         <button className="quote-drawer-toggle" type="button" onClick={() => setQuoteOpen((value) => !value)} aria-label={quoteOpen ? '收起报价' : '展开报价'} aria-expanded={quoteOpen}>{quoteOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}</button>
         <aside className="scene-fixture-summary quote-drawer" data-testid="scene-fixture-summary" aria-label="方案报价">
@@ -420,7 +437,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
         <ambientLight intensity={1.3} />
         <directionalLight position={[4, 7, 3]} intensity={2.2} castShadow shadow-mapSize={[2048, 2048]} />
         <Suspense fallback={null}>
-          <CameraAwareRoom spec={spec} selection={selection} showCeiling={showCeiling} cutaway={cutaway} onHiddenWallsChange={setHiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
+          <CameraAwareRoom spec={spec} selection={selection} showCeiling={showCeiling} showPlumbing={showPlumbing} cutaway={cutaway} onHiddenWallsChange={setHiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
         </Suspense>
         <Grid position={[center.x / 1000, -0.006, center.z / 1000]} args={[12, 12]} cellSize={0.1} cellThickness={0.45} cellColor="#c4c7bf" sectionSize={1} sectionThickness={0.8} sectionColor="#aeb2aa" fadeDistance={12} fadeStrength={1.2} infiniteGrid />
         <ContactShadows position={[0, -0.002, 0]} opacity={0.3} scale={12} blur={2.3} far={5} />

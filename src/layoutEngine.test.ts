@@ -483,6 +483,22 @@ describe('deterministic requirement layout engine', () => {
     expect(Math.hypot(toilet.x_mm - 500, toilet.z_mm - 305)).toBeLessThanOrEqual(600)
     expect(solution.checks.find((check) => check.code === 'PLUMBING-TOILET')?.passed).toBe(true)
     expect(applied.fixtures.filter((fixture) => fixture.kind === 'floor_drain')).toHaveLength(1)
+    const valve = applied.fixtures.find((fixture) => fixture.kind === 'water' && fixture.point_usage === 'toilet')!
+    expect(valve.label).toBe('自动马桶进水阀')
+    expect(valve.bound_wall_index).toBe(toilet.bound_wall_index)
+    expect(projectPointToWall(finishedRoomBoundary(applied), valve.bound_wall_index!, valve)?.distance_mm).toBe(0)
+  })
+
+  it('reuses a measured toilet valve instead of generating a duplicate', () => {
+    const measured = manualRoom(3200, 2600, 2700)
+    measured.fixtures.push(
+      { id:'toilet-drain', kind:'drain', label:'马桶排水', point_usage:'toilet', x_mm:500, z_mm:305, width_mm:110, depth_mm:110, height_mm:10, rotation_deg:0, source:'measured', confidence:1 },
+      { id:'toilet-valve', kind:'water', label:'马桶角阀', point_usage:'toilet', x_mm:700, z_mm:0, width_mm:40, depth_mm:40, height_mm:200, rotation_deg:0, source:'measured', confidence:1, bound_wall_index:0 },
+    )
+    const solution = generateLayoutSolutions(measured)[0]
+    expect(solution.fixtures.some((fixture) => fixture.label === '自动马桶进水阀')).toBe(false)
+    const applied = applyLayoutSolution(measured, solution)
+    expect(applied.fixtures.filter((fixture) => fixture.kind === 'water' && fixture.point_usage === 'toilet').map((fixture) => fixture.id)).toEqual(['toilet-valve'])
   })
 
   it('fits a toilet near a finished-wall corner while keeping the drain within the 600 mm adjustment limit', () => {

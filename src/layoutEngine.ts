@@ -568,6 +568,15 @@ export function syncDraggedFixtureServicePoints(spec: RoomSpec, anchor: FixtureS
   if (/洗衣机/.test(anchor.label)) {
     spec.fixtures.filter((item) => item.layout_generated && /自动洗衣机/.test(item.label) && (item.kind === 'water' || item.kind === 'electric')).forEach((point) => replace(point, point.kind === 'electric' ? 120 : -120, point.kind === 'electric' ? 1200 : 1100))
   }
+  if (anchor.kind === 'toilet') {
+    spec.fixtures.filter((item) => item.layout_generated && item.kind === 'water' && item.point_usage === 'toilet').forEach((point) => replace(point, 200, 200))
+  }
+}
+
+function appendToiletWaterValve(spec: RoomSpec, fixtures: FixtureSpec[], toilet: FixtureSpec | undefined, id: string) {
+  if (!toilet || spec.fixtures.some((item) => item.kind === 'water' && fixturePointUsage(item) === 'toilet' && !item.layout_generated)) return
+  const wall = semanticWallForIndex(spec, toilet.bound_wall_index) ?? wallNearestPoint(spec, toilet)
+  fixtures.push(wallServicePoint(spec, wall, toilet, 200, 200, '自动马桶进水阀', 'water', id, 'toilet'))
 }
 
 /**
@@ -1081,6 +1090,7 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
     ? heaterCeilingRecessZone(spec, heaterFixture, heaterPlan.recess_depth_mm)
     : undefined
   if(showerHead){const rule=instruction('wet_zone'),wall=semanticWallForIndex(spec,showerHead.bound_wall_index)??(rule.wall==='nearest_plumbing'?wallNearestPoint(spec,showerHead):rule.wall);fixtures.push(wallServicePoint(spec,wall,showerHead,-75,1050,'自动花洒冷水点','water',`${demand}-${budget}-shower-cold`,'shower'),wallServicePoint(spec,wall,showerHead,75,1050,'自动花洒热水点','water',`${demand}-${budget}-shower-hot`,'shower'))}
+  appendToiletWaterValve(spec, fixtures, toilet, `${demand}-${budget}-toilet-water`)
   if(washer){const rule=instruction('washer'),wall=rule.wall==='nearest_plumbing'?wallNearestPoint(spec,washer):rule.wall;fixtures.push(wallServicePoint(spec,wall,washer,-120,1100,'自动洗衣机进水点','water',`${demand}-${budget}-washer-water`),wallServicePoint(spec,wall,washer,120,1200,'自动洗衣机电点','electric',`${demand}-${budget}-washer-electric`))}
   const reachable=isReachable(spec,groundProducts,{x:shower.x_mm,z:shower.z_mm})
 
@@ -1237,6 +1247,7 @@ function makeLevelSolution(spec:RoomSpec,level:LayoutLevelDecision,preference?:L
   const ceilingRecess=heaterFixture&&heaterPlan&&heaterPlan.recess_depth_mm>0?heaterCeilingRecessZone(spec,heaterFixture,heaterPlan.recess_depth_mm):undefined
   const heaterRecessAllowance=(f:FixtureSpec)=>(heaterFixture&&f===heaterFixture?(heaterPlan?.recess_depth_mm??0):0)
   if(showerHead&&!measuredShowerWater){const rule=instruction('wet_zone'),wall=semanticWallForIndex(spec,showerHead.bound_wall_index)??(rule.wall==='nearest_plumbing'?wallNearestPoint(spec,showerHead):rule.wall);fixtures.push(wallServicePoint(spec,wall,showerHead,-75,1050,'自动花洒冷水点','water',`${level.id}-shower-cold`,'shower'),wallServicePoint(spec,wall,showerHead,75,1050,'自动花洒热水点','water',`${level.id}-shower-hot`,'shower'))}
+  appendToiletWaterValve(spec, fixtures, toilet, `${level.id}-toilet-water`)
   if(washer){const rule=instruction('washer'),wall=rule.wall==='nearest_plumbing'?wallNearestPoint(spec,washer):rule.wall;fixtures.push(wallServicePoint(spec,wall,washer,-120,1100,'自动洗衣机进水点','water',`${level.id}-washer-water`),wallServicePoint(spec,wall,washer,120,1200,'自动洗衣机电点','electric',`${level.id}-washer-electric`))}
   const finishedBoundary=layoutBoundary(spec),outside=fixtures.filter(f=>!['floor_drain','water','electric'].includes(f.kind)&&!fixtureInsideRoom(f,finishedBoundary)),solids=[...fixedObstacles,...fixtures.filter(f=>!['floor_drain','water','electric'].includes(f.kind))],collisions=solids.flatMap((a,i)=>solids.slice(i+1).filter(other=>!permittedAssembly(a,other)&&overlaps(a,other,30)).map(other=>`${a.label}/${other.label}`)),doorClear=!fixtures.some(f=>!['floor_drain','water','electric'].includes(f.kind)&&blocksFurnitureOpeningEnvelope(spec,f)),reachable=isReachable(spec,ground,{x:shower.x_mm,z:shower.z_mm}),ceilingHeight=spec.height_mm??2200,verticalOverflow=fixtures.filter(f=>(f.elevation_mm??0)+Math.max(1,f.height_mm)>ceilingHeight-25+heaterRecessAllowance(f))
   if(!fixtureInsideRoom(shower,finishedBoundary))outside.push(shower)
@@ -1319,9 +1330,11 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
     // chosen rectangle while measured points remain authoritative.
     for (const corner of room) {
       const value = coordinate(corner, axis)
-      exact.push(
-        { axis, keepMinimum:true, cut:value + halfWet * 2 },
-        { axis, keepMinimum:false, cut:value - halfWet * 2 },
+      const preferredSpan = halfWet * 2
+      const minimumSpan = Math.min(preferredSpan, BATHROOM_AUTO_LAYOUT_RULES.shower_min_internal_mm)
+      for (let span = preferredSpan; span >= minimumSpan; span -= 50) exact.push(
+        { axis, keepMinimum:true, cut:value + span },
+        { axis, keepMinimum:false, cut:value - span },
       )
     }
     // A joint is preferred, but it is not a feasibility constraint. Near an
@@ -1375,7 +1388,7 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
     // number of source runs is descriptive and must not make the rectangle
     // infeasible.
     if(wallRuns<2)return false
-    const projectedWet:FixtureSpec={id:`candidate-wet-${solution.id}`,kind:'shower',label:'淋浴实体',height_mm:2000,rotation_deg:0,source:'derived',confidence:1,...wet,x_mm:(left+right)/2,z_mm:(top+bottom)/2}
+    const projectedWet:FixtureSpec={id:`candidate-wet-${solution.id}`,kind:'shower',label:'淋浴实体',height_mm:2000,rotation_deg:0,source:'derived',confidence:1,...wet,x_mm:(left+right)/2,z_mm:(top+bottom)/2,width_mm:right-left,depth_mm:bottom-top}
     if(!fixtureInsideRoom(projectedWet,boundary))return false
     const retained=spec.fixtures.filter(retainFixtureAcrossLayouts)
     const hasMeasuredShowerDrain=retained.some((item)=>item.kind==='floor_drain'&&fixturePointUsage(item)==='shower')

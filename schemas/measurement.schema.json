@@ -341,7 +341,7 @@
         },
         "pointUsage": {
           "type": "string",
-          "enum": ["general", "toilet", "shower", "basin"]
+          "enum": ["general", "toilet", "shower", "basin", "heater"]
         }
       },
       "additionalProperties": false

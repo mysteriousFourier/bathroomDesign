@@ -48,6 +48,7 @@ export const fixturePointUsageLabels: Record<FixturePointUsage, string> = {
   toilet: '马桶',
   shower: '花洒',
   basin: '台盆 / 水池',
+  heater: '热水器',
 }
 
 export function fixturePointUsage(fixture: FixtureSpec): FixturePointUsage | null {
@@ -942,7 +943,10 @@ export function sliceWallQuadByDistance(quad: Point2D[], referenceStart: Point2D
 
 export function cloneSpec(spec: RoomSpec): RoomSpec {
   const clone = structuredClone(spec)
-  if (clone.dry_wet_zones) clone.dry_wet_zones = clone.dry_wet_zones.filter((zone) => zone.kind === 'wet')
+  // A drain placed before auto-layout is evidence, not a wet-zone decision.
+  // Drop the legacy auto rectangle whenever an editable snapshot is cloned;
+  // the selected layout will create the authoritative wet-zone polygon.
+  if (clone.dry_wet_zones) clone.dry_wet_zones = clone.dry_wet_zones.filter((zone) => zone.kind === 'wet' && zone.id !== 'wet-auto-1')
   return clone
 }
 

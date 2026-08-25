@@ -1,6 +1,7 @@
 import manifest from './generated-model-library.json'
 import type { DesignChatResponse, ModelAssetFormat, ModelAssetLifecycle } from './types'
 import type { RoomModelAsset } from './modelAssets'
+import type { ModelOrientationView, OrientationMapping } from './modelOrientation'
 
 export type BuiltInModelRecord = {
   id: string
@@ -20,6 +21,8 @@ export type BuiltInModelRecord = {
   price_tier: 'basic' | 'comfort' | 'premium'
   catalog_codes: string[]
   styles: string[]
+  orientation_view?: ModelOrientationView
+  orientation_mapping?: OrientationMapping
   unit_price?: number
   price_unit?: string
   source: string
@@ -75,6 +78,8 @@ function roomAssetFromRecord(asset: BuiltInModelRecord): RoomModelAsset {
     price_tier: asset.price_tier,
     catalog_codes: asset.catalog_codes,
     styles: asset.styles,
+    orientation_view: asset.orientation_view,
+    orientation_mapping: asset.orientation_mapping,
   }
 }
 

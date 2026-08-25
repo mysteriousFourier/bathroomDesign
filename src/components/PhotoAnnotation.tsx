@@ -2,7 +2,7 @@ import { BoxSelect, Check, DoorOpen, Eye, EyeOff, Grid2X2, MousePointer2, PenLin
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { drawableEvidence, observationId, reviewEvidence } from '../evidence'
 import { reconcileBoundaryEdges, solveBoundaryEdges } from '../geometry'
-import { cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureCanBindWall, fixturePointShape, fixturePointUsage, generateDryWetZones, imagePointToRoom, nextOpeningLabel, openingHostLength, polylineSegmentLength, rebindOpeningsToImageBoundary, resizePolylineSegment, roomPointToImage, setOpeningOnWall, snapPointToNearestWall, wallLength, wallRunParts } from '../spec'
+import { cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureCanBindWall, fixturePointShape, fixturePointUsage, imagePointToRoom, nextOpeningLabel, openingHostLength, polylineSegmentLength, rebindOpeningsToImageBoundary, resizePolylineSegment, roomPointToImage, setOpeningOnWall, snapPointToNearestWall, wallLength, wallRunParts } from '../spec'
 import type { Asset, BoundaryEdge, FixtureSpec, ImageBoundaryPoint, OpeningSpec, PlanLineKind, Point2D, RoomSpec } from '../types'
 
 const canvasWidth = 1000
@@ -505,7 +505,6 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     fixture.source = 'user'
     fixture.confidence = 1
     fixture.layout_generated = false
-    if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
     const evidenceId = fixture.evidence_ids?.[0]
     const observation = evidenceId ? draft.observations.find((item) => item.field === `visual_evidence:${evidenceId}`) : undefined
     if (observation) {

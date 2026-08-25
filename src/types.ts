@@ -98,7 +98,7 @@ export interface OpeningSpec {
 }
 
 export type FixtureKind = 'toilet' | 'vanity' | 'shower' | 'floor_drain' | 'drain' | 'water' | 'electric' | 'pipe' | 'column' | 'radiator' | 'other'
-export type FixturePointUsage = 'general' | 'toilet' | 'shower' | 'basin'
+export type FixturePointUsage = 'general' | 'toilet' | 'shower' | 'basin' | 'heater'
 
 export type ModelAssetFormat = 'gltf' | 'glb' | 'fbx' | '3ds' | 'obj'
 export type ModelAssetLifecycle = 'approved' | 'needs_conversion' | 'converted' | 'converted_duplicate' | 'deprecated'
@@ -406,7 +406,7 @@ export type LayoutDemandProfile = 'standard_shower'|'laundry'|'elderly_safe'
 export type LayoutBudgetTier = 'basic'|'comfort'|'premium'
 export interface LayoutInstructionInput { fixture_role:string; wall:'north'|'south'|'east'|'west'|'nearest_plumbing'; zone:'dry'|'wet'|'service'; near?:string; min_clearance_mm:number }
 export interface LayoutProductInput { product_id:string; catalog_code:string; category:string; spec:string; unit_price:number; price_unit:string; model_lookup?:ModelLookup }
-export interface LayoutLevelDecision { id:'level1'|'level2'|'level3'; name:string; reason:string; demand_profile:LayoutDemandProfile; product_tier:LayoutBudgetTier; product_ids:string[]; products:LayoutProductInput[]; layout_script:{version:'layout-script-v1';demand:LayoutDemandProfile;budget:LayoutBudgetTier;instructions:LayoutInstructionInput[];source:'model-assisted-rule-engine'|'deterministic-rule-engine'} }
+export interface LayoutLevelDecision { id:'level1'|'level2'|'level3'; name:string; reason:string; demand_profile:LayoutDemandProfile; product_tier:LayoutBudgetTier; product_ids:string[]; products:LayoutProductInput[]; layout_script:{version:'layout-script-v1';demand:LayoutDemandProfile;budget:LayoutBudgetTier;instructions:LayoutInstructionInput[];source:'requirement-rule-engine'|'model-assisted-rule-engine'|'deterministic-rule-engine'} }
 export interface ModelCallAudit { model:string; provider_response_id:string|null; tool_call_id:string|null; usage:Record<string,number>; generated_at:string; strict_model_output:true; purpose:'initial_layout'|'geometry_repair' }
 export interface AutoLayoutResponse { layout_levels:LayoutLevelDecision[]; model_call:ModelCallAudit }
 export interface DesignChatResponse { message:string; requirements:RequirementState; layout_levels?:LayoutLevelDecision[]; layout_blockers?:string[]; style_match:StyleMatch; surfaces:SurfaceEstimate; material_quotes:QuoteLine[]; furniture_candidates:FurnitureCandidateGroup[]; furniture_quotes:Array<QuoteLine & {风格?:string;匹配风格?:string;model_lookup?:ModelLookup}>; selected_furniture:SelectedFurniture[]; material_total:number; furniture_price_range:PriceRange; total_price_range:PriceRange; furniture_total:number|null; quote_total:number|null; pricing_status:'range_until_auto_layout_selection'|'final'; equipment:Record<string,string[]>; products:Array<{id:string;attributes:Record<string,string>}> }

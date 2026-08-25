@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { completeOrientationMapping, modelOrientation, orientationCubePlacement, orientationFaceLabels, resolveOrientationMapping } from './modelOrientation'
+import { Vector3 } from 'three'
+import { completeOrientationMapping, modelOrientation, orientationCubePlacement, orientationFaceLabels, resolveOrientationMapping, resolvedModelOrientation } from './modelOrientation'
 import { refreshFixtureModelAsset, refreshFixtureModelAssets, type RoomModelAsset } from './modelAssets'
 
 describe('model orientation correction', () => {
@@ -64,5 +65,11 @@ describe('three-face orientation correction', () => {
   it('completes a deterministic rotation for a two-sided asset tag', () => {
     expect(completeOrientationMapping({ back: 'front' }, 1)?.back).toBe('front')
     expect(completeOrientationMapping({ bottom: 'top' }, 1)?.bottom).toBe('top')
+  })
+
+  it('honors a saved one-face correction in the room renderer', () => {
+    const bottom = new Vector3(0, -1, 0).applyEuler(resolvedModelOrientation({ bottom: 'top' }, 'front'))
+    expect(bottom.distanceTo(new Vector3(0, 1, 0))).toBeLessThan(1e-8)
+    expect(resolvedModelOrientation({ back: 'front' }, 'front').toArray().slice(0, 3)).toEqual([0, Math.PI, 0])
   })
 })

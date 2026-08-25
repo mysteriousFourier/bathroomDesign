@@ -17,7 +17,7 @@ import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTa
 import { fixtureModelAssetFromLibrary, modelAssetPointKind, refreshFixtureModelAsset, refreshFixtureModelAssets, type RoomModelAsset } from './modelAssets'
 import { applyLayoutSolution, generateDeterministicLayoutSolutions, generateLayoutSolutions, reattachWallDependentFixtures, resolveFixtureDrag, syncDraggedFixtureServicePoints, type LayoutSolution } from './layoutEngine'
 import { surfaceMaterialsForDesignQuote } from './modelLibrary'
-import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, generateDryWetZones, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, updateOpeningFromLine, wallLength } from './spec'
+import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, updateOpeningFromLine, wallLength } from './spec'
 import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
@@ -130,9 +130,9 @@ const layoutRetryFeedback = (solutions: LayoutSolution[], attempt: number) => ({
 })
 
 const wetZonesOnly = (spec: RoomSpec) => {
-  const wetZones = spec.dry_wet_zones?.filter((zone) => zone.kind === 'wet') ?? []
-  if (wetZones.length <= 1 && wetZones.length === (spec.dry_wet_zones?.length ?? 0)) return spec
-  return { ...spec, dry_wet_zones: wetZones.length > 1 ? generateDryWetZones(spec) : wetZones }
+  const wetZones = spec.dry_wet_zones?.filter((zone) => zone.kind === 'wet' && zone.id !== 'wet-auto-1') ?? []
+  if (wetZones.length === (spec.dry_wet_zones?.length ?? 0)) return spec
+  return { ...spec, dry_wet_zones: wetZones }
 }
 
 const visibleSpec = (value: Project | null) => {
@@ -416,6 +416,7 @@ export default function App() {
     // plan drag resolver. Wall-dependent devices must still follow their bound
     // finished wall with their rear face, rotation and generated points intact.
     reattachWallDependentFixtures(next)
+    ensureWallFinishGapsForBoundPoints(next)
     next.issues = clientValidate(next)
     setHistory((items) => [...items.slice(-39), cloneSpec(spec)])
     setFuture([]); setSpec(next); setDirty(true)
@@ -799,7 +800,6 @@ export default function App() {
                     const projected = wallIndex === null ? null : projectPointToWall(finishedRoomBoundary(next), wallIndex, { x_mm: xMm, z_mm: zMm })
                     if (kind === 'floor_drain' && pointUsage === 'shower') next.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
                     next.fixtures.push({ id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : kind === 'drain' && pointUsage === 'toilet' ? '马桶排水' : fixtureLabels[kind], x_mm: projected?.point.x_mm ?? xMm, z_mm: projected?.point.z_mm ?? zMm, ...defaults, width_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.width_mm, depth_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.depth_mm, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: projected ? wallIndex : null, point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined })
-                    if (kind === 'floor_drain' && pointUsage === 'shower') next.dry_wet_zones = generateDryWetZones(next)
                     commitSpec(next)
                     setSelection({ type: 'fixture', id })
                   }}
@@ -812,7 +812,6 @@ export default function App() {
                       Object.assign(fixture, resolved)
                       fixture.source = 'user'; fixture.confidence = 1; fixture.layout_generated = false
                       syncDraggedFixtureServicePoints(next, fixture)
-                      if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') next.dry_wet_zones = generateDryWetZones(next)
                       commitSpec(next)
                     }
                   }}

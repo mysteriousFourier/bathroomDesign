@@ -84,7 +84,6 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
         ...defaults, width_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.width_mm, depth_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.depth_mm, rotation_deg: 0, source: 'user', confidence: 1,
         point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined,
       })
-      if (kind === 'floor_drain' && pointUsage === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
     })
     onSelect({ type: 'fixture', id })
   }
@@ -234,7 +233,6 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
               if (item.kind === 'floor_drain') {
                 if (usage === 'shower') item.label = '淋浴地漏'
                 else if (item.label === '淋浴地漏') item.label = '地漏'
-                draft.dry_wet_zones = generateDryWetZones(draft)
               }
             })}>{(selectedFixture.kind === 'floor_drain' ? (['general', 'shower'] as FixturePointUsage[]) : Object.keys(fixturePointUsageLabels) as FixturePointUsage[]).map((usage) => <option key={usage} value={usage}>{selectedFixture.kind === 'floor_drain' ? (usage === 'shower' ? '淋浴地漏' : '普通地漏') : `${fixturePointUsageLabels[usage]}${selectedFixture.kind === 'water' ? '给水' : '排水'}`}</option>)}</select></label>}
             {(['x_mm', 'z_mm', 'width_mm', 'depth_mm', 'height_mm', 'rotation_deg'] as const).map((field) => (
@@ -245,7 +243,6 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
                   const projection = projectPointToWall(finishedRoomBoundary(draft), selectedFixtureWall, item)
                   if (projection) { item.x_mm = projection.point.x_mm; item.z_mm = projection.point.z_mm }
                 }
-                if ((field === 'x_mm' || field === 'z_mm') && item.kind === 'floor_drain' && fixturePointUsage(item) === 'shower') draft.dry_wet_zones = generateDryWetZones(draft)
               })} />
             ))}
             {selectedFixture.model_asset && <div className="asset-summary">

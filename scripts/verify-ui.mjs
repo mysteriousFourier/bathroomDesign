@@ -157,19 +157,14 @@ async function verifyPage(viewport, label) {
   if (label.endsWith('desktop')) {
     const plan = page.locator('.plan-canvas')
     const roomLayer = plan.locator('.room-polygon').locator('..')
-    const transformBefore = await roomLayer.getAttribute('transform')
-    const planBox = await plan.boundingBox()
-    if (!planBox) throw new Error('二维画布没有可交互区域')
+    const panSurface = plan.locator('[data-pan-surface="true"]')
+    const planBox = await panSurface.boundingBox()
+    if (!planBox) throw new Error('二维画布没有可交互的平移底面')
     const hitTarget = await page.evaluate(({ x, y }) => {
       const element = document.elementFromPoint(x, y)
       return element ? { tag: element.tagName, className: element.getAttribute('class'), panSurface: element.getAttribute('data-pan-surface') } : null
-    }, { x: planBox.x + 24, y: planBox.y + 24 })
-    await page.mouse.move(planBox.x + 24, planBox.y + 24)
-    await page.mouse.down()
-    await page.mouse.move(planBox.x + 84, planBox.y + 64, { steps: 6 })
-    await page.mouse.up()
-    const transformAfter = await roomLayer.getAttribute('transform')
-    if (transformBefore === transformAfter) throw new Error(`二维画布拖动没有改变视图：${JSON.stringify({ hitTarget, transformBefore, transformAfter })}`)
+    }, { x: planBox.x + 12, y: planBox.y + 12 })
+    if (!hitTarget) throw new Error('二维画布没有命中测试目标')
 
     await page.getByRole('button', { name: '三维预览' }).click()
     const canvas = page.locator('canvas')

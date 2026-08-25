@@ -183,6 +183,34 @@ describe('deterministic requirement layout engine', () => {
     expect(vanity.height_mm).toBeLessThanOrEqual(BATHROOM_AUTO_LAYOUT_RULES.vanity_height_max_mm)
   })
 
+  it('keeps a first-class usable wet-zone polygon without creating a fake furniture solid', () => {
+    const measured = manualRoom(4105, 2160, 2200)
+    measured.boundary = [{x_mm:0,z_mm:320},{x_mm:0,z_mm:2160},{x_mm:1255,z_mm:2160},{x_mm:1255,z_mm:1840},{x_mm:4105,z_mm:1840},{x_mm:4105,z_mm:0},{x_mm:2515,z_mm:0},{x_mm:2515,z_mm:610},{x_mm:1900,z_mm:610},{x_mm:1900,z_mm:0},{x_mm:260,z_mm:0},{x_mm:260,z_mm:320}]
+    measured.fixtures.push({id:'shower-drain',kind:'floor_drain',point_usage:'shower',label:'淋浴地漏',x_mm:3775,z_mm:276,width_mm:100,depth_mm:100,height_mm:20,rotation_deg:0,source:'measured',confidence:1})
+    const candidates = generateDeterministicLayoutSolutions(measured)
+    expect(candidates).toHaveLength(3)
+    expect(candidates.every((solution) => !solution.fixtures.some((fixture) => fixture.kind === 'shower'))).toBe(true)
+    expect(candidates.map((solution) => Math.min(solution.wet_zone.width_mm, solution.wet_zone.depth_mm))).toEqual([900, 1000, 1100])
+    const appliedSizes: Array<{width:number;depth:number}> = []
+    for (const solution of candidates) {
+      const applied = applyLayoutSolution(measured, solution)
+      expect(applied.fixtures.some((fixture) => fixture.kind === 'shower')).toBe(false)
+      const boundary = applied.dry_wet_zones?.find((zone) => zone.kind === 'wet')?.boundary ?? []
+      expect(boundary).toHaveLength(4)
+      const width = Math.max(...boundary.map((point) => point.x_mm)) - Math.min(...boundary.map((point) => point.x_mm))
+      const depth = Math.max(...boundary.map((point) => point.z_mm)) - Math.min(...boundary.map((point) => point.z_mm))
+      expect(width).toBeGreaterThanOrEqual(900)
+      expect(depth).toBeGreaterThanOrEqual(900)
+      appliedSizes.push({width,depth})
+      const drain = measured.fixtures.find((fixture) => fixture.id === 'shower-drain')!
+      expect(drain.x_mm - drain.width_mm / 2).toBeGreaterThanOrEqual(Math.min(...boundary.map((point) => point.x_mm)))
+      expect(drain.x_mm + drain.width_mm / 2).toBeLessThanOrEqual(Math.max(...boundary.map((point) => point.x_mm)))
+      expect(drain.z_mm - drain.depth_mm / 2).toBeGreaterThanOrEqual(Math.min(...boundary.map((point) => point.z_mm)))
+      expect(drain.z_mm + drain.depth_mm / 2).toBeLessThanOrEqual(Math.max(...boundary.map((point) => point.z_mm)))
+    }
+    expect(appliedSizes.every((size,index) => index === 0 || size.width > appliedSizes[index-1].width || size.depth > appliedSizes[index-1].depth)).toBe(true)
+  })
+
   it('keeps local fallback layouts inside the finished boundary across room proportions', () => {
     for (const [width, depth] of [[2800, 2400], [3600, 2200], [2400, 3200]] as const) {
       const candidate = generateLayoutSolutions(manualRoom(width, depth, 2600))[0]
@@ -245,6 +273,9 @@ describe('deterministic requirement layout engine', () => {
     const levels = (['basic','comfort','premium'] as const).map((tier, index) => ({ id:`level${index+1}` as const, name:`真实产品方案 ${index+1}`, reason:'真实产品驱动', demand_profile:'standard_shower' as const, product_tier:tier, product_ids:products.map((product) => product.product_id), products, layout_script:{ version:'layout-script-v1' as const, demand:'standard_shower' as const, budget:tier, instructions:[instruction('wet_zone','east','wet','shower_drain'),instruction('vanity','west','dry'),instruction('toilet','north','dry','toilet_drain'),instruction('heater','east','service','wet_zone')], source:'deterministic-rule-engine' as const } })) as LayoutLevelDecision[]
     const generated = generateLayoutSolutions(room, { style:'素雅', levels })
     const [solution] = generated
+    expect(generated.every((candidate) => candidate.solver_trace.alternating_rounds === 3 && candidate.solver_trace.plumbing_candidates === 3)).toBe(true)
+    expect(generated.every((candidate) => Number(candidate.solver_trace.selected_pipe_mm) > 0)).toBe(true)
+    expect(generated.every((candidate) => candidate.checks.some((check) => check.code === 'PLUMBING-ALTERNATING'))).toBe(true)
     expect(new Set(generated.map((candidate) => { const vanity=candidate.fixtures.find((fixture)=>fixture.kind==='vanity')!;return `${vanity.x_mm},${vanity.z_mm},${vanity.rotation_deg}` })).size).toBe(3)
     expect(solution.selected_product_ids).toEqual(products.map((product) => product.product_id))
     expect(solution.product_lines.map((line) => line.code)).toEqual(products.map((product) => product.catalog_code))
@@ -390,6 +421,20 @@ describe('deterministic requirement layout engine', () => {
     expect(applied.fixtures.filter((fixture) => fixture.layout_generated)).toHaveLength(solutions[0].fixtures.length)
     expect(applied.dry_wet_zones?.[0].boundary).toHaveLength(4)
     expect(applyLayoutSolution(applied, solutions[0]).dry_wet_zones).toHaveLength(1)
+  })
+
+  it('preserves a reviewed model orientation when replacing a layout SKU', () => {
+    const source = structuredClone(room)
+    const generated = solutions[0].fixtures.find((fixture) => fixture.model_asset)
+    expect(generated).toBeDefined()
+    source.fixtures.push({
+      id: 'reviewed-model-source', kind: 'water', label: generated!.label, x_mm: 100, z_mm: 100,
+      width_mm: 40, depth_mm: 40, height_mm: 10, rotation_deg: 0, source: 'measured', confidence: 1,
+      model_asset: { ...generated!.model_asset!, orientation_view: 'front', orientation_mapping: { bottom: 'top' } },
+    })
+    const applied = applyLayoutSolution(source, solutions[0])
+    const replacement = applied.fixtures.find((fixture) => fixture.id === generated!.id)
+    expect(replacement?.model_asset?.orientation_mapping).toEqual({ bottom: 'top' })
   })
 
   it('uses exactly two orthogonal dividers and two wall sides for a rectangular wet zone', () => {

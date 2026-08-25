@@ -59,7 +59,13 @@ export function mappingFromLegacyView(view: ModelOrientationView): Record<Orient
 }
 
 export function resolvedModelOrientation(mapping: OrientationMapping | null | undefined, legacyView: ModelOrientationView) {
-  return mapping ? resolveOrientationMapping(mapping) ?? modelOrientation(legacyView) : modelOrientation(legacyView)
+  if (!mapping) return modelOrientation(legacyView)
+  // Standard furniture corrections carry three faces. Special assets such as
+  // drains and handrails intentionally carry one constrained face; ignoring
+  // that saved pair made the room renderer fall back to the old legacy view
+  // and rotate the corrected asset back to the wrong direction.
+  const minimumPairs = Object.keys(mapping).length >= 3 ? 3 : 1
+  return resolveOrientationMapping(mapping, minimumPairs) ?? modelOrientation(legacyView)
 }
 
 /** Labels shown on the original, stationary model after a physical face is chosen as front. */

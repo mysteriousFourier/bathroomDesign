@@ -109,6 +109,8 @@ export function SolutionList({ spec, solutions, selectedSolution, onSelectSoluti
           <b>布局脚本 {solution.layout_script.version} · {solution.layout_script.source}</b>
           {solution.layout_script.instructions.map((instruction) => <code key={instruction.fixture_role}>{instruction.fixture_role}: {instruction.zone} / {instruction.wall}{instruction.near ? ` / near ${instruction.near}` : ''}</code>)}
           <b>几何精调：{solution.solver_trace.feasible_candidates}/{solution.solver_trace.candidates_evaluated} 可行 · {solution.solver_trace.reachable ? '路径可达' : '路径阻断'}</b>
+          {solution.solver_trace.alternating_rounds && <b>交替优化：{solution.solver_trace.alternating_rounds} 轮家具重排 × 管网重算 · 选中管长 {solution.solver_trace.selected_pipe_mm ?? 0}mm · 极差 {solution.solver_trace.selected_imbalance_mm ?? 0}mm</b>}
+          {solution.solver_trace.iterations?.map((iteration) => <code key={`pipe-iteration-${iteration.iter}`}>第 {iteration.iter + 1} 轮 · {iteration.moved.length ? `重排 ${iteration.moved.join('、')}` : '初始完整家具'} · 管长 {iteration.total_pipe_mm} · 极差 {iteration.imbalance_mm} · J={iteration.objective} {iteration.accepted ? '✓ 接受' : '保留前轮'}</code>)}
           {solution.anchors.map((anchor) => <code key={anchor.id}>{anchor.label}: ({anchor.x_mm}, {anchor.z_mm}) · {anchor.instruction}</code>)}
         </div>
         <div className="layout-checks">{solution.checks.map((check) => <span className={check.passed ? 'pass' : check.severity === 'error' ? 'fail' : 'warn'} key={check.code}>{check.passed ? <CheckCircle2 size={12} /> : <ShieldAlert size={12} />}<b>{check.code}</b> [{check.severity}/{check.source}] {check.message}</span>)}</div>

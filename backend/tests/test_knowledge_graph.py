@@ -65,11 +65,12 @@ def test_approved_catalog_from_reference_image(tmp_path: Path):
     catalog=Path(__file__).parents[1]/"data"/"product_catalog.csv"
     graph=ProductKnowledgeGraph(tmp_path/"graph.json")
     result=graph.import_catalog(catalog.name,catalog.read_bytes())
-    assert result=={"created":46,"updated":0,"unchanged":0,"deactivated":0,"total":46}
+    assert result=={"created":48,"updated":0,"unchanged":0,"deactivated":0,"total":48}
     products=[item["attributes"] for item in graph.load()["products"].values()]
     assert products[0]["材料编号"]=="QB1-SY"
-    assert products[-1]["材料编号"]=="LYY-1"
-    assert {item["材料名称"] for item in products} >= {"墙板","地砖","马桶","淋浴隔断","适老浴室柜"}
+    assert products[-1]["材料编号"]=="FSN1-8"
+    assert {item["材料名称"] for item in products} >= {"墙板","地砖","马桶","淋浴隔断","适老浴室柜","分水器"}
+    assert {item["材料编号"] for item in products if item["材料名称"]=="分水器"} == {"FSN1-6","FSN1-8"}
     assert next(item for item in products if item["材料编号"]=="MT3")["单价"]=="1200"
     assert len({item["备注"] for item in products[:9]})==1
     assert len({item["备注"] for item in products[9:18]})==1

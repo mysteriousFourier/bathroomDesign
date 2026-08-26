@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestValidWetZoneBoundary, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wetZoneBoundaryValid } from './spec'
+import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestValidWetZoneBoundary, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wallPanelCutList, wallPanelCutWidths, wetZoneBoundaryValid } from './spec'
 
 describe('plan line dimensions', () => {
   it('resizes one segment in millimetres while preserving the following shape', () => {
@@ -575,5 +575,27 @@ describe('dry wet zones and wall finishes', () => {
     expect(centerX).toBe(1200)
     expect(result[1].x_mm - result[0].x_mm).toBeLessThan(2000)
     expect(wetZoneBoundaryValid(spec, 'wet', result)).toBe(true)
+  })
+})
+
+describe('wall panel cut list', () => {
+  it('cuts a run into full standard boards plus one offcut', () => {
+    expect(wallPanelCutWidths(1500)).toEqual([600, 600, 300])
+    expect(wallPanelCutWidths(1200)).toEqual([600, 600])
+    expect(wallPanelCutWidths(450)).toEqual([450])
+  })
+
+  it('splits every wall into panelled runs that skip openings', () => {
+    const room = manualRoom(2000, 1600, 2600)
+    room.openings.push({ id: 'door', kind: 'door', wall_index: 0, offset_mm: 800, width_mm: 700, height_mm: 2100, sill_mm: 0, label: '门', source: 'user', confidence: 1 })
+    const walls = wallPanelCutList(room)
+    // Wall 0 (2000mm with a 700mm door) leaves two runs: 800mm and 500mm.
+    const firstWall = walls[0]
+    expect(firstWall.runs.map((run) => run.length_mm)).toEqual([800, 500])
+    expect(firstWall.runs[0].panels).toEqual([600, 200])
+    expect(firstWall.runs[1].panels).toEqual([500])
+    // Walls without openings keep one run each.
+    expect(walls[1].runs).toHaveLength(1)
+    expect(walls[1].runs[0].panels).toEqual([600, 600, 400])
   })
 })

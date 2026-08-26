@@ -18,7 +18,7 @@ import { fixtureModelAssetFromLibrary, modelAssetPointKind, refreshFixtureModelA
 import { applyLayoutSolution, generateDeterministicLayoutSolutions, generateLayoutSolutions, reattachWallDependentFixtures, resolveFixtureDrag, syncDraggedFixtureServicePoints, type LayoutSolution } from './layoutEngine'
 import { surfaceMaterialsForDesignQuote } from './modelLibrary'
 import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, updateOpeningFromLine, wallLength } from './spec'
-import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
+import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, ImportedModelAsset, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
 
 type WorkspaceMode = 'annotation' | 'review' | 'model' | 'library'
 
@@ -202,6 +202,7 @@ export default function App() {
   const [layoutSolutions, setLayoutSolutions] = useState<LayoutSolution[]>([])
   const [layoutError, setLayoutError] = useState<string | null>(null)
   const layoutBaseSpecRef = useRef<RoomSpec | null>(null)
+  const modelAssetsRef = useRef<ImportedModelAsset[]>([])
   const [designQuote, setDesignQuote] = useState<DesignChatResponse | null>(null)
   const modelRef = useRef<ModelCanvasHandle>(null)
   const projectRef = useRef<Project | null>(null)
@@ -291,6 +292,7 @@ export default function App() {
     let cancelled = false
     void studioApi.modelAssets(project.id).then((assets) => {
       if (cancelled) return
+      modelAssetsRef.current = assets
       setSpec((current) => {
         if (!current) return current
         const next = cloneSpec(current)
@@ -644,6 +646,10 @@ export default function App() {
     if (!baseSpec) return
     try {
       const next = applyLayoutSolution(cloneSpec(baseSpec), solution)
+      // Auto-layout fixtures embed library snapshots captured at generation
+      // time; reconcile them with the latest reviewed orientation so applied
+      // layouts never resurrect a stale (wrong) rotation.
+      refreshFixtureModelAssets(next.fixtures, modelAssetsRef.current)
       commitSpec(next)
       setActiveLayout(solution)
       setSelection({ type: 'room' })

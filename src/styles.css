@@ -752,3 +752,13 @@ p, h1, h2, figure { margin: 0; }
 .model-knowledge-product dd{margin:0;overflow-wrap:anywhere}
 .orientation-preview-pool{position:fixed;left:-10000px;top:0;width:420px;height:320px;overflow:hidden;pointer-events:none}
 .orientation-preview-pool .model-preview-stage{width:420px;height:320px}
+
+/* Auto-layout wall-panel cut submenu (AGEN-65) */
+.wall-panel-menu { display: grid; gap: 5px; padding: 6px 8px; border: 1px solid var(--line); background: var(--surface-2); }
+.wall-panel-menu .wall-panel-list { display: grid; gap: 6px; max-height: 150px; overflow: auto; }
+.wall-panel-menu .wall-panel-list > div { display: grid; gap: 3px; }
+.wall-panel-menu b { color: var(--green); font: 700 9px Consolas, monospace; }
+.wall-panel-menu code { color: var(--ink); font: 8px Consolas, monospace; }
+/* Inspector wall submenu rows */
+.object-subrow { width: 100%; display: grid; grid-template-columns: 15px 1fr auto; align-items: center; gap: 7px; padding: 0 7px 0 22px; border: 0; border-radius: 3px; background: transparent; color: #666b62; font-size: 9px; text-align: left; cursor: default; }
+.object-subrow small { color: #888d85; font: 8px Consolas, monospace; }

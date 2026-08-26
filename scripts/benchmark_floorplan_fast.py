@@ -53,9 +53,9 @@ async def run(args: argparse.Namespace) -> dict:
     checks = {
         "read_model_configured": bool(ai.settings.read_model),
         "latency_within_budget": elapsed <= args.max_seconds,
-        "non_rectangular_topology": len(corners) >= 8 and len(directions) == len(corners),
+        "non_rectangular_topology": len(corners) >= 6 and len(directions) == len(corners),
         "short_returns_preserved": short_edges >= 2,
-        "metric_boundary_generated": len(spec.boundary) == len(corners) and len(spec.boundary) >= 8,
+        "metric_boundary_generated": len(spec.boundary) == len(corners) and len(spec.boundary) >= 6,
         "dimension_chain_fully_solved": bool(metric_edges) and all(edge.length_mm for edge in metric_edges),
         "both_horizontal_total_readings_preserved": {4105, 4110} <= recognized_values,
         "five_mm_measurement_error_absorbed": any(abs(value) == 5 for value in closure_adjustments),

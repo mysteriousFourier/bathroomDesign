@@ -1,5 +1,6 @@
-import { AlertCircle, CheckCircle2, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { applyWetZoneBoundaryChange, cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallFinishGap, wallLength, wetZoneBoundaryValid } from '../spec'
+import { useState } from 'react'
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
+import { applyWetZoneBoundaryChange, cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallFinishGap, wallLength, wallPanelCutList, wetZoneBoundaryValid } from '../spec'
 import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -26,6 +27,9 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
   onSelect: (selection: Selection) => void
   onChange: (spec: RoomSpec) => void
 }) {
+  const [wallMenuOpen, setWallMenuOpen] = useState(false)
+  const wallCutList = wallPanelCutList(spec)
+  const wallPanelCount = wallCutList.reduce((sum, wall) => sum + wall.runs.reduce((runSum, run) => runSum + run.panels.length, 0), 0)
   const selectedFixture = selection.type === 'fixture' ? spec.fixtures.find((item) => item.id === selection.id) : undefined
   const selectedOpening = selection.type === 'opening' ? spec.openings.find((item) => item.id === selection.id) : undefined
   const selectedZone = selection.type === 'dry_wet_zone' ? spec.dry_wet_zones?.find((item) => item.id === selection.id && item.kind === 'wet') : undefined
@@ -346,6 +350,10 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
       <section className="inspector-section object-list-section">
         <div className="inspector-title"><span>模型对象</span><span>{spec.openings.length + spec.fixtures.length + (spec.plan_lines?.length ?? 0) + (spec.plan_labels?.length ?? 0) + (spec.dry_wet_zones?.filter((zone) => zone.kind === 'wet').length ?? 0)}</span></div>
         <button className={selection.type === 'room' ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'room' })}><span className="object-icon room" />空间结构 <small>{spec.boundary.length} 面墙</small></button>
+          <button className="object-row" aria-expanded={wallMenuOpen} onClick={() => setWallMenuOpen((value) => !value)}><span className="object-icon room" />墙板切割 <small>{wallPanelCount} 块 {wallMenuOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}</small></button>
+          {wallMenuOpen && wallCutList.flatMap((wall) => wall.runs.map((run) => (
+            <div key={run.key} className="object-subrow"><span className="object-icon room" />W{wall.wall_index + 1} {run.start_mm}–{run.end_mm}mm <small>{run.panels.map((width, index) => `第${index + 1}块 ${width}mm`).join('；')}</small></div>
+          )))}
         {spec.openings.map((opening) => <button key={opening.id} className={selection.type === 'opening' && selection.id === opening.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'opening', id: opening.id })}><span className="object-icon opening" />{opening.label}<small>{opening.width_mm} mm</small></button>)}
         {spec.fixtures.map((fixture) => <button key={fixture.id} className={selection.type === 'fixture' && selection.id === fixture.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'fixture', id: fixture.id })}><span className={`object-icon ${fixture.source}`} />{fixture.label}<small>{Math.round(fixture.confidence * 100)}%</small></button>)}
         {(spec.plan_lines ?? []).map((line) => <button key={line.id} className={selection.type === 'plan_line' && selection.id === line.id ? 'object-row selected' : 'object-row'} onClick={() => onSelect({ type: 'plan_line', id: line.id })}><span className={`object-icon ${line.kind}`} />{line.label || planLineLabels[line.kind]}<small>{line.points.length} 点</small></button>)}

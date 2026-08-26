@@ -163,6 +163,41 @@ function displayOpeningLabel(opening: OpeningSpec, counters: Record<OpeningSpec[
   return `${genericOpeningLabels[opening.kind]}${counters[opening.kind]}`
 }
 
+/** Standard wall-panel module width from the product catalog (600 mm boards). */
+export const WALL_PANEL_STANDARD_WIDTH_MM = 600
+
+/**
+ * Per-piece cut widths for one wall run: full standard boards laid left to
+ * right plus a final non-standard offcut when the run is not an exact module
+ * multiple. Mirrors the catalog note "整板优先，末端收非标板".
+ */
+export function wallPanelCutWidths(runLengthMm: number, standardWidthMm = WALL_PANEL_STANDARD_WIDTH_MM) {
+  const length = Math.max(0, Math.round(runLengthMm))
+  const module = Math.max(1, Math.round(standardWidthMm))
+  const fullPanels = Math.floor(length / module)
+  const remainder = length - fullPanels * module
+  return [...Array.from({ length: fullPanels }, () => module), ...(remainder > 0 ? [remainder] : [])]
+}
+
+/**
+ * Cut list for every panelled wall run of the room, keyed by wall, ready for
+ * the auto-layout wall-panel submenu.
+ */
+export function wallPanelCutList(spec: RoomSpec, standardWidthMm = WALL_PANEL_STANDARD_WIDTH_MM) {
+  return spec.boundary.map((_, wallIndex) => ({
+    wall_index: wallIndex,
+    runs: wallRunParts(spec, wallIndex)
+      .filter((part) => part.kind === 'wall' && part.length_mm > 0)
+      .map((part) => ({
+        key: part.key,
+        start_mm: part.start_mm,
+        end_mm: part.end_mm,
+        length_mm: part.length_mm,
+        panels: wallPanelCutWidths(part.length_mm, standardWidthMm),
+      })),
+  }))
+}
+
 export function wallRunParts(spec: RoomSpec, wallIndex: number, lengthMm = wallLength(spec.boundary, wallIndex)): WallRunPart[] {
   const length = Math.max(0, Math.round(lengthMm))
   const openings = spec.openings

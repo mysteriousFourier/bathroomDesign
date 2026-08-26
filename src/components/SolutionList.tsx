@@ -1,7 +1,7 @@
 import { BoxSelect, CheckCircle2, ChevronDown, ChevronUp, FileWarning, LoaderCircle, Ruler, ShieldAlert, Wand2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { LayoutSolution } from '../layoutEngine'
-import { roomBounds, structuralInnerBoundary } from '../spec'
+import { roomBounds, structuralInnerBoundary, wallPanelCutList, WALL_PANEL_STANDARD_WIDTH_MM } from '../spec'
 import type { RoomSpec } from '../types'
 
 function formatFootprint(spec: RoomSpec) {
@@ -11,6 +11,24 @@ function formatFootprint(spec: RoomSpec) {
 
 function hardErrorCount(solution: LayoutSolution) {
   return solution.checks.filter((check) => !check.passed && check.severity === 'error').length
+}
+
+/** Sub-level menu under the wall panels: per-piece cut widths after laying out 600 mm boards. */
+function WallPanelCutMenu({ spec }: { spec: RoomSpec }) {
+  const [open, setOpen] = useState(false)
+  const walls = useMemo(() => wallPanelCutList(spec), [spec])
+  const panelCount = walls.reduce((sum, wall) => sum + wall.runs.reduce((runSum, run) => runSum + run.panels.length, 0), 0)
+  return <div className="wall-panel-menu">
+    <button className="button layout-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}{open ? '收起墙板切割' : `墙板切割明细（${panelCount} 块）`}
+    </button>
+    {open && <div className="wall-panel-list">
+      {walls.map((wall) => wall.runs.length ? <div key={wall.wall_index}>
+        <b>W{wall.wall_index + 1} 面墙 · 标准板 {WALL_PANEL_STANDARD_WIDTH_MM}mm</b>
+        {wall.runs.map((run) => <code key={run.key}>{run.start_mm}–{run.end_mm}mm 段 · 共 {run.panels.length} 块：{run.panels.map((width, index) => `第 ${index + 1} 块切割后 ${width}mm`).join('；')}</code>)}
+      </div> : null)}
+    </div>}
+  </div>
 }
 
 export function selectAutomaticLayoutSolution(solutions: LayoutSolution[]) {
@@ -116,6 +134,7 @@ export function SolutionList({ spec, solutions, selectedSolution, onSelectSoluti
         <div className="layout-checks">{solution.checks.map((check) => <span className={check.passed ? 'pass' : check.severity === 'error' ? 'fail' : 'warn'} key={check.code}>{check.passed ? <CheckCircle2 size={12} /> : <ShieldAlert size={12} />}<b>{check.code}</b> [{check.severity}/{check.source}] {check.message}</span>)}</div>
         <div className="layout-actions"><button className="button" disabled={blockingCount > 0} onClick={() => { onSelectSolution(solution); onOpenModel() }}><BoxSelect size={14} />应用并查看 3D</button><b>{blockingCount ? '内部求解未完成' : '碰撞调整完成'}</b></div>
       </div>
+      <WallPanelCutMenu spec={spec} />
       <span className="layout-method">LLM 工具调用 → 产品 ID / 语义布局脚本 → 量房锚点 → 候选搜索 → 碰撞/净空/门区/可达性校验 → 精确坐标 3D</span>
     </div>}
   </section>

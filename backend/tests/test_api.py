@@ -697,6 +697,20 @@ def test_model_lookup_applies_reviewed_orientation_to_bounds(monkeypatch):
     assert lookup["binding_status"] == "bound"
 
 
+def test_model_lookup_applies_builtin_orientation_override(monkeypatch):
+    """Builtin library assets must inherit reviewed orientation from the overrides file."""
+    from backend.app import design_chat, model_assets
+    mapping = {"right": "right", "left": "left", "top": "front", "bottom": "back", "front": "bottom", "back": "top"}
+    overrides = {"builtin-36980709c907": {"orientation_view": "top", "orientation_mapping": mapping, "orientation_corrected": True, "orientation_source": "manual"}}
+    monkeypatch.setattr(design_chat, "list_shared_model_assets", lambda: [])
+    monkeypatch.setattr(model_assets, "_orientation_overrides", lambda: overrides)
+    lookup = design_chat._model_lookup({"id": "product", "attributes": {"材料编号": "XYJ1-1", "材料名称": "洗衣机", "风格": "通用", "规格型号": "test"}}, {})
+    assert lookup["model_asset_id"] == "builtin-36980709c907"
+    assert lookup["model_orientation_view"] == "top"
+    assert lookup["model_orientation_mapping"] == mapping
+    assert lookup["binding_status"] == "bound"
+
+
 @pytest.mark.asyncio
 async def test_model_binding_can_create_product_and_rejects_category_mismatch(tmp_path, monkeypatch) -> None:
     configure_temp_database(tmp_path)

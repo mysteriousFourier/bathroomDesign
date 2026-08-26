@@ -42,6 +42,149 @@ def valid_spec() -> RoomSpec:
     )
 
 
+def test_portrait_measurement_sheet_defaults_to_readable_clockwise_rotation(tmp_path) -> None:
+    portrait = tmp_path / "portrait.jpg"
+    landscape = tmp_path / "landscape.jpg"
+    Image.new("RGB", (1080, 1920), "white").save(portrait)
+    Image.new("RGB", (1920, 1080), "white").save(landscape)
+
+    assert ai._preferred_plan_rotation(portrait) == 270
+    assert ai._preferred_plan_rotation(landscape) == 0
+
+
+def test_custom_fixture_shape_is_kept_when_label_supports_type() -> None:
+    evidence, _, uncertain = ai._direct_plan_evidence({
+        "fixtures": [{
+            "type": "drain",
+            "symbol": "custom",
+            "label": "马桶排水孔",
+            "position": "center",
+            "bbox": [400, 400, 450, 450],
+            "confidence": 0.8,
+        }],
+    })
+
+    assert [(item.kind, item.text) for item in evidence] == [("fixture", "马桶排水孔")]
+    assert uncertain == []
+
+
+def test_point_measurement_is_not_promoted_to_wall_dimension() -> None:
+    evidence, edges, _ = ai._direct_plan_evidence({
+        "measurements": [
+            {
+                "text": "630",
+                "value_mm": 630,
+                "measurement_kind": "point_offset",
+                "anchor": "point:drain-1",
+                "bbox": [400, 500, 450, 540],
+                "orientation": "horizontal",
+                "confidence": 0.9,
+            },
+            {
+                "text": "1790",
+                "value_mm": 1790,
+                "measurement_kind": "wall_segment",
+                "anchor": "wall:top",
+                "bbox": [400, 100, 460, 130],
+                "orientation": "horizontal",
+                "confidence": 0.9,
+            },
+        ],
+    })
+
+    assert [item.kind for item in evidence] == ["label", "dimension"]
+    assert evidence[0].related_to.startswith("measurement:point_offset:")
+    assert edges == []
+
+
+def test_point_refs_resolve_coordinates_without_using_nearby_numbers() -> None:
+    marker = VisualEvidence(
+        id="marker-ref",
+        kind="fixture",
+        text="洗衣机地漏",
+        bbox=ImageBBox(x_min=480, y_min=480, x_max=520, y_max=520),
+        positioning={
+            "method": "wall_offsets",
+            "refs": [
+                {"from": "left", "value_mm": 600},
+                {"from": "top", "value_mm": 400},
+            ],
+        },
+        confidence=0.9,
+    )
+    boundary = [
+        Point2D(x_mm=0, z_mm=0), Point2D(x_mm=2000, z_mm=0),
+        Point2D(x_mm=2000, z_mm=1500), Point2D(x_mm=0, z_mm=1500),
+    ]
+
+    assert ai._point_marker_position_from_refs(marker, boundary) == Point2D(x_mm=600, z_mm=400)
+
+
+def test_unmarked_fixture_numbers_remain_unknown_evidence() -> None:
+    evidence, edges, _ = ai._direct_plan_evidence({
+        "measurements": [{
+            "text": "510", "value_mm": 510, "kind": "unknown", "side": "unknown",
+            "anchor": "unknown", "bbox": [400, 500, 450, 540],
+            "orientation": "horizontal", "confidence": 0.9,
+        }],
+        "fixtures": [{
+            "id": "P1", "type": "drain", "symbol": "custom", "label": "马桶排水",
+            "bbox": [450, 450, 470, 470], "position_method": "visual_only",
+            "point_refs": [], "confidence": 0.8,
+        }],
+    })
+
+    assert [(item.kind, item.text) for item in evidence] == [("label", "510"), ("fixture", "马桶排水")]
+    assert edges == []
+    assert evidence[1].positioning == {"method": "visual_only", "refs": []}
+
+
+def test_structured_values_without_original_bbox_stay_unbound_observations() -> None:
+    evidence, _, _ = ai._direct_plan_evidence({
+        "heights": {"room_height_mm": 2500},
+        "opening_rows": [{"code": "D1", "CG": 0, "CK": 800, "CH": 2050}],
+        "plan_openings": [{
+            "code": "D1", "wall_side": "bottom", "width_mm": 800,
+            "height_mm": 2050, "bbox": [400, 760, 520, 900],
+        }],
+    })
+    assist = {"tokens": []}
+    ai._merge_template_evidence(assist, PlanEvidenceReport(evidence=evidence))
+    edges = [
+        BoundaryEdge(direction="right", length_mm=3000),
+        BoundaryEdge(direction="down", length_mm=2000),
+        BoundaryEdge(direction="left", length_mm=3000),
+        BoundaryEdge(direction="up", length_mm=2000),
+    ]
+
+    assert ai._ocr_room_height_hint(assist) is None
+    assert ai._opening_specs_from_tokens(assist, edges) == []
+    assert ai._ocr_ceiling_height_hint({"tokens": [{
+        "raw_text": "整屋吊顶 2100", "semantic_role": "ceiling_height",
+        "view_id": "direct-height-table-fallback", "bbox": [790, 360, 930, 395],
+    }]}) is None
+    assert any(token["view_id"].endswith("-fallback") for token in assist["tokens"])
+
+
+def test_dimension_chain_fallback_bbox_cannot_seed_wall_lengths() -> None:
+    evidence, edges, _ = ai._direct_plan_evidence({
+        "_require_edge_bbox": True,
+        "edge_chain": [
+            {"direction": "right", "length_mm": 3000},
+            {"direction": "down", "length_mm": 2000},
+            {"direction": "left", "length_mm": 3000},
+            {"direction": "up", "length_mm": 2000},
+        ],
+        "dimension_chains": {
+            "top": {"segments_mm": [3000]},
+            "right": {"segments_mm": [2000]},
+        },
+    })
+
+    assert all(edge.length_mm is None and edge.evidence_ids == [] for edge in edges)
+    assert all(item.view_id.endswith("-fallback") for item in evidence)
+
+
 def test_agen17_real_sample_metadata_uses_external_retention() -> None:
     sample_dir = Path(__file__).resolve().parents[2] / "evidence" / "samples" / "real" / "agen-17-long-term"
     manifest_path = sample_dir / "manifest.json"
@@ -150,6 +293,9 @@ def test_point_marker_center_maps_to_closed_metric_boundary() -> None:
         text="地漏",
         bbox=ImageBBox(x_min=480, y_min=480, x_max=520, y_max=520),
         confidence=0.91,
+        positioning={"method": "wall_offsets", "refs": [
+            {"from": "left", "value_mm": 1500}, {"from": "top", "value_mm": 1000},
+        ]},
     )
     annotation = [
         ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
@@ -205,6 +351,10 @@ def test_provisional_spec_adds_derived_fixture_from_point_marker() -> None:
         text="地漏",
         bbox=ImageBBox(x_min=480, y_min=480, x_max=520, y_max=520),
         confidence=0.91,
+        positioning={"method": "wall_offsets", "refs": [
+            {"from": "left", "value_mm": 1500},
+            {"from": "top", "value_mm": 1000},
+        ]},
     )
 
     spec = ai._provisional_room_spec(
@@ -222,7 +372,7 @@ def test_provisional_spec_adds_derived_fixture_from_point_marker() -> None:
     assert spec.fixtures[0].evidence_ids == ["point-marker-1"]
 
 
-def test_incomplete_annotation_keeps_point_marker_as_editable_fixture() -> None:
+def test_incomplete_annotation_keeps_point_marker_as_evidence_without_pixel_scaling() -> None:
     shape = ShapeTraceResult(
         corners=[
             ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
@@ -254,12 +404,10 @@ def test_incomplete_annotation_keeps_point_marker_as_editable_fixture() -> None:
 
     assert spec is not None
     assert spec.boundary == []
-    assert len(spec.fixtures) == 1
-    assert spec.fixtures[0].source.value == "estimated"
-    assert (spec.fixtures[0].x_mm, spec.fixtures[0].z_mm) == (500, 500)
-    assert spec.fixtures[0].confidence == pytest.approx(0.65)
+    assert spec.fixtures == []
     assert spec.observations[-1].field == "visual_evidence:point-marker-1"
     assert spec.observations[-1].review_required is True
+    assert "禁止按像素比例" in spec.observations[-1].note
 
 
 def test_bbox_accepts_provider_array_and_reversed_x() -> None:
@@ -2427,3 +2575,46 @@ async def test_rate_limit_is_retried(monkeypatch) -> None:
         )
     assert response.status_code == 200
     assert calls == 2
+
+
+def test_template_regions_reject_right_hand_table_but_keep_six_corner_return() -> None:
+    image = Image.new("RGB", (1000, 700), "white")
+    six_corner = [(120, 120), (720, 120), (720, 520), (500, 520), (500, 400), (120, 400)]
+    table = [(820, 160), (960, 160), (960, 500), (820, 500)]
+    assert ai._candidate_is_in_drawing_region(six_corner, 1000, 700, image)
+    assert not ai._candidate_is_in_drawing_region(table, 1000, 700, image)
+
+
+def test_local_topology_selector_accepts_six_corners_without_metric_scaling() -> None:
+    candidate = TopologyCandidate(
+        id="C6",
+        source="adaptive_threshold",
+        pixel_support=0.72,
+        corners=[ShapeCorner(x=x, y=y) for x, y in [
+            (120, 120), (720, 120), (720, 520), (500, 520), (500, 400), (120, 400),
+        ]],
+    )
+    selected = ai._validated_local_topology_candidate([candidate])
+    assert selected is not None and selected.id == "C6"
+    assert len(selected.corners) == 6
+
+
+def test_metric_chain_rejects_self_intersection_and_preserves_empty_evidence() -> None:
+    edges = [
+        BoundaryEdge(direction="right", length_mm=100),
+        BoundaryEdge(direction="down", length_mm=100),
+        BoundaryEdge(direction="left", length_mm=50),
+        BoundaryEdge(direction="up", length_mm=50),
+        BoundaryEdge(direction="right", length_mm=100),
+        BoundaryEdge(direction="down", length_mm=100),
+        BoundaryEdge(direction="left", length_mm=150),
+        BoundaryEdge(direction="up", length_mm=150),
+    ]
+    assert ai._edge_chain_to_boundary(edges) == []
+    spec = ai._provisional_room_spec(
+        None, {"tokens": [], "rotation_degrees": 0},
+        edge_chain=[], allow_incomplete_annotation=True,
+    )
+    assert spec is not None
+    assert any(item.field == "recognition:empty_evidence" for item in spec.observations)
+    assert any("轮廓需人工补画" in item.message for item in spec.issues)

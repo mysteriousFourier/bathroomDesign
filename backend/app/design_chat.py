@@ -5,7 +5,7 @@ from pathlib import Path
 from .config import settings
 from .knowledge_graph import _partition_requested, equipment_rules
 from .provider import serialized_post
-from .model_assets import list_shared_model_assets
+from .model_assets import builtin_orientation_override, list_shared_model_assets
 
 REQUIREMENT_FIELDS=("使用人群","功能需求","喜好风格","预期价格区间")
 CATALOG_STYLES=("素雅","轻法","中古")
@@ -83,6 +83,12 @@ def _model_lookup(product,style_match):
     categories=("适老浴室柜","浴室柜") if category=="适老浴室柜" else (category,)
     shared=next((item for item in list_shared_model_assets() if item.binding_status=="bound" and code in item.catalog_codes),None)
     asset=shared.model_dump(mode="json") if shared else next((item for item in _model_library_assets() if item.get("category") in categories and code in item.get("catalog_codes",[])),None)
+    # The static library JSON never carries orientation data; builtin assets
+    # keep their reviewed corrections in builtin-orientation-overrides.json.
+    # Without this merge the auto-modeling snapshot loses the library's
+    # rotation fix and renders builtin models with the raw (wrong) rotation.
+    if asset is not None and not shared:
+        asset={**asset,**builtin_orientation_override(asset.get("id"))}
     return {"product_id":product["id"],"catalog_code":code,"category":category,"catalog_style":attrs.get("风格","通用"),"normalized_requested_style":style_match.get("catalog_style"),"spec":attrs.get("规格型号",""),"model_asset_id":asset.get("id") if asset else None,"model_asset_src":asset.get("src") if asset else None,"model_asset_format":asset.get("format") if asset else None,"model_asset_label":asset.get("label") if asset else None,"model_dimensions_mm":_corrected_model_dimensions(asset) if asset else None,"model_orientation_view":asset.get("orientation_view") if asset else None,"model_orientation_mapping":asset.get("orientation_mapping") if asset else None,"texture_src":asset.get("texture_src") if asset else None,"layout_fixture_kind":category,"binding_status":"bound" if asset else "awaiting_model_asset"}
 
 def material_quotes(products,surfaces):

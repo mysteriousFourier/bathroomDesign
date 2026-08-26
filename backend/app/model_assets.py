@@ -92,6 +92,11 @@ def _orientation_overrides() -> dict[str, dict[str, object]]:
         return {}
 
 
+def builtin_orientation_override(asset_id: object) -> dict[str, object]:
+    """Orientation correction pinned for a builtin library asset (shared with design_chat)."""
+    return _orientation_overrides().get(str(asset_id or ""), {})
+
+
 def _response_from_metadata(metadata: dict[str, object]) -> ModelAssetResponse:
     if metadata.get("orientation_view") == "side":
         metadata = {**metadata, "orientation_view": "left"}

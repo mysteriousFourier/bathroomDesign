@@ -245,6 +245,7 @@ class VisualEvidence(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1)
     target_id: str | None = None
     door_form: Literal["hinged", "sliding", "folding", "pocket", "revolving", "unknown"] | None = None
+    positioning: dict[str, object] | None = None
 
     @field_validator("id", mode="before")
     @classmethod

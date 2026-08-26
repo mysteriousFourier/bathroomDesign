@@ -52,6 +52,54 @@ describe('deterministic requirement layout engine', () => {
     expect(editable.fixtures.find((item) => item.id === 'washer-water')?.bound_wall_index).toBe(washer.bound_wall_index)
   })
 
+  it('moves the generated basin drain with a dragged vanity', () => {
+    const editable = manualRoom(3000, 2200, 2600)
+    editable.fixtures.push(
+      { id:'vanity', kind:'vanity', label:'浴室柜', x_mm:600, z_mm:1200, width_mm:800, depth_mm:520, height_mm:850, rotation_deg:90, source:'derived', confidence:1, bound_wall_index:3, layout_generated:true },
+      { id:'basin-drain', kind:'drain', label:'自动洗面盆排水', x_mm:600, z_mm:960, width_mm:100, depth_mm:100, height_mm:40, rotation_deg:90, source:'derived', confidence:1, bound_wall_index:3, point_usage:'basin', layout_generated:true },
+    )
+    const vanity = editable.fixtures.find((item) => item.id === 'vanity')!
+    Object.assign(vanity, resolveFixtureDrag(editable, vanity.id, { x_mm:2200, z_mm:1100 }))
+    syncDraggedFixtureServicePoints(editable, vanity)
+    const drain = editable.fixtures.find((item) => item.id === 'basin-drain')!
+    expect(drain.bound_wall_index).toBe(vanity.bound_wall_index)
+    expect(Math.hypot(drain.x_mm - vanity.x_mm, drain.z_mm - vanity.z_mm)).toBeLessThan(400)
+  })
+
+  it('places exactly one ceiling manifold per generated layout', () => {
+    const solution = generateLayoutSolutions(room)[0]
+    const manifolds = solution.fixtures.filter((fixture) => fixture.kind === 'pipe' && /分水器/.test(fixture.label))
+    expect(manifolds).toHaveLength(1)
+    expect(manifolds[0].mounting_surface).toBe('ceiling')
+    expect(manifolds[0].label).toMatch(/[68]孔分水器/)
+  })
+
+  it('generates appliance drains at their appliances and drops stale measured drains on apply', () => {
+    const laundryRoom = manualRoom(3400, 2600, 2600)
+    laundryRoom.openings.push({ id:'door', kind:'door', wall_index:0, offset_mm:1300, width_mm:800, height_mm:2100, sill_mm:0, label:'门', source:'user', confidence:1 })
+    laundryRoom.fixtures.push(
+      { id:'measured-basin-drain', kind:'drain', label:'洗面盆排水', x_mm:600, z_mm:300, width_mm:100, depth_mm:100, height_mm:40, rotation_deg:0, source:'user', confidence:1, point_usage:'basin' },
+      { id:'measured-washer-drain', kind:'floor_drain', label:'洗衣机地漏', x_mm:2000, z_mm:300, width_mm:100, depth_mm:100, height_mm:20, rotation_deg:0, source:'user', confidence:1 },
+      { id:'washer-anchor', kind:'other', label:'洗衣机', x_mm:900, z_mm:900, width_mm:600, depth_mm:620, height_mm:850, rotation_deg:0, source:'user', confidence:1 },
+    )
+    const solutions = generateDeterministicLayoutSolutions(laundryRoom)
+    const valid = solutions.find((item) => item.checks.every((check) => check.passed || check.severity !== 'error'))
+    expect(valid).toBeTruthy()
+    const applied = applyLayoutSolution(laundryRoom, valid!)
+    const basinDrains = applied.fixtures.filter((item) => item.kind === 'drain' && fixturePointUsage(item) === 'basin')
+    expect(basinDrains).toHaveLength(1)
+    expect(basinDrains[0].layout_generated).toBe(true)
+    const vanity = applied.fixtures.find((item) => item.kind === 'vanity')!
+    expect(Math.hypot(basinDrains[0].x_mm - vanity.x_mm, basinDrains[0].z_mm - vanity.z_mm)).toBeLessThan(600)
+    const washerDrains = applied.fixtures.filter((item) => item.kind === 'floor_drain' && /洗衣机/.test(item.label))
+    expect(washerDrains).toHaveLength(1)
+    expect(washerDrains[0].layout_generated).toBe(true)
+    const washer = applied.fixtures.find((item) => /洗衣机/.test(item.label) && item.kind === 'other')!
+    expect(Math.hypot(washerDrains[0].x_mm - washer.x_mm, washerDrains[0].z_mm - washer.z_mm)).toBeLessThan(800)
+    // Stale measured copies must not linger beside the regenerated drains.
+    expect(applied.fixtures.some((item) => item.id === 'measured-basin-drain' || item.id === 'measured-washer-drain')).toBe(false)
+  })
+
   it('rear-snaps wall devices and their points after passive room changes', () => {
     const editable = manualRoom(3000, 2200, 2600)
     editable.fixtures.push(
@@ -87,6 +135,7 @@ describe('deterministic requirement layout engine', () => {
     expect(blocksDoorEnvelope(multi,floorFixture(2550,1200))).toBe(true)
     expect(blocksDoorEnvelope(multi,floorFixture(2200,1200))).toBe(false)
     expect(blocksDoorEnvelope(multi,{...floorFixture(2200,1700),elevation_mm:1500})).toBe(false)
+    expect(blocksDoorEnvelope(multi,{...floorFixture(2200,1700),label:'热水器',elevation_mm:1500})).toBe(true)
   })
 
   it('blocks furniture that intersects a window opening while allowing furniture below its sill', () => {

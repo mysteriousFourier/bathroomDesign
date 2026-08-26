@@ -47,6 +47,11 @@ const sharedModelRecords: BuiltInModelRecord[] = [{
   price_tier: 'premium',
   catalog_codes: ['MT3'],
   styles: ['通用'],
+  // The verified FBX's source top face is the semantic front. Keep this
+  // correction on the shared record so fallback layouts and API-backed layouts
+  // render the same toilet orientation.
+  orientation_view: 'top',
+  orientation_mapping: { front: 'top', back: 'bottom', top: 'front', bottom: 'back', left: 'right', right: 'left' },
   source: '共享模型资产库',
 }]
 // Keep explicitly verified shared assets ahead of generated category matches;

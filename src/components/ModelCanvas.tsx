@@ -11,7 +11,7 @@ import { uniformModelScale } from '../modelScale'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerQuads, wallLength } from '../spec'
 import { physicalTextureTransform, physicalWorldTextureTransform } from '../surfaceTexture'
-import { routePlumbing, type PipeSegment } from '../plumbing'
+import { routePlumbing, type PipeSegment, type PlumbingRoute } from '../plumbing'
 import type { FixtureModelAsset, FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
 
 export interface ModelCanvasHandle {
@@ -301,7 +301,7 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
       {!fixture.model_asset && fixture.kind === 'drain' && <mesh {...common} position={[0, 0.018, 0]}><cylinderGeometry args={[Math.max(width / 2, 0.025), Math.max(width / 2, 0.025), 0.036, 24]} /><meshStandardMaterial color={selected ? '#c89638' : '#4f7180'} metalness={0.65} roughness={0.28} /><Edges color={outline} /></mesh>}
       {!fixture.model_asset && fixture.kind === 'water' && <mesh {...common} position={[0, Math.max(height / 2, 0.04), 0]}><sphereGeometry args={[Math.max(width / 2, 0.025), 20, 14]} /><meshStandardMaterial color={selected ? '#d0a54e' : '#287d9c'} metalness={0.35} roughness={0.3} /><Edges color={outline} /></mesh>}
       {!fixture.model_asset && fixture.kind === 'electric' && <mesh {...common} position={[0, Math.max(height / 2, 0.04), 0]}><boxGeometry args={[Math.max(width, 0.05), Math.max(height, 0.05), Math.max(depth, 0.018)]} /><meshStandardMaterial color={selected ? '#d0a54e' : '#bf8a26'} roughness={0.45} /><Edges color={outline} /></mesh>}
-      {!fixture.model_asset && fixture.kind === 'pipe' && <mesh {...common} position={[0, height / 2, 0]}><cylinderGeometry args={[width / 2, width / 2, height, 24]} /><meshStandardMaterial color={selected ? '#d4a650' : '#90958e'} metalness={0.35} roughness={0.4} /><Edges color={outline} /></mesh>}
+      {!fixture.model_asset && fixture.kind === 'pipe' && !/分水器/.test(fixture.label) && <mesh {...common} position={[0, height / 2, 0]}><cylinderGeometry args={[width / 2, width / 2, height, 24]} /><meshStandardMaterial color={selected ? '#d4a650' : '#90958e'} metalness={0.35} roughness={0.4} /><Edges color={outline} /></mesh>}
       {!fixture.model_asset && fixture.kind === 'radiator' && <mesh {...common} position={[0, height / 2, 0]}><boxGeometry args={[width, height, depth]} /><meshStandardMaterial color={ceramic} metalness={0.2} roughness={0.35} /><Edges color={outline} /></mesh>}
       {!fixture.model_asset && (fixture.kind === 'column' || fixture.kind === 'other') && <mesh {...common} position={[0, height / 2, 0]}><boxGeometry args={[width, height, depth]} /><meshStandardMaterial color={selected ? '#d8c8a5' : '#c9cbc5'} roughness={0.82} /><Edges color={outline} /></mesh>}
     </group>
@@ -314,6 +314,16 @@ function Pipe({ item }:{ item:PipeSegment }) {
     <boxGeometry args={[Math.max(Math.abs(dx),.026),Math.max(Math.abs(dy),.026),Math.max(Math.abs(dz),.026)]}/>
     <meshStandardMaterial color={item.temperature==='hot'?'#dc3f36':'#1976d2'} roughness={.35}/><Edges color={item.temperature==='hot'?'#8e1f19':'#0c4380'}/>
   </mesh>
+}
+
+function PlumbingManifold({ route }:{ route:PlumbingRoute }) {
+  const width=route.manifold_ports===8?.42:.32
+  const rails=[{key:'cold',point:route.cold_manifold,color:'#1976d2',edge:'#0c4380'},...(route.hot_manifold?[{key:'hot',point:route.hot_manifold,color:'#dc3f36',edge:'#8e1f19'}]:[])]
+  return <>{rails.map((rail)=><group key={rail.key} position={[rail.point.x_mm/1000,rail.point.y_mm/1000,rail.point.z_mm/1000]}>
+    <mesh><boxGeometry args={[width,.06,.09]}/><meshStandardMaterial color={rail.color} metalness={.55} roughness={.28}/><Edges color={rail.edge}/></mesh>
+    <mesh position={[-width/2-.018,0,0]}><boxGeometry args={[.036,.072,.072]}/><meshStandardMaterial color="#8b928e" metalness={.72} roughness={.2}/><Edges color="#4d5350"/></mesh>
+    <mesh position={[width/2+.018,0,0]}><boxGeometry args={[.036,.072,.072]}/><meshStandardMaterial color="#8b928e" metalness={.72} roughness={.2}/><Edges color="#4d5350"/></mesh>
+  </group>)}</>
 }
 
 function RoomModel({ spec, selection, showCeiling, showPlumbing, cutaway, hiddenWallIndexes, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; showPlumbing:boolean; cutaway: boolean; hiddenWallIndexes: number[]; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
@@ -363,6 +373,7 @@ function RoomModel({ spec, selection, showCeiling, showPlumbing, cutaway, hidden
         return <Wall key={index} spec={spec} index={index} layers={wallLayers[index]} selected={selection.type === 'room'} onSelect={() => onSelect({ type: 'room' })} surface={surfaceMaterials?.wall} emphasizeJoints={emphasizeJoints} />
       })}
       {spec.fixtures.map((fixture) => <Fixture key={fixture.id} fixture={fixture} selected={selection.type === 'fixture' && selection.id === fixture.id} onSelect={() => onSelect({ type: 'fixture', id: fixture.id })} />)}
+      {showPlumbing && plumbing&&<PlumbingManifold route={plumbing}/>}
       {showPlumbing && plumbing?.segments.map(item=><Pipe key={item.id} item={item}/>)}
     </group>
   )
@@ -440,7 +451,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
           <button className="icon-button" onClick={() => setCameraKey((value) => value + 1)} title="重置视角"><Focus size={17} /></button>
         </div>
       </div>
-      {plumbingOpen&&plumbing&&<aside className="plumbing-drawer" data-testid="plumbing-drawer"><header><Waves size={16}/>给水管网</header><p>门外来水 ({plumbing.supply_origin.x_mm}, {plumbing.supply_origin.z_mm}) → 吊顶完成面穿门 ({plumbing.inlet.x_mm}, {plumbing.inlet.z_mm})</p><p>冷水吊顶分水器 ({plumbing.cold_manifold.x_mm}, {plumbing.cold_manifold.y_mm}, {plumbing.cold_manifold.z_mm})</p>{plumbing.hot_manifold&&<p>热水吊顶分水器 ({plumbing.hot_manifold.x_mm}, {plumbing.hot_manifold.y_mm}, {plumbing.hot_manifold.z_mm})</p>}<p>总长 {plumbing.total_mm} mm · 末端距离极差 {plumbing.imbalance_mm} mm</p>{plumbing.warnings.map(item=><p className="validation-warning" key={item}>{item}</p>)}{plumbing.segments.filter(item=>item.fixture_id&&item.id.endsWith('-drop')).map(item=><code key={item.id}>{item.temperature==='hot'?'热水':'冷水'} · 点位上方 ({item.from.x_mm}, {item.from.z_mm}) → 设备点位 · {item.length_mm} mm</code>)}</aside>}
+      {plumbingOpen&&plumbing&&<aside className="plumbing-drawer" data-testid="plumbing-drawer"><header><Waves size={16}/>给水管网</header><p>门外冷水源 ({plumbing.supply_origin.x_mm}, {plumbing.supply_origin.z_mm}) → 单根主管穿门 → 分水器</p><p>冷水上层 · 长方体分水器{plumbing.manifold_ports?`（${plumbing.manifold_ports}孔）`:''} ({plumbing.cold_manifold.x_mm}, {plumbing.cold_manifold.y_mm}, {plumbing.cold_manifold.z_mm})</p><p>热水下层 · 热水器出水后接热水设备{plumbing.hot_manifold?'，多路时经分水器下层':''}</p><p>总长 {plumbing.total_mm} mm · 末端距离极差 {plumbing.imbalance_mm} mm</p>{plumbing.warnings.map(item=><p className="validation-warning" key={item}>{item}</p>)}{plumbing.segments.filter(item=>item.fixture_id&&item.id.endsWith('-drop')).map(item=><code key={item.id}>{item.temperature==='hot'?'热水':'冷水'} · 点位上方 ({item.from.x_mm}, {item.from.z_mm}) → 设备点位 · {item.length_mm} mm</code>)}</aside>}
       {layoutInfo && <div className={quoteOpen ? 'quote-drawer-shell open' : 'quote-drawer-shell'}>
         <button className="quote-drawer-toggle" type="button" onClick={() => setQuoteOpen((value) => !value)} aria-label={quoteOpen ? '收起报价' : '展开报价'} aria-expanded={quoteOpen}>{quoteOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}</button>
         <aside className="scene-fixture-summary quote-drawer" data-testid="scene-fixture-summary" aria-label="方案报价">

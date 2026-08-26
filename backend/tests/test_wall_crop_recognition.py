@@ -818,17 +818,33 @@ async def test_single_pass_reader_accepts_direct_structured_fields(tmp_path, mon
                 {"direction": "up", "length_mm": 2000, "evidence_text": "2000", "bbox": [100, 300, 125, 360]},
             ],
             "dimension_chains": {
-                "top": {"overall_mm": 3000, "segments_mm": [1000, 800, 1200]},
+                "top": {"overall_mm": 3000, "segments_mm": [
+                    {"value_mm": 1000, "bbox": [120, 80, 180, 105]},
+                    {"value_mm": 800, "bbox": [300, 80, 360, 105]},
+                    {"value_mm": 1200, "bbox": [500, 80, 560, 105]},
+                ]},
                 "right": {"overall_mm": 2000, "segments_mm": []},
-                "bottom": {"overall_mm": 3000, "segments_mm": [500, 800, 1700]},
+                "bottom": {"overall_mm": 3000, "segments_mm": [
+                    {"value_mm": 500, "bbox": [120, 880, 180, 905]},
+                    {"value_mm": 800, "bbox": [300, 880, 360, 905]},
+                    {"value_mm": 1700, "bbox": [500, 880, 560, 905]},
+                ]},
                 "left": {"overall_mm": 2000, "segments_mm": []},
                 "recess": {"overall_mm": None, "segments_mm": []},
             },
-            "heights": {"room_height_mm": 2500, "overall_ceiling_mm": None, "local_beam_mm": None},
-            "opening_rows": [{"code": "D1", "CG": 0, "CK": 800, "CH": 2050}],
+            "heights": {
+                "room_height_mm": 2500,
+                "room_height_bbox": [820, 350, 910, 390],
+                "overall_ceiling_mm": None,
+                "local_beam_mm": None,
+            },
+            "opening_rows": [{
+                "code": "D1", "CG": 0, "CK": 800, "CH": 2050,
+                "bbox": [760, 135, 970, 172],
+            }],
             "plan_openings": [{
                 "code": "D1", "form": "hinged", "wall_side": "bottom", "edge_index": 2, "offset_mm": 500,
-                "width_mm": 800, "height_mm": 2050,
+                "width_mm": 800, "height_mm": 2050, "bbox": [400, 760, 520, 900],
             }],
             "fixtures": [{
                 "type": "floor_drain", "symbol": "circle_cross",
@@ -965,15 +981,32 @@ async def test_fast_analysis_builds_nonempty_spec_from_direct_edge_chain_without
             {"direction": "up", "length_mm": 2000, "evidence_text": "2000"},
         ],
         "dimension_chains": {
-            "top": {"overall_mm": 3000, "segments_mm": [1000, 800, 1200]},
+            "top": {"overall_mm": 3000, "segments_mm": [
+                {"value_mm": 1000, "bbox": [120, 80, 180, 105]},
+                {"value_mm": 800, "bbox": [300, 80, 360, 105]},
+                {"value_mm": 1200, "bbox": [500, 80, 560, 105]},
+            ]},
             "right": {"overall_mm": 2000, "segments_mm": []},
-            "bottom": {"overall_mm": 3000, "segments_mm": [500, 800, 1700]},
+            "bottom": {"overall_mm": 3000, "segments_mm": [
+                {"value_mm": 500, "bbox": [120, 880, 180, 905]},
+                {"value_mm": 800, "bbox": [300, 880, 360, 905]},
+                {"value_mm": 1700, "bbox": [500, 880, 560, 905]},
+            ]},
             "left": {"overall_mm": 2000, "segments_mm": []},
             "recess": {"overall_mm": None, "segments_mm": []},
         },
-        "heights": {"room_height_mm": 2500},
-        "opening_rows": [{"code": "D1", "CG": 0, "CK": 800, "CH": 2050}],
-        "plan_openings": [{"code": "D1", "form": "hinged", "wall_side": "bottom"}],
+            "heights": {
+                "room_height_mm": 2500,
+                "room_height_bbox": [820, 350, 910, 390],
+            },
+            "opening_rows": [{
+                "code": "D1", "CG": 0, "CK": 800, "CH": 2050,
+                "bbox": [760, 135, 970, 172],
+            }],
+            "plan_openings": [{
+                "code": "D1", "form": "hinged", "wall_side": "bottom",
+                "bbox": [400, 760, 520, 900],
+            }],
         "fixtures": [],
         "interior_lines": [{
             "kind": "inner_wall", "label": "内墙线",
@@ -1146,14 +1179,18 @@ async def test_fast_analysis_does_not_run_crop_or_secondary_vision_pass(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_fast_analysis_propagates_model_failure_and_does_not_call_ocr(tmp_path, monkeypatch) -> None:
+async def test_fast_analysis_preserves_evidence_after_model_failure(tmp_path, monkeypatch) -> None:
     source = tmp_path / "source.jpg"
     Image.new("RGB", (320, 240), "white").save(source)
     candidate = TopologyCandidate(id="C1", corners=rectangle_shape().corners, pixel_support=0.9)
 
     monkeypatch.setattr(ai, "_preferred_plan_rotation", lambda *_args: 0)
     monkeypatch.setattr(ai, "_raster_topology_candidates", lambda *_args, **_kwargs: [candidate])
-    monkeypatch.setattr(ai, "_prepare_ocr_assist", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("OCR called")))
+    monkeypatch.setattr(
+        ai,
+        "_prepare_ocr_assist",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("local OCR must not run")),
+    )
 
     async def fail(*_args, **_kwargs):
         raise ai.AIResponseError("upstream rejected image")
@@ -1163,5 +1200,11 @@ async def test_fast_analysis_propagates_model_failure_and_does_not_call_ocr(tmp_
     monkeypatch.setattr(settings, "openai_api_key", "key")
     monkeypatch.setattr(settings, "read_model", "vision-test")
 
-    with pytest.raises(ai.AIResponseError, match="upstream rejected image"):
-        await ai.analyze_floorplan_fast(source)
+    spec = await ai.analyze_floorplan_fast(source)
+    assert spec.plan_annotation is not None
+    assert spec.plan_annotation.boundary == candidate.corners
+    assert not any(item.value == "1840" for item in spec.observations)
+    assert any("未混入本地 OCR" in item.value for item in spec.observations)
+    assert any("视觉抄录失败" in item.message for item in spec.issues) or any(
+        "视觉抄录失败" in item.note for item in spec.observations
+    )

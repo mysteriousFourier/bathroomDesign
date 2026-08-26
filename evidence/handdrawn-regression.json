@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "description": "Offline hand-drawn measurement regression metadata. Source photos remain in the authorized external test directory.",
+  "images": {
+    "test5.jpg": {
+      "path": "test5.jpg",
+      "sha256": "25e04475a2b266acd3a5d2be627413a40bfdadf667229e3429989fa667daea3b",
+      "width": 2591,
+      "height": 1832,
+      "expected_topology": {
+        "corner_count": 6,
+        "short_returns": 1
+      },
+      "required_values": [
+        "1280",
+        "510",
+        "345",
+        "1015",
+        "2135",
+        "0",
+        "745",
+        "2100",
+        "2300"
+      ]
+    },
+    "test6.jpg": {
+      "path": "test6.jpg",
+      "sha256": "0d38f5d611cde5d321fda6ef9d24fce0623bf0b9d0e4f2a1182d4bb120eddfa3",
+      "width": 2168,
+      "height": 1533,
+      "expected_topology": {},
+      "required_values": []
+    },
+    "test7.jpg": {
+      "path": "test7.jpg",
+      "sha256": "204964d4e3419ed58dc19e6813d1df8ce14972948feabecceb28a59306a2682d",
+      "width": 1080,
+      "height": 1920,
+      "expected_topology": {},
+      "required_values": []
+    }
+  }
+}

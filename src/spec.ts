@@ -658,6 +658,23 @@ export function fixtureBoundWallIndex(spec: RoomSpec, fixture: FixtureSpec) {
   return projection && projection.distance_mm <= 1 ? wallIndex : null
 }
 
+/**
+ * Resolve a point for finish generation before the new cavity depth has been
+ * applied. A measured point may still be on the no-gap finished face while an
+ * existing profile already describes a deeper cavity; accept either face, but
+ * never accept a stale wall index or a point floating in the room.
+ */
+function fixtureBoundWallForFinish(spec: RoomSpec, fixture: FixtureSpec) {
+  const current = fixtureBoundWallIndex(spec, fixture)
+  if (current !== null) return current
+  const profiles = spec.wall_finish_profiles?.map((profile) => ({ ...profile, gap_mm: 0 }))
+  const baseline = finishedRoomBoundary({ ...spec, wall_finish_gap_mm: 0, wall_finish_profiles: profiles })
+  const wallIndex = fixture.bound_wall_index
+  if (wallIndex === undefined || wallIndex === null || !fixtureCanBindWall(fixture.kind)) return null
+  const projection = projectPointToWall(baseline, wallIndex, fixture)
+  return projection && projection.distance_mm <= wallBindingSnapDistanceMm ? wallIndex : null
+}
+
 export function toiletRotationForWall(points: Point2D[], wallIndex: number) {
   const normal = wallInwardNormal(points, wallIndex)
   // COORDINATE-SYSTEM.md: positive rotation is counterclockwise viewed from
@@ -831,10 +848,13 @@ export function generateDryWetZones(spec: RoomSpec): DryWetZone[] {
 
 export function generateWallFinishProfiles(spec: RoomSpec): WallFinishProfile[] {
   const boundWalls = new Set(spec.fixtures
-    .filter((fixture) => fixtureCanBindWall(fixture.kind) && fixture.bound_wall_index !== undefined && fixture.bound_wall_index !== null)
+    .filter((fixture) => fixtureBoundWallForFinish(spec, fixture) !== null)
     .map((fixture) => fixture.bound_wall_index as number))
   return spec.boundary.map((_, wallIndex) => {
-    const gap = wallFinishGap(spec, wallIndex)
+    // Generation only records which walls have a live bound point. The
+    // explicit finish action applies the installation minimum (35mm) and
+    // then re-projects points onto the new finished face.
+    const gap = boundWalls.has(wallIndex) ? wallFinishGap(spec, wallIndex) : 0
     return {
       wall_index: wallIndex,
       thickness_mm: wallFinishBaseThickness(spec),
@@ -848,19 +868,24 @@ export function generateWallFinishProfiles(spec: RoomSpec): WallFinishProfile[] 
 
 export function ensureWallFinishGapsForBoundPoints(spec: RoomSpec, minimumGapMm = 35) {
   const boundWalls = new Set(spec.fixtures
-    .filter((fixture) => fixtureCanBindWall(fixture.kind) && fixture.bound_wall_index !== undefined && fixture.bound_wall_index !== null)
+    .filter((fixture) => fixtureBoundWallForFinish(spec, fixture) !== null)
     .map((fixture) => fixture.bound_wall_index as number))
   const profiles = spec.wall_finish_profiles ?? []
   spec.wall_finish_profiles = spec.boundary.map((_, wallIndex) => {
     const existing = profiles.find((profile) => profile.wall_index === wallIndex)
-    const gap = boundWalls.has(wallIndex) ? Math.max(minimumGapMm, wallFinishGap(spec, wallIndex)) : (existing?.gap_mm ?? wallFinishGap(spec, wallIndex))
+    const generatedFromBoundPoint = existing?.generated_from_bound_point === true
+    const gap = boundWalls.has(wallIndex)
+      ? Math.max(minimumGapMm, wallFinishGap(spec, wallIndex))
+      : generatedFromBoundPoint
+        ? 0
+        : (existing?.gap_mm ?? wallFinishGap(spec, wallIndex))
     return {
       wall_index: wallIndex,
       thickness_mm: existing?.thickness_mm ?? wallFinishBaseThickness(spec),
       gap_mm: gap,
       source: existing?.source ?? 'derived',
       confidence: existing?.confidence ?? 0.9,
-      generated_from_bound_point: boundWalls.has(wallIndex) || existing?.generated_from_bound_point === true,
+      generated_from_bound_point: boundWalls.has(wallIndex),
       evidence_ids: existing?.evidence_ids,
     }
   })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestValidWetZoneBoundary, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wallPanelCutList, wallPanelCutWidths, wetZoneBoundaryValid } from './spec'
+import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, dimensionChainParts, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixturePointShape, fixturePointUsage, generateDryWetZones, generateWallFinishProfiles, hiddenWallIndexesForCutaway, imagePointToRoom, manualRoom, nearestValidWetZoneBoundary, nearestWallIndex, polylineLength, polylineSegmentLength, rebindOpeningsToImageBoundary, repairPendingOpeningImageBindings, resizePolylineSegment, roomBounds, roomPointToImage, setOpeningOnWall, sliceWallQuadByDistance, snapPointToNearestWall, structuralInnerBoundary, syncOpeningBindings, toiletPlacementFromDrain, toiletRotationForWall, updateOpeningFromLine, wallLayerPolygons, wallOutwardNormal, wallPanelCutList, wallPanelCutWidths, wetZoneBoundaryValid } from './spec'
 
 describe('plan line dimensions', () => {
   it('resizes one segment in millimetres while preserving the following shape', () => {
@@ -466,6 +466,35 @@ describe('dry wet zones and wall finishes', () => {
     expect(finishes.map((finish) => finish.thickness_mm)).toEqual([20, 20, 20, 20])
     expect(spec.fixtures.map((fixture) => fixtureBoundWallIndex(spec, fixture))).toEqual([0, 1, 3])
     expect(clientValidate({ ...spec, wall_finish_profiles: finishes })).toEqual([])
+  })
+
+  it('removes generated wall cavities when their last bound point is detached', () => {
+    const spec = manualRoom(2400, 3200, 2600)
+    spec.fixtures.push({ id: 'point-1', kind: 'water', label: '给水', x_mm: 1200, z_mm: 0, width_mm: 40, depth_mm: 40, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: 0 })
+
+    spec.wall_finish_profiles = generateWallFinishProfiles(spec)
+    ensureWallFinishGapsForBoundPoints(spec)
+    expect(spec.wall_finish_profiles?.map((profile) => profile.gap_mm)).toEqual([35, 0, 0, 0])
+
+    // The UI writes the 35mm minimum before re-projecting the point. The
+    // pre-projection boundary check must keep that cavity alive.
+    spec.wall_finish_profiles = spec.wall_finish_profiles?.map((profile) => ({ ...profile, gap_mm: profile.wall_index === 0 ? 35 : 0 }))
+    ensureWallFinishGapsForBoundPoints(spec)
+    expect(spec.wall_finish_profiles?.map((profile) => profile.gap_mm)).toEqual([35, 0, 0, 0])
+
+    spec.fixtures[0].bound_wall_index = null
+    ensureWallFinishGapsForBoundPoints(spec)
+    expect(spec.wall_finish_profiles?.map((profile) => profile.gap_mm)).toEqual([0, 0, 0, 0])
+    expect(spec.wall_finish_profiles?.every((profile) => !profile.generated_from_bound_point)).toBe(true)
+  })
+
+  it('does not create a cavity for a stale point index that is no longer on the wall', () => {
+    const spec = manualRoom(2400, 3200, 2600)
+    spec.fixtures.push({ id: 'point-1', kind: 'water', label: '给水', x_mm: 1200, z_mm: 500, width_mm: 40, depth_mm: 40, height_mm: 10, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: 0 })
+
+    spec.wall_finish_profiles = generateWallFinishProfiles(spec)
+    ensureWallFinishGapsForBoundPoints(spec)
+    expect(spec.wall_finish_profiles?.every((profile) => profile.gap_mm === 0)).toBe(true)
   })
 
   it('builds continuous finish and structural rings outside the measured finished surface', () => {

@@ -913,6 +913,89 @@ def test_direct_dimension_chains_reject_cross_axis_point_coordinates() -> None:
     assert any("bottom:320(vertical)" in item and "left:260(horizontal)" in item for item in uncertain)
 
 
+def test_direct_plan_arc_inherits_inferred_dimension_chain_target() -> None:
+    payload = {
+        "dimension_chains": {
+            "top": {"overall_mm": 1790, "overall_bbox": [320, 75, 355, 110], "segments_mm": [
+                {"value_mm": 1280, "bbox": [240, 140, 280, 170]},
+                {"value_mm": 510, "bbox": [380, 140, 410, 170]},
+            ]},
+            "right": {"overall_mm": 2135, "overall_bbox": [335, 930, 375, 965], "segments_mm": [
+                {"value_mm": 1015, "bbox": [550, 550, 590, 580]},
+                {"value_mm": 215, "bbox": [575, 780, 600, 815]},
+            ]},
+            "bottom": {"overall_mm": 2135, "overall_bbox": [335, 930, 375, 965], "segments_mm": [
+                {"value_mm": 630, "bbox": [190, 880, 220, 910]},
+                {"value_mm": 1390, "bbox": [355, 880, 395, 910]},
+                {"value_mm": 115, "bbox": [510, 880, 535, 910]},
+            ]},
+            "left": {"overall_mm": 2155, "overall_bbox": [85, 505, 125, 540], "segments_mm": [
+                {"value_mm": 745, "bbox": [120, 330, 150, 360]},
+                {"value_mm": 805, "bbox": [135, 565, 160, 600]},
+                {"value_mm": 400, "bbox": [135, 790, 160, 825]},
+            ]},
+        },
+        "opening_rows": [{"code": "D1", "CG": 0, "CK": 745, "CH": 2100, "bbox": [700, 120, 820, 180]}],
+        "plan_openings": [{"code": "D1", "form": "hinged", "arc_bbox": [220, 220, 420, 440]}],
+    }
+    evidence, _, _ = ai._direct_plan_evidence(payload)
+    arc = next(item for item in evidence if item.id == "direct-plan-opening-1")
+    row = next(item for item in evidence if item.id == "direct-opening-row-d1")
+    assert arc.target_id == row.target_id == "wall:5@0.095128:0.440835"
+
+
+def test_compact_door_inventory_keeps_explicit_wall_binding() -> None:
+    payload = {
+        "edge_chain": [
+            {"direction": "right", "length_mm": 3000, "bbox": [100, 100, 900, 120]},
+            {"direction": "down", "length_mm": 2000, "bbox": [900, 120, 920, 900]},
+            {"direction": "left", "length_mm": 3000, "bbox": [100, 900, 900, 920]},
+            {"direction": "up", "length_mm": 2000, "bbox": [80, 120, 100, 900]},
+        ],
+        "doors": [{
+            "code": "D1", "bbox": [300, 820, 480, 930], "wall_side": "bottom",
+            "form": "hinged", "edge_index": 2, "offset_mm": 500,
+            "width_mm": 800, "height_mm": 2050,
+        }],
+    }
+    normalized = ai._normalize_fast_visual_payload(payload)
+    evidence, edges, _ = ai._direct_plan_evidence(normalized)
+    report = PlanEvidenceReport(evidence=evidence, edge_chain=[edge.model_dump(mode="json") for edge in edges])
+    assist = {"tokens": []}
+    ai._merge_template_evidence(assist, report)
+    openings = ai._opening_specs_from_tokens(assist, edges)
+
+    assert len(openings) == 1
+    assert openings[0].label == "D1"
+    assert openings[0].wall_index == 2
+    assert openings[0].offset_mm == 500
+    assert openings[0].width_mm == 800
+
+
+def test_plan_arc_survives_missing_table_bbox() -> None:
+    payload = {
+        "edge_chain": [
+            {"direction": "right", "length_mm": 3000, "bbox": [100, 100, 900, 120]},
+            {"direction": "down", "length_mm": 2000, "bbox": [900, 120, 920, 900]},
+            {"direction": "left", "length_mm": 3000, "bbox": [100, 900, 900, 920]},
+            {"direction": "up", "length_mm": 2000, "bbox": [80, 120, 100, 900]},
+        ],
+        "opening_rows": [{"code": "D1", "CG": 0, "CK": 800, "CH": 2050}],
+        "plan_openings": [{
+            "code": "D1", "arc_bbox": [300, 820, 480, 930],
+            "edge_index": 2, "offset_mm": 500, "width_mm": 800, "height_mm": 2050,
+        }],
+    }
+    evidence, edges, _ = ai._direct_plan_evidence(payload)
+    assert any(item.id == "direct-plan-opening-1" for item in evidence)
+    assist = {"tokens": []}
+    ai._merge_template_evidence(assist, PlanEvidenceReport(evidence=evidence))
+    openings = ai._opening_specs_from_tokens(assist, edges)
+    assert len(openings) == 1
+    assert openings[0].wall_index == 2
+    assert openings[0].offset_mm == 500
+
+
 def test_direct_edge_chain_does_not_write_overall_dimension_to_folded_wall() -> None:
     payload = {
         "_require_edge_bbox": True,

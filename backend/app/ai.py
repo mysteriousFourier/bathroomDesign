@@ -117,10 +117,10 @@ edge_chain 字段仅为旧客户端兼容的可选读数序列；没有逐边直
 同时读取净高、整屋吊顶和 D1/W1/W2 的 CG、CK、CH。高度字段必须严格按表格行名抄录：“净高”行只能写 room_height_mm，“整屋吊顶”行只能写 overall_ceiling_mm，绝不能把整屋吊顶填成净高。门洞必须给出所在 edge_index，以及沿该 edge_chain 方向从边起点到门洞近端的 offset_mm；看不清时填 null，不能用门窗表的 bbox 代替平面图门弧 bbox。
 在同一次请求中定位平面草图里的门扇和四分之一圆开启弧，将紧贴门扇/开启弧的 bbox 写入 plan_openings.arc_bbox；门窗表整行的 bbox 仍写 opening_rows.bbox。即使门所在墙段或 offset_mm 不确定，也要保留 arc_bbox。门弧只作为视觉证据，不能变成墙体或尺寸。
 高度、门窗表行和所有采用的数字必须同时给出紧贴原文的 bbox；没有 bbox 只能填 null 或写入 uncertain。
-读取草图框内的实际点位，严格按右侧图例判定：圆圈叉=circle_cross=floor_drain，实心圆点=solid_dot=drain，三角形=triangle=water，方框=square=electric；右侧图例自身不得输出。符号不清楚时不输出，不得猜测类型。
+读取草图框内的实际点位，严格按右侧图例判定：圆圈叉=circle_cross=floor_drain，实心圆点=solid_dot=drain，三角形=triangle=water，方框=square=electric；右侧图例自身不得输出。每个看得见的草图点位都必须写入 fixtures，text 写旁注原文；符号类型不确定时 type 写 other，但不要漏掉有旁注的点位。
 所有 bbox 坐标相对完整转正原图归一化为 0 到 1000。看不清填 null，不得猜测。
 只返回 JSON：
-{"edge_chain":[],"dimension_chains":{"top":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"horizontal","confidence":null}]},"right":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"vertical","confidence":null}]},"bottom":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"horizontal","confidence":null}]},"left":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"vertical","confidence":null}]},"recess":{"overall_mm":null,"overall_bbox":null,"segments_mm":[]}},"heights":{"room_height_mm":null,"room_height_bbox":null,"overall_ceiling_mm":null,"overall_ceiling_bbox":null,"local_beam_mm":null,"local_beam_bbox":null},"opening_rows":[{"code":"D1|W1|W2","CG":null,"CK":null,"CH":null,"bbox":null}],"plan_openings":[{"code":"D1","edge_index":null,"offset_mm":null,"width_mm":null,"height_mm":null,"form":"hinged|sliding|folding|pocket|revolving|unknown","confidence":null,"arc_bbox":null}],"uncertain":[]}
+{"edge_chain":[],"dimension_chains":{"top":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"horizontal","confidence":null}]},"right":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"vertical","confidence":null}]},"bottom":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"horizontal","confidence":null}]},"left":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"vertical","confidence":null}]},"recess":{"overall_mm":null,"overall_bbox":null,"segments_mm":[]}},"heights":{"room_height_mm":null,"room_height_bbox":null,"overall_ceiling_mm":null,"overall_ceiling_bbox":null,"local_beam_mm":null,"local_beam_bbox":null},"opening_rows":[{"code":"D1|W1|W2","CG":null,"CK":null,"CH":null,"bbox":null}],"plan_openings":[{"code":"D1","edge_index":null,"offset_mm":null,"width_mm":null,"height_mm":null,"form":"hinged|sliding|folding|pocket|revolving|unknown","confidence":null,"arc_bbox":null}],"fixtures":[{"type":"floor_drain|drain|water|electric|other","text":"旁注原文","bbox":[0,0,0,0],"confidence":null}],"uncertain":[]}
 """.strip()
 
 # The fast path deliberately uses a smaller contract than the quality pipeline.
@@ -4303,7 +4303,15 @@ def _token_has_original_bbox(token: dict) -> bool:
     view_id = str(token.get("view_id") or "").lower()
     if "-fallback" in view_id:
         return False
-    if str(token.get("bbox_quality") or "tight") in {"coarse_strip", "whole_strip", "fallback"}:
+    # A complete opening/height table row is intentionally wider than the
+    # 220px ``coarse_strip`` threshold.  Its bbox still points to the source
+    # image and is the only evidence tying CG/CK/CH or a height value to the
+    # row, so do not discard it as a crop placeholder.
+    table_row = (
+        view_id.startswith(("direct-opening-table", "direct-height-table"))
+        and not view_id.endswith("-fallback")
+    )
+    if not table_row and str(token.get("bbox_quality") or "tight") in {"coarse_strip", "whole_strip", "fallback"}:
         return False
     # Small unit/replay fixtures historically omit bbox because they exercise
     # semantic binding only. Treat that shape as legacy evidence; live OCR and
@@ -4375,13 +4383,19 @@ async def _collect_evidence_hosted(
 def _preferred_plan_rotation(path: Path) -> int:
     with Image.open(path) as source:
         image = ImageOps.exif_transpose(source)
-    # Raster wall support is invariant under 180-degree rotation and therefore
-    # cannot decide whether text is upright. It previously rotated an upright
-    # landscape form by 180 degrees, causing the large vision model to return
-    # an entirely empty transcription. EXIF already handles camera rotation;
-    # keep landscape sheets upright and retain the established portrait-form
-    # fallback. Callers can still pass an explicit rotation when needed.
-    return 270 if image.height > image.width else 0
+        if image.height > image.width:
+            # A refined cache records the orientation that was already checked
+            # by the previous OCR/vision pass.  Only use it when the cache
+            # identifies one unambiguous orientation; stale caches for several
+            # rotations must not make door/table recognition flip randomly.
+            cached_rotations = [
+                rotation for rotation in (270, 90, 180, 0)
+                if _load_refined_ocr_cache(path, rotation) is not None
+            ]
+            if len(cached_rotations) == 1:
+                return cached_rotations[0]
+            return 90
+        return 0
 
 
 def _numbers_in_text(text: str) -> set[int]:
@@ -4706,9 +4720,48 @@ def _point_marker_position(
 ) -> Point2D | None:
     if len(annotation_boundary) < 3 or len(metric_boundary) < 3:
         return None
-    # The bbox is visual evidence only. Metric coordinates require explicit
-    # wall-offset or two-point tie references, never a pixel-to-mm ratio.
-    return _point_marker_position_from_refs(marker, metric_boundary)
+    min_px = min(point.x for point in annotation_boundary)
+    max_px = max(point.x for point in annotation_boundary)
+    min_py = min(point.y for point in annotation_boundary)
+    max_py = max(point.y for point in annotation_boundary)
+    if max_px <= min_px or max_py <= min_py:
+        return None
+    center_x = (marker.bbox.x_min + marker.bbox.x_max) / 2
+    center_y = (marker.bbox.y_min + marker.bbox.y_max) / 2
+    if not (min_px <= center_x <= max_px and min_py <= center_y <= max_py):
+        return None
+    min_x = min(point.x_mm for point in metric_boundary)
+    max_x = max(point.x_mm for point in metric_boundary)
+    min_z = min(point.z_mm for point in metric_boundary)
+    max_z = max(point.z_mm for point in metric_boundary)
+    position = Point2D(
+        x_mm=round(min_x + (center_x - min_px) * (max_x - min_x) / (max_px - min_px)),
+        z_mm=round(min_z + (center_y - min_py) * (max_z - min_z) / (max_py - min_py)),
+    )
+    return position if point_in_polygon(position.x_mm, position.z_mm, metric_boundary) else None
+
+
+def _point_marker_position_from_shape(
+    marker: VisualEvidence,
+    annotation_boundary: list[ShapeCorner],
+) -> Point2D | None:
+    """Map a visible point into the editable provisional photo coordinate frame."""
+    if len(annotation_boundary) < 3:
+        return None
+    min_px = min(point.x for point in annotation_boundary)
+    max_px = max(point.x for point in annotation_boundary)
+    min_py = min(point.y for point in annotation_boundary)
+    max_py = max(point.y for point in annotation_boundary)
+    if max_px <= min_px or max_py <= min_py:
+        return None
+    center_x = (marker.bbox.x_min + marker.bbox.x_max) / 2
+    center_y = (marker.bbox.y_min + marker.bbox.y_max) / 2
+    if not (min_px <= center_x <= max_px and min_py <= center_y <= max_py):
+        return None
+    return Point2D(
+        x_mm=round((center_x - min_px) * 1000 / (max_px - min_px)),
+        z_mm=round((center_y - min_py) * 1000 / (max_py - min_py)),
+    )
 
 
 def _local_point_markers(
@@ -4835,6 +4888,7 @@ def _local_point_markers(
             view_id="local-symbol-detection",
             confidence=0.86,
         ))
+
     markers = [item for *_, item in floor_drains] + drains
     markers.sort(key=lambda item: (item.bbox.y_min, item.bbox.x_min))
     return markers[:16]
@@ -5003,7 +5057,7 @@ def _opening_specs_from_tokens(ocr_assist: dict | None, edges: list[BoundaryEdge
         # A plan-opening bbox surrounds the door leaf/arc, not the numeric
         # label. It is visual placement evidence only; CK/CH become model
         # dimensions only when a separately boxed opening-table row is present.
-        if token.get("template_visual") and str(token.get("view_id") or "").startswith("direct-plan-opening"):
+        if token.get("template_visual") and str(token.get("view_id") or "") == "direct-plan-opening":
             continue
         for reading in _ocr_readings(token):
             row = _coded_opening_row(reading)
@@ -5459,6 +5513,12 @@ def _direct_mm(value: object, *, allow_zero: bool = False) -> int | None:
 
 
 def _direct_side_bbox(side: str, index: int = 0, count: int = 1) -> ImageBBox:
+    """Return a clearly marked placeholder for legacy dimension evidence.
+
+    The placeholder is never accepted by the metric binding code.  Keeping it
+    in the report matters because a dimension value without a source bbox is
+    still useful to a reviewer and preserves the old direct-evidence contract.
+    """
     count = max(1, count)
     fraction = (index + 0.5) / count
     if side in {"top", "bottom"}:
@@ -5473,7 +5533,13 @@ def _direct_side_bbox(side: str, index: int = 0, count: int = 1) -> ImageBBox:
     return ImageBBox(x_min=center_x - 32, y_min=390, x_max=center_x + 32, y_max=430)
 
 
-def _direct_fixture_bbox(raw_bbox: object, position: object, index: int) -> ImageBBox:
+def _direct_fixture_bbox(raw_bbox: object) -> ImageBBox | None:
+    """Parse a provider bbox without inventing coordinates.
+
+    A bbox is part of the provenance contract.  Returning ``None`` is
+    intentional when the model omitted it; callers must retain a textual
+    uncertainty instead of fabricating a point somewhere in the plan.
+    """
     try:
         if isinstance(raw_bbox, list) and len(raw_bbox) == 4:
             raw_bbox = dict(zip(("x_min", "y_min", "x_max", "y_max"), raw_bbox))
@@ -5481,18 +5547,7 @@ def _direct_fixture_bbox(raw_bbox: object, position: object, index: int) -> Imag
             return ImageBBox.model_validate(raw_bbox)
     except (ValidationError, TypeError, ValueError):
         pass
-    text = str(position or "").lower()
-    center_x = 500
-    center_y = 560 + min(index, 4) * 35
-    if "left" in text or "左" in text:
-        center_x = 260
-    elif "right" in text or "右" in text:
-        center_x = 560
-    if "top" in text or "上" in text:
-        center_y = 390
-    elif "bottom" in text or "下" in text:
-        center_y = 700
-    return ImageBBox(x_min=center_x - 12, y_min=center_y - 12, x_max=center_x + 12, y_max=center_y + 12)
+    return None
 
 
 def _bbox_from_normalized_region(raw_bbox: object, region: object) -> object:
@@ -5580,7 +5635,7 @@ def _synthesize_bbox_backed_single_return_edges(
     top = _bbox_backed_chain_segments(payload, evidence, "top")
     right = _bbox_backed_chain_segments(payload, evidence, "right")
     bottom = _bbox_backed_chain_segments(payload, evidence, "bottom")
-    if not top or len(right) < 3 or not bottom:
+    if not top or not right or not bottom:
         return []
     top_length = sum(value for value, _, _ in top)
     bottom_length = sum(value for value, _, _ in bottom)
@@ -5593,6 +5648,36 @@ def _synthesize_bbox_backed_single_return_edges(
         if overall is not None and overall != measured_sum:
             return []
     split_indexes = [index for index, (value, _, _) in enumerate(right) if value == delta]
+    inferred_return_ids: list[str] = []
+    if not split_indexes:
+        # Some captures omit the two upper right labels but still provide the
+        # full right-side total and the lower labels. Treat the unlabelled
+        # remainder as the upper wall segment. It is supported by the overall
+        # bbox and remains explicitly derived, never pixel-scaled.
+        right_chain = chains.get("right")
+        right_overall = _direct_mm(right_chain.get("overall_mm")) if isinstance(right_chain, dict) else None
+        known_right = sum(value for value, _, _ in right)
+        if right_overall is not None and right_overall > known_right:
+            overall_item = next(
+                (
+                    item for item in evidence
+                    if item.kind == "dimension"
+                    and item.related_to.startswith("dimension_chain:right:")
+                    and "overall" in item.related_to
+                    and not item.view_id.endswith("-fallback")
+                ),
+                None,
+            )
+            if overall_item is not None:
+                inferred_upper = right_overall - known_right
+                inferred_return_ids = [item.id for item in evidence if item.kind == "dimension" and item.related_to.startswith("dimension_chain:top:") and "overall" in item.related_to and not item.view_id.endswith("-fallback")]
+                inferred_return_ids.extend(item.id for item in evidence if item.kind == "dimension" and item.related_to.startswith("dimension_chain:bottom:") and "overall" in item.related_to and not item.view_id.endswith("-fallback"))
+                right = [
+                    (inferred_upper, overall_item.id, overall_item.confidence),
+                    (delta, inferred_return_ids[0] if inferred_return_ids else overall_item.id, overall_item.confidence),
+                    *right,
+                ]
+                split_indexes = [1]
     for split_index in split_indexes:
         before = right[:split_index]
         after = right[split_index + 1:]
@@ -5611,7 +5696,7 @@ def _synthesize_bbox_backed_single_return_edges(
         adjusted_after_length = after_length + closure_adjustment
         top_ids = [evidence_id for _, evidence_id, _ in top]
         before_ids = [evidence_id for _, evidence_id, _ in before]
-        return_ids = [right[split_index][1]]
+        return_ids = inferred_return_ids or [right[split_index][1]]
         after_ids = [evidence_id for _, evidence_id, _ in after]
         bottom_ids = [evidence_id for _, evidence_id, _ in bottom]
         vertical_ids = before_ids + after_ids
@@ -5686,14 +5771,13 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
             if not text and value is None:
                 continue
             raw_bbox = raw.get("bbox")
-            has_source_bbox = isinstance(raw_bbox, (dict, list))
             if isinstance(raw_bbox, list) and len(raw_bbox) == 4:
                 raw_bbox = dict(zip(("x_min", "y_min", "x_max", "y_max"), raw_bbox))
             try:
                 bbox = ImageBBox.model_validate(raw_bbox)
             except (ValidationError, TypeError, ValueError):
-                bbox = _direct_side_bbox("top", index, max(1, len(raw_measurements)))
-                has_source_bbox = False
+                discarded_segments.append(f"measurement:{index + 1}:{text or value}(missing_bbox)")
+                continue
             orientation = str(raw.get("orientation") or "free").lower()
             if orientation not in {"horizontal", "vertical", "free"}:
                 orientation = "free"
@@ -5709,7 +5793,7 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                 bbox=bbox,
                 orientation=orientation,
                 related_to=f"measurement:{measurement_kind}:{related_to}",
-                view_id="direct-measurement" if has_source_bbox else "direct-measurement-fallback",
+                view_id="direct-measurement",
                 confidence=confidence,
             ))
     raw_edges = payload.get("edge_chain")
@@ -5850,7 +5934,10 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
             values: list[tuple[str, int, object, str]] = []
             overall = _direct_mm(raw_chain.get("overall_mm"))
             if overall is not None:
-                values.append(("overall", overall, raw_chain.get("overall_bbox"), "overall_wall"))
+                overall_bbox = raw_chain.get("overall_bbox")
+                if isinstance(overall_bbox, list) and len(overall_bbox) == 4:
+                    overall_bbox = dict(zip(("x_min", "y_min", "x_max", "y_max"), overall_bbox))
+                values.append(("overall", overall, overall_bbox, "overall_wall"))
             raw_segments = raw_chain.get("segments_mm") or raw_chain.get("segments") or []
             if isinstance(raw_segments, list):
                 for segment_index, raw_segment in enumerate(raw_segments):
@@ -5871,7 +5958,10 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                             try:
                                 segment_bbox = ImageBBox.model_validate(raw_bbox)
                             except (ValidationError, TypeError, ValueError):
-                                segment_bbox = _direct_side_bbox(side, segment_index, len(raw_segments))
+                                discarded_segments.append(
+                                    f"{side}:{raw_segment.get('value_mm', raw_segment.get('value'))}(missing_bbox)"
+                                )
+                                continue
                             evidence.append(VisualEvidence(
                                 id=f"direct-{side}-{segment_purpose}-{len(evidence) + 1}",
                                 kind="label",
@@ -5886,11 +5976,18 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                         values.append(("segment", segment, raw_bbox, segment_purpose))
             for index, (scope, value, raw_bbox, segment_purpose) in enumerate(values):
                 has_source_bbox = isinstance(raw_bbox, dict)
+                fallback_bbox = False
                 try:
-                    bbox = ImageBBox.model_validate(raw_bbox) if isinstance(raw_bbox, dict) else _direct_side_bbox(side, index, len(values))
+                    bbox = ImageBBox.model_validate(raw_bbox) if has_source_bbox else _direct_side_bbox(
+                        side, index, len(values)
+                    )
                 except (ValidationError, TypeError, ValueError):
                     bbox = _direct_side_bbox(side, index, len(values))
                     has_source_bbox = False
+                    fallback_bbox = True
+                if not has_source_bbox:
+                    fallback_bbox = True
+                    discarded_segments.append(f"{side}:{value}(missing_bbox)")
                 evidence.append(VisualEvidence(
                     id=f"direct-{side}-{scope}-{index + 1}",
                     kind="dimension",
@@ -5898,7 +5995,7 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                     bbox=bbox,
                     orientation="horizontal" if side in {"top", "bottom"} else "vertical" if side in {"left", "right"} else "free",
                     related_to=f"dimension_chain:{side}:{segment_purpose}",
-                    view_id=f"direct-{side}-{scope}" + ("" if has_source_bbox else "-fallback"),
+                    view_id=f"direct-{side}-{scope}" + ("-fallback" if fallback_bbox else ""),
                     confidence=0.9,
                 ))
                 if has_source_bbox and scope == "segment" and segment_purpose in {"wall_segment", "overall_wall"} and side in edge_indexes_by_side and edges:
@@ -5934,8 +6031,8 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                 height_bbox = ImageBBox.model_validate(raw_height_bbox)
                 height_view_id = "direct-height-table"
             except (ValidationError, TypeError, ValueError):
-                height_bbox = ImageBBox(x_min=790, y_min=360 + index * 45, x_max=930, y_max=395 + index * 45)
-                height_view_id = "direct-height-table-fallback"
+                discarded_segments.append(f"height:{field}:{value}(missing_bbox)")
+                continue
             evidence.append(VisualEvidence(
                 id=f"direct-height-{field}",
                 kind="height",
@@ -5947,6 +6044,9 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                 confidence=0.92,
             ))
 
+    inferred_opening_targets = _infer_opening_targets_from_dimension_chains(payload, edges)
+    if not inferred_opening_targets:
+        inferred_opening_targets = _infer_opening_targets_from_evidence(payload, edges, evidence)
     raw_plan_openings = payload.get("plan_openings")
     if not isinstance(raw_plan_openings, list):
         raw_plan_openings = payload.get("openings")
@@ -5957,6 +6057,7 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
     } if isinstance(raw_plan_openings, list) else {}
     raw_rows = payload.get("opening_rows")
     row_codes: set[str] = set()
+    complete_row_codes: set[str] = set()
     if isinstance(raw_rows, list):
         for index, raw in enumerate(raw_rows):
             if not isinstance(raw, dict):
@@ -5969,33 +6070,37 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
             height = _direct_mm(raw.get("CH", raw.get("ch")))
             if sill is None and width is None and height is None:
                 continue
+            if sill is not None and width is not None and height is not None:
+                complete_row_codes.add(code)
             parts = [code]
             for label, value in (("CG", sill), ("CK", width), ("CH", height)):
                 if value is not None:
                     parts.extend([label, str(value)])
-            if sill is not None and width is not None and height is not None:
-                row_codes.add(code)
             plan_opening = plan_openings.get(code, {})
             side = str(plan_opening.get("wall_side") or "unknown").lower()
             target_id = None
+            inferred_target = inferred_opening_targets.get(code)
+            if inferred_target is not None:
+                target_id = inferred_target[0]
             edge_index = _direct_mm(plan_opening.get("edge_index"), allow_zero=True)
             offset_mm = _direct_mm(plan_opening.get("offset_mm"), allow_zero=True)
-            if edge_index is not None and 0 <= edge_index < len(edges) and offset_mm is not None and width is not None:
+            if inferred_target is not None:
+                edge_index = inferred_target[1]
+                offset_mm = inferred_target[2]
+            if target_id is None and edge_index is not None and 0 <= edge_index < len(edges) and offset_mm is not None and width is not None:
                 host_length = edges[edge_index].length_mm
                 if host_length and offset_mm + width <= host_length:
                     start = offset_mm / host_length
                     end = (offset_mm + width) / host_length
                     target_id = f"wall:{edge_index}@{start:.6f}:{end:.6f}"
-            if target_id is None and side in edge_indexes_by_side and edge_indexes_by_side[side]:
-                target_id = f"wall:{edge_indexes_by_side[side][0]}@0.5"
             form = _door_form_from_text(" ".join(parts), plan_opening.get("form"))
             row_bbox = raw.get("bbox")
             try:
                 opening_bbox = ImageBBox.model_validate(row_bbox)
                 opening_view_id = "direct-opening-table"
             except (ValidationError, TypeError, ValueError):
-                opening_bbox = ImageBBox(x_min=760, y_min=135 + index * 48, x_max=970, y_max=172 + index * 48)
-                opening_view_id = "direct-opening-table-fallback"
+                discarded_segments.append(f"opening:{code}:{'/'.join(parts)}(missing_bbox)")
+                continue
             evidence.append(VisualEvidence(
                 id=f"direct-opening-row-{code.lower()}",
                 kind="opening",
@@ -6008,6 +6113,8 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                 target_id=target_id,
                 door_form=form,
             ))
+            if sill is not None and width is not None and height is not None:
+                row_codes.add(code)
     for index, (code, raw) in enumerate(plan_openings.items()):
         if code in row_codes:
             # A complete table row carries dimensions, while arc_bbox carries
@@ -6017,8 +6124,13 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                 arc_bbox = ImageBBox.model_validate(raw.get("arc_bbox"))
             except (ValidationError, TypeError, ValueError):
                 continue
+            if arc_bbox.x_max - arc_bbox.x_min < 35 or arc_bbox.y_max - arc_bbox.y_min < 35:
+                continue
             form = _door_form_from_text(code, raw.get("form"))
             side = str(raw.get("wall_side") or "unknown").lower()
+            arc_target = (inferred_opening_targets.get(code) or (None,))[0]
+            if arc_target is None:
+                arc_target = _plan_opening_target_id(raw, edges, _direct_mm(raw.get("width_mm")))
             evidence.append(VisualEvidence(
                 id=f"direct-plan-opening-{index + 1}",
                 kind="opening",
@@ -6028,23 +6140,28 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                 related_to=f"opening:{code}:{side}",
                 view_id="direct-plan-opening",
                 confidence=0.82,
+                target_id=arc_target,
                 door_form=form,
             ))
+            continue
+        if code in complete_row_codes and "arc_bbox" not in raw:
             continue
         width = _direct_mm(raw.get("width_mm"))
         height = _direct_mm(raw.get("height_mm"))
         form = _door_form_from_text(code, raw.get("form"))
         side = str(raw.get("wall_side") or "unknown").lower()
         target_id = None
-        if side in edge_indexes_by_side and edge_indexes_by_side[side]:
-            target_id = f"wall:{edge_indexes_by_side[side][0]}@0.5"
+        inferred_target = inferred_opening_targets.get(code)
+        if inferred_target is not None:
+            target_id = inferred_target[0]
+        if target_id is None:
+            target_id = _plan_opening_target_id(raw, edges, width)
         raw_bbox = raw.get("arc_bbox", raw.get("bbox"))
-        has_source_bbox = True
         try:
             opening_bbox = ImageBBox.model_validate(raw_bbox)
         except (ValidationError, TypeError, ValueError):
-            opening_bbox = _direct_side_bbox(side)
-            has_source_bbox = False
+            discarded_segments.append(f"opening:{code}(missing_bbox)")
+            continue
         text_parts = [code]
         if form != "unknown":
             text_parts.append(form)
@@ -6058,6 +6175,16 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
         if height is not None:
             text_parts.extend(["CH", str(height)])
         text = " ".join(text_parts)
+        # A compact ``doors`` response may carry both metric dimensions and an
+        # explicit wall placement. In that case the same object is sufficient
+        # to build a reviewable opening; keep a distinct view id so the
+        # template-token parser does not mistake an arc-only record for a
+        # dimension row.
+        opening_view_id = (
+            "direct-plan-opening-bound"
+            if target_id is not None and width is not None and height is not None
+            else "direct-plan-opening"
+        )
         evidence.append(VisualEvidence(
             id=f"direct-plan-opening-{index + 1}",
             kind="opening",
@@ -6065,7 +6192,7 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
             bbox=opening_bbox,
             orientation="horizontal" if side in {"top", "bottom"} else "vertical" if side in {"left", "right"} else "free",
             related_to=f"opening:{code}:{side}",
-            view_id="direct-plan-opening" if has_source_bbox else "direct-plan-opening-fallback",
+            view_id=opening_view_id,
             confidence=0.82,
             target_id=target_id,
             door_form=form,
@@ -6096,13 +6223,24 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                 continue
             raw_type = str(raw.get("type") or raw.get("kind") or "other").strip()
             fixture_type = fixture_aliases.get(raw_type, raw_type)
-            symbol = str(raw.get("symbol") or "").lower()
-            label = str(raw.get("label") or raw.get("text") or "").strip()
+            symbol_value = raw.get("symbol")
+            if isinstance(symbol_value, list) and len(symbol_value) == 4 and raw.get("bbox") is None:
+                raw = {**raw, "bbox": symbol_value}
+                symbol_value = ""
+            symbol = str(symbol_value or "").lower()
+            label = str(raw.get("label") or raw.get("text") or raw.get("raw_text") or "").strip()
             context_text = f"{label} {raw.get('position') or ''}"
             label_support = next(
                 (kind for kind, keywords in label_keywords.items() if any(keyword in context_text for keyword in keywords)),
                 None,
             )
+            # The model often uses ``other`` for a custom symbol while the
+            # nearby label is precise (for example, "马桶排水" or
+            # "洗衣机地漏").  Let the label classify the point before
+            # checking symbol/type consistency; never invent a position or
+            # size from that classification alone.
+            if fixture_type == "other" and label_support:
+                fixture_type = label_support
             symbol_is_standard = symbol in set(expected_symbols.values())
             symbol_conflict = symbol_is_standard and expected_symbols.get(fixture_type) != symbol
             if symbol_conflict and label_support != fixture_type:
@@ -6129,12 +6267,22 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
                 point_refs = []
                 confidence = min(confidence, 0.7)
             positioning = {"method": position_method, "refs": point_refs}
+            # Preserve explicitly transcribed fixture dimensions as evidence
+            # metadata.  Do not fill these from a catalog/default size.
+            for dimension_key in ("width_mm", "depth_mm", "height_mm"):
+                dimension_value = _direct_mm(raw.get(dimension_key))
+                if dimension_value is not None:
+                    positioning[dimension_key] = dimension_value
             point_id = str(raw.get("id") or f"P{index + 1}")
+            fixture_bbox = _direct_fixture_bbox(raw_bbox)
+            if fixture_bbox is None:
+                discarded_fixtures.append(f"{point_id or fixture_type}(missing_bbox)")
+                continue
             evidence.append(VisualEvidence(
                 id=f"direct-fixture-{index + 1}",
                 kind="fixture",
                 text=label or fixture_type,
-                bbox=_direct_fixture_bbox(raw_bbox, position, index),
+                bbox=fixture_bbox,
                 orientation="free",
                 related_to=f"point:{point_id}:{label or fixture_type}:{position or 'unknown'}",
                 view_id="direct-plan-fixture",
@@ -6205,6 +6353,254 @@ def _direct_plan_lines(payload: dict) -> list[dict[str, object]]:
     return lines
 
 
+def _bind_opening_evidence_to_shape(
+    report: PlanEvidenceReport,
+    ocr_assist: dict,
+    shape: ShapeTraceResult | None,
+) -> None:
+    """Bind a visual door arc to the nearest validated wall edge.
+
+    The table row's edge_index is frequently expressed in the model's reading
+    order rather than the canonical boundary order. A plan bbox is stronger
+    positional evidence, so use its nearest shape segment and propagate that
+    target to the D1 table token before OpeningSpec construction.
+    """
+    if shape is None or len(shape.corners) < 3:
+        return
+    corners = [(corner.x, corner.y) for corner in shape.corners]
+    candidates = [
+        item for item in report.evidence
+        if item.kind == "opening"
+        and re.search(r"\bD\d+\b", f"{item.text} {item.related_to}", flags=re.IGNORECASE)
+        and "table" not in str(item.view_id).lower()
+        and "fallback" not in str(item.view_id).lower()
+    ]
+    for item in candidates:
+        # Structured dimension-chain inference is stronger than a nearest-pixel
+        # guess from a broad arc bbox. Never overwrite that explicit target.
+        if item.target_id:
+            continue
+        center_x = (item.bbox.x_min + item.bbox.x_max) / 2
+        center_y = (item.bbox.y_min + item.bbox.y_max) / 2
+        best_index = 0
+        best_distance = float("inf")
+        best_ratio = 0.5
+        for index, (start, end) in enumerate(zip(corners, corners[1:] + corners[:1])):
+            dx = end[0] - start[0]
+            dy = end[1] - start[1]
+            denominator = dx * dx + dy * dy
+            ratio = 0.5 if denominator <= 0 else ((center_x - start[0]) * dx + (center_y - start[1]) * dy) / denominator
+            ratio = max(0.0, min(1.0, ratio))
+            px = start[0] + ratio * dx
+            py = start[1] + ratio * dy
+            distance = math.hypot(center_x - px, center_y - py)
+            if distance < best_distance:
+                best_index, best_distance, best_ratio = index, distance, ratio
+        if best_distance > 260:
+            continue
+        item.target_id = f"wall:{best_index}@{best_ratio:.6f}"
+        for token in ocr_assist.get("tokens") or []:
+            if str(token.get("source_evidence_id")) == item.id:
+                token["target_id"] = item.target_id
+        code_match = re.search(r"\b(D\d+)\b", f"{item.text} {item.related_to}", flags=re.IGNORECASE)
+        if code_match:
+            code = code_match.group(1).upper()
+            for token in ocr_assist.get("tokens") or []:
+                if code in str(token.get("raw_text") or "").upper() and str(token.get("semantic_role")) == "door_size":
+                    token["target_id"] = item.target_id
+
+
+def _infer_opening_targets_from_dimension_chains(
+    payload: dict,
+    edges: list[BoundaryEdge],
+) -> dict[str, tuple[str, int, int]]:
+    """Infer a door's canonical wall from a bbox-backed width segment.
+
+    The model sometimes numbers walls in reading order (for example D1 on
+    edge 0) instead of the canonical clockwise boundary order. A CK segment
+    that appears in exactly one side chain is a stronger positional cue. When
+    an adjacent leading segment is omitted, the remainder of the side overall
+    is retained as an explicit derived offset rather than guessed from pixels.
+    """
+    chains = payload.get("dimension_chains")
+    if not isinstance(chains, dict) or len(edges) < 4:
+        return {}
+    side_edge_indices: dict[str, list[int]] = {
+        "top": [index for index, edge in enumerate(edges) if edge.direction == "right"],
+        "right": [index for index, edge in enumerate(edges) if edge.direction == "down"],
+        "bottom": [index for index, edge in enumerate(edges) if edge.direction == "left"],
+        "left": [index for index, edge in reversed(list(enumerate(edges))) if edge.direction == "up"],
+    }
+    rows = payload.get("opening_rows")
+    openings = payload.get("plan_openings")
+    widths: dict[str, int] = {}
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            code = str(row.get("code") or "").upper()
+            width = _direct_mm(row.get("CK", row.get("ck")))
+            if re.fullmatch(r"[DW]\d+", code) and width:
+                widths[code] = width
+    if isinstance(openings, list):
+        for opening in openings:
+            if not isinstance(opening, dict):
+                continue
+            code = str(opening.get("code") or "").upper()
+            width = _direct_mm(opening.get("width_mm", opening.get("width")))
+            if re.fullmatch(r"[DW]\d+", code) and width:
+                widths.setdefault(code, width)
+    result: dict[str, tuple[str, int, int]] = {}
+    for code, width in widths.items():
+        matches: list[tuple[str, int, int]] = []
+        for side in ("top", "right", "bottom", "left"):
+            chain = chains.get(side)
+            if not isinstance(chain, dict):
+                continue
+            raw_segments = chain.get("segments_mm") or chain.get("segments") or []
+            if not isinstance(raw_segments, list):
+                continue
+            values: list[int] = []
+            for raw_segment in raw_segments:
+                if not isinstance(raw_segment, dict):
+                    values = []
+                    break
+                value = _direct_mm(raw_segment.get("value_mm", raw_segment.get("value")))
+                raw_bbox = raw_segment.get("bbox")
+                if isinstance(raw_bbox, list) and len(raw_bbox) == 4:
+                    raw_bbox = dict(zip(("x_min", "y_min", "x_max", "y_max"), raw_bbox))
+                try:
+                    ImageBBox.model_validate(raw_bbox)
+                except (ValidationError, TypeError, ValueError):
+                    values = []
+                    break
+                if value is None:
+                    values = []
+                    break
+                values.append(value)
+            if not values or width not in values or not side_edge_indices.get(side):
+                continue
+            overall = _direct_mm(chain.get("overall_mm"))
+            if overall is None or sum(values) > overall:
+                continue
+            index = values.index(width)
+            leading_remainder = overall - sum(values)
+            offset = sum(values[:index])
+            if side == "left" and index == 0 and leading_remainder:
+                offset += leading_remainder
+            edge_index = side_edge_indices[side][0]
+            host_length = edges[edge_index].length_mm
+            if not host_length or offset < 0 or offset + width > host_length:
+                continue
+            matches.append((side, edge_index, offset))
+        if len(matches) == 1:
+            side, edge_index, offset = matches[0]
+            host_length = edges[edge_index].length_mm or 1
+            result[code] = (f"wall:{edge_index}@{offset / host_length:.6f}:{(offset + width) / host_length:.6f}", edge_index, offset)
+    return result
+
+
+def _infer_opening_targets_from_evidence(
+    payload: dict,
+    edges: list[BoundaryEdge],
+    evidence: list[VisualEvidence],
+) -> dict[str, tuple[str, int, int]]:
+    """Infer canonical wall placement from parsed side-labelled readings.
+
+    Some model responses provide the dimension values with ``related_to``
+    labels but omit the structured ``dimension_chains`` object.  The values
+    are still usable when they carry their own bboxes and side labels; this
+    fallback never uses image proportions or a default door position.
+    """
+    if len(edges) < 4:
+        return {}
+    side_edge_indices: dict[str, list[int]] = {
+        "top": [index for index, edge in enumerate(edges) if edge.direction == "right"],
+        "right": [index for index, edge in enumerate(edges) if edge.direction == "down"],
+        "bottom": [index for index, edge in enumerate(edges) if edge.direction == "left"],
+        "left": [index for index, edge in reversed(list(enumerate(edges))) if edge.direction == "up"],
+    }
+    widths: dict[str, int] = {}
+    for raw in (payload.get("opening_rows"), payload.get("plan_openings"), payload.get("openings")):
+        if not isinstance(raw, list):
+            continue
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("code") or item.get("id") or "").upper()
+            width = _direct_mm(item.get("CK", item.get("ck", item.get("width_mm", item.get("width")))))
+            if re.fullmatch(r"[DW]\d+", code) and width:
+                widths.setdefault(code, width)
+    if not widths:
+        return {}
+    side_readings: dict[str, list[tuple[int, ImageBBox]]] = {side: [] for side in side_edge_indices}
+    for item in evidence:
+        if item.kind != "dimension" or "segment" not in str(item.view_id).lower():
+            continue
+        match = re.search(r"dimension_chain:(top|right|bottom|left):", item.related_to, flags=re.IGNORECASE)
+        if not match:
+            continue
+        values = _ocr_numbers(item.text)
+        if len(values) != 1:
+            continue
+        side_readings[match.group(1).lower()].append((values[0], item.bbox))
+    result: dict[str, tuple[str, int, int]] = {}
+    for code, width in widths.items():
+        matches: list[tuple[int, int]] = []
+        for side, readings in side_readings.items():
+            if not readings or not side_edge_indices.get(side):
+                continue
+            edge_index = side_edge_indices[side][0]
+            host_length = edges[edge_index].length_mm
+            if not host_length:
+                continue
+            ordered = sorted(readings, key=lambda item: (item[1].y_min, item[1].x_min))
+            values = [item[0] for item in ordered]
+            if width not in values or sum(values) > host_length:
+                continue
+            index = values.index(width)
+            offset = sum(values[:index])
+            remainder = host_length - sum(values)
+            if side == "left" and index == 0 and remainder > 0:
+                offset += remainder
+            if offset >= 0 and offset + width <= host_length:
+                matches.append((edge_index, offset))
+        if len(matches) == 1:
+            edge_index, offset = matches[0]
+            host_length = edges[edge_index].length_mm or 1
+            result[code] = (
+                f"wall:{edge_index}@{offset / host_length:.6f}:{(offset + width) / host_length:.6f}",
+                edge_index,
+                offset,
+            )
+    return result
+
+
+def _plan_opening_target_id(
+    raw_opening: dict,
+    edges: list[BoundaryEdge],
+    width_mm: int | None,
+) -> str | None:
+    """Build a wall target from an explicit plan-opening placement.
+
+    The compact visual contract can carry ``edge_index``/``offset_mm`` even
+    when the table row is unavailable.  Preserve that provenance instead of
+    dropping the visual door during token binding.
+    """
+    if width_mm is None or width_mm <= 0:
+        return None
+    edge_index = _direct_mm(raw_opening.get("edge_index"), allow_zero=True)
+    offset_mm = _direct_mm(raw_opening.get("offset_mm", raw_opening.get("offset")), allow_zero=True)
+    if edge_index is None or offset_mm is None or edge_index < 0 or edge_index >= len(edges):
+        return None
+    host_length = edges[edge_index].length_mm
+    if host_length is None or offset_mm + width_mm > host_length:
+        return None
+    start = offset_mm / host_length
+    end = (offset_mm + width_mm) / host_length
+    return f"wall:{edge_index}@{start:.6f}:{end:.6f}"
+
+
 def _normalize_fast_visual_payload(payload: dict) -> dict:
     """Adapt the small visual inventory contract to the existing evidence parser."""
     normalized = dict(payload)
@@ -6251,6 +6647,9 @@ def _normalize_fast_visual_payload(payload: dict) -> dict:
                 "form": form,
                 "wall_side": wall_side if wall_side in {"top", "right", "bottom", "left"} else "unknown",
                 "bbox": item.get("bbox"),
+                "arc_bbox": item.get("arc_bbox", item.get("bbox")),
+                "edge_index": item.get("edge_index"),
+                "offset_mm": _direct_mm(item.get("offset_mm", item.get("offset")), allow_zero=True),
                 "width_mm": _direct_mm(item.get("width_mm", item.get("width"))),
                 "height_mm": _direct_mm(item.get("height_mm", item.get("height"))),
                 "confidence": item.get("confidence", 0.82),
@@ -6270,6 +6669,9 @@ def _normalize_fast_visual_payload(payload: dict) -> dict:
                 "confidence": item.get("confidence", 0.75),
                 "position_method": "visual_only",
                 "point_refs": [],
+                "width_mm": item.get("width_mm"),
+                "depth_mm": item.get("depth_mm"),
+                "height_mm": item.get("height_mm"),
             })
         normalized["fixtures"] = fixtures
     return normalized
@@ -6294,7 +6696,13 @@ async def _recognize_plan_single_pass(
         endpoint,
         headers,
         [
-            {"role": "system", "content": DIMENSION_TRANSCRIPTION_PROMPT},
+            {
+                "role": "system",
+                "content": DIMENSION_TRANSCRIPTION_PROMPT
+                + "\n若门窗表行无法完整读取，也必须额外返回 doors 数组保留每个实际可见门扇/开启弧："
+                  "[{code,bbox,wall_side,form,edge_index,offset_mm,width_mm,height_mm}]；"
+                  "bbox 必须框住草图中的门扇或开启弧，不能用表格行 bbox 代替。",
+            },
             {"role": "user", "content": [
                 {"type": "text", "text": f"请直接读取这张转正原始量房照片（顺时针旋转 {rotation} 度）。"},
                 {"type": "image_url", "image_url": {"url": _image_data_url(oriented, max_size=2048), "detail": "high"}},
@@ -6308,6 +6716,8 @@ async def _recognize_plan_single_pass(
         max_retries=0,
     )
     parsed = _extract_json(dimension_response)
+    if isinstance(parsed, dict):
+        parsed = _normalize_fast_visual_payload(parsed)
     parsed["_require_edge_bbox"] = True
     direct_evidence, direct_edges, direct_uncertain = _direct_plan_evidence(parsed)
     direct_plan_lines = _direct_plan_lines(parsed)
@@ -6473,6 +6883,15 @@ def _merge_template_evidence(ocr_assist: dict, report: PlanEvidenceReport | None
             "related_to": item.related_to,
         })
     _repair_template_axis_total_readings(ocr_assist)
+    # A table row is emitted before the visual arc in most responses.  Apply
+    # the final visual target to every D/W token after the first pass as well,
+    # so ordering cannot leave the dimension row unbound.
+    for token in tokens:
+        if token.get("target_id"):
+            continue
+        match = re.search(r"\b([DW]\d+)\b", str(token.get("raw_text") or ""), flags=re.IGNORECASE)
+        if match and match.group(1).upper() in opening_targets:
+            token["target_id"] = opening_targets[match.group(1).upper()][0]
     return point_markers
 
 
@@ -6562,6 +6981,9 @@ async def _detect_point_markers(
     models: list[str],
     trace_ids: list[str],
 ) -> list[VisualEvidence]:
+    # Keep this pass independent from the dimension transcription crop. The
+    # dedicated point prompt was validated against the full oriented sheet;
+    # cropping by a detected separator can clip symbols or change their scale.
     for model in models:
         try:
             content = await _request_content(
@@ -6582,8 +7004,17 @@ async def _detect_point_markers(
                 trace_ids=trace_ids,
                 max_retries=0,
             )
-            report = PlanEvidenceReport.model_validate(_extract_json(content))
-            return [item for item in report.evidence if item.kind == "fixture"][:16]
+            payload = _extract_json(content)
+            if not isinstance(payload, dict):
+                continue
+            # Accept both the evidence contract and the newer compact
+            # ``fixtures``/``points`` inventory used by the fast prompt.
+            if isinstance(payload.get("evidence"), list):
+                report = PlanEvidenceReport.model_validate(payload)
+                return [item for item in report.evidence if item.kind == "fixture"][:16]
+            compact = _normalize_fast_visual_payload(payload)
+            evidence, _, _ = _direct_plan_evidence(compact)
+            return [item for item in evidence if item.kind == "fixture"][:16]
         except AIAuthenticationError:
             raise
         except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError):
@@ -7167,30 +7598,12 @@ def _provisional_room_spec(
 
     fixtures: list[FixtureSpec] = []
     for index, marker in enumerate(point_markers or []):
-        referenced_position = _point_marker_position_from_refs(marker, boundary) if boundary else None
-        # Visual position alone is not a millimetre measurement. Only explicit
-        # two-wall/two-point ties may create a FixtureSpec coordinate.
-        position = referenced_position
-        # A photo outline is not a metric scale. When the edge chain has not
-        # closed, keep the symbol bbox as review evidence and wait for manual
-        # dimensions instead of converting its pixel ratio into millimetres.
+        position = _point_marker_position(marker, annotation_boundary, boundary) if boundary else None
+        provisional_position = False
+        if position is None and allow_incomplete_annotation:
+            position = _point_marker_position_from_shape(marker, annotation_boundary)
+            provisional_position = position is not None
         if position is None:
-            evidence_id = f"point-marker-{index + 1}"
-            observations.append(
-                Observation(
-                    field=f"visual_evidence:{evidence_id}",
-                    value=marker.text,
-                    source=SourceKind.measured,
-                    asset_id=asset_id,
-                    bbox=marker.bbox,
-                    confidence=marker.confidence,
-                    note="点位符号已保留原图 bbox；轮廓或定位尺寸未闭合，禁止按像素比例生成毫米坐标",
-                    semantic_role="drain_position",
-                    review_required=True,
-                    rotation_degrees=round((ocr_assist or {}).get("rotation_degrees", 0)) % 360,
-                    target_id=f"point:{index + 1}",
-                )
-            )
             continue
         evidence_id = f"point-marker-{index + 1}"
         marker_kind = _point_marker_kind(marker.text)
@@ -7203,12 +7616,12 @@ def _provisional_room_spec(
                 bbox=marker.bbox,
                 confidence=marker.confidence,
                 note=(
-                    "点位由两条可追踪定位尺寸解算"
-                    if referenced_position is not None
-                    else "图中点位符号中心；未取得两条定位尺寸，保留原图证据供人工补录"
+                    "图中点位符号中心；逐段尺寸未闭合时按照片轮廓归一坐标生成，需人工拖动确认"
+                    if provisional_position
+                    else "图中点位符号中心；相对照片轮廓映射为毫米坐标"
                 ),
                 semantic_role="drain_position",
-                review_required=referenced_position is None or marker.confidence < 0.85,
+                review_required=provisional_position or marker.confidence < 0.85,
                 rotation_degrees=round((ocr_assist or {}).get("rotation_degrees", 0)) % 360,
                 target_id=f"point:{index + 1}",
             )
@@ -7224,8 +7637,8 @@ def _provisional_room_spec(
                 width_mm=size_mm,
                 depth_mm=size_mm,
                 height_mm=10,
-                source=SourceKind.derived,
-                confidence=min(marker.confidence, 0.9 if referenced_position else 0.75),
+                source=SourceKind.estimated if provisional_position else SourceKind.derived,
+                confidence=min(marker.confidence, 0.65 if provisional_position else 0.85),
                 evidence_ids=[evidence_id],
             )
         )
@@ -8214,15 +8627,46 @@ async def analyze_floorplan_fast(
             )
         raw_direct_edges = _direct_edge_chain_from_report(report, ocr_assist)
         direct_shape = _shape_from_metric_edge_chain(raw_direct_edges)
+        # Vision responses for portrait sheets can occasionally omit one
+        # dimension-chain bbox even though the same model reads it on a second
+        # turn. Retry only when the first response cannot form a closed metric
+        # contour; this keeps the normal path single-pass and never falls back
+        # to local OCR or sample-specific values.
+        if rotation == 90 and direct_shape is None:
+            try:
+                retry_selection, retry_report = await _recognize_plan_single_pass(
+                    client, endpoint, headers, path, rotation, selectable_candidates, trace_ids,
+                )
+                retry_edges = _direct_edge_chain_from_report(retry_report, ocr_assist)
+                retry_shape = _shape_from_metric_edge_chain(retry_edges)
+                if retry_shape is not None or len(retry_report.evidence) > len(report.evidence):
+                    selection, report = retry_selection, retry_report
+                    raw_direct_edges, direct_shape = retry_edges, retry_shape
+                    report.uncertain.append("首轮未闭合，已用同一大模型重试并采用较完整证据")
+            except AIAuthenticationError:
+                raise
+            except (AIResponseError, ValidationError, TypeError, ValueError) as error:
+                report.uncertain.append(f"大模型闭合重试失败：{error}")
         selected = next(
             (candidate for candidate in selectable_candidates if candidate.id == selection.selected_id),
             None,
         ) if selection.accepted else None
+        annotation_shape: ShapeTraceResult | None = None
         if direct_shape is not None:
             # A closed, bbox-backed metric chain from the configured large
             # model is the strongest result: it represents both topology and
             # actual measurements without using a pixel scale.
             shape = direct_shape
+            # Keep image-space corners from the raster candidate for bbox
+            # mapping and photo review.  Metric geometry remains sourced from
+            # the model's closed edge chain above.
+            annotation_candidate = selected or _validated_local_topology_candidate(selectable_candidates)
+            if annotation_candidate is not None:
+                annotation_shape = ShapeTraceResult(
+                    corners=annotation_candidate.corners,
+                    closed=True,
+                    uncertain=[f"图像坐标候选 {annotation_candidate.id} 仅用于证据定位"],
+                )
             report.uncertain.append("采用大模型返回的闭合逐边尺寸链；未使用像素比例生成毫米尺寸")
         elif selected is None:
             # Keep a validated raster trace only as an editable fallback when
@@ -8240,13 +8684,41 @@ async def analyze_floorplan_fast(
                     else [f"本地校验选择候选 {selected.id}；需要人工复核"]
                 ) + selection.missing_features,
             )
+        # For a direct metric chain without a raster candidate, keep the
+        # annotation frame empty.  The synthetic metric shape uses fixed
+        # display coordinates and must never be treated as source-image
+        # evidence for point placement.
+        if annotation_shape is None and direct_shape is None:
+            annotation_shape = shape
+        _bind_opening_evidence_to_shape(report, ocr_assist, annotation_shape)
         template_points = _merge_template_evidence(ocr_assist, report)
-        local_points = _local_point_markers(path, rotation, shape)
+        # Portrait phone captures are the case where the full-sheet request
+        # most often spends its budget on the right-hand tables and drops the
+        # small fixture symbols. Recover them with the validated dedicated
+        # full-sheet pass and merge with any points from the primary response.
+        detected_points: list[VisualEvidence] = []
+        try:
+            with Image.open(path) as source_image:
+                oriented_source = ImageOps.exif_transpose(source_image)
+                portrait_source = oriented_source.height > oriented_source.width
+        except (OSError, ValueError):
+            portrait_source = False
+        if portrait_source:
+            try:
+                detected_points = await _detect_point_markers(
+                    client, endpoint, headers, path, rotation,
+                    [settings.read_model], trace_ids,
+                )
+            except AIAuthenticationError:
+                raise
+            except (AIResponseError, ValidationError, TypeError, ValueError, json.JSONDecodeError) as error:
+                report.uncertain.append(f"大模型点位专用识别失败：{error}")
+        local_points = _local_point_markers(path, rotation, annotation_shape)
         # Keep text-labelled/custom visual points even when local CV also finds
         # a standard circle or dot. Visual evidence comes first so its label and
         # explicit positioning method survive overlap de-duplication.
-        point_markers = _merge_point_markers(template_points, local_points)
-        local_edge_chain = _segment_edge_chain_from_visual_evidence(shape, ocr_assist) if shape is not None else []
+        point_markers = _merge_point_markers(template_points, detected_points, local_points)
+        local_edge_chain = _segment_edge_chain_from_visual_evidence(annotation_shape, ocr_assist) if annotation_shape is not None else []
         direct_edge_chain = _direct_edge_chain_from_report(report, ocr_assist)
         edge_chain = _merge_segment_edge_chains(direct_edge_chain, local_edge_chain)
         has_dimension_evidence = any(
@@ -8265,7 +8737,7 @@ async def analyze_floorplan_fast(
         # Every measurement must come from the current image evidence or the
         # current recognition pass. Never substitute data from a known sample.
     provisional = _provisional_room_spec(
-        shape,
+        annotation_shape or shape,
         ocr_assist,
         asset_id=asset_id,
         allow_incomplete_annotation=True,

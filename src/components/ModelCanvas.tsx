@@ -9,7 +9,7 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { resolvedModelOrientation } from '../modelOrientation'
 import { uniformModelScale } from '../modelScale'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
-import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallLayerQuads, wallLength } from '../spec'
+import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallFinishGap, wallLayerQuads, wallLength } from '../spec'
 import { physicalTextureTransform, physicalWorldTextureTransform } from '../surfaceTexture'
 import { routePlumbing, type PipeSegment, type PlumbingRoute } from '../plumbing'
 import type { FixtureModelAsset, FixtureSpec, Point2D, RoomSpec, Selection } from '../types'
@@ -83,6 +83,7 @@ function Wall({ spec, index, layers, selected, onSelect, surface, emphasizeJoint
   const wallStart = spec.boundary[index]
   const wallEnd = spec.boundary[(index + 1) % spec.boundary.length]
   const heightMm = spec.height_mm ?? 2600
+  const hasCavity = wallFinishGap(spec, index) > 0
   const openings = spec.openings.filter((opening) => opening.wall_index === index).sort((a, b) => a.offset_mm - b.offset_mm)
   const parts: WallPart[] = []
   let cursor = 0
@@ -102,7 +103,7 @@ function Wall({ spec, index, layers, selected, onSelect, surface, emphasizeJoint
       {parts.map((part, partIndex) => (
         <WallPrism key={partIndex} quad={sliceWallQuadByDistance(layers.wall, wallStart, wallEnd, part.start, part.end)} part={part} color={selected ? '#d8c8a5' : '#e7e5df'} edge={selected ? '#8a6725' : '#b9bcb4'} onSelect={onSelect} />
       ))}
-      {parts.map((part, partIndex) => (
+      {hasCavity && parts.map((part, partIndex) => (
         <WallPrism key={`cavity-${partIndex}`} quad={sliceWallQuadByDistance(layers.cavity, wallStart, wallEnd, part.start, part.end)} part={part} color="#8e9898" edge="#5d6969" onSelect={onSelect} opacity={0.28} />
       ))}
       {parts.map((part, partIndex) => (

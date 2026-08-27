@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { applyWetZoneBoundaryChange, cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallFinishGap, wallLength, wallPanelCutList, wetZoneBoundaryValid } from '../spec'
+import { applyWetZoneBoundaryChange, cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, snapPointToNearestWall, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallFinishGap, wallLength, wallPanelCutList, wetZoneBoundaryValid } from '../spec'
 import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -184,7 +184,9 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
               <button className="button secondary wide" onClick={() => edit((draft) => {
                 draft.wall_finish_profiles = generateWallFinishProfiles(draft).map((profile) => ({
                   ...profile,
-                  gap_mm: Math.max(35, profile.gap_mm ?? wallFinishGap(draft, profile.wall_index)),
+                  gap_mm: profile.generated_from_bound_point
+                    ? Math.max(35, profile.gap_mm ?? 0)
+                    : 0,
                 }))
                 ensureWallFinishGapsForBoundPoints(draft)
                 draft.fixtures.forEach((fixture) => {
@@ -243,9 +245,18 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
               <NumberField key={field} label={{ x_mm: 'X 位置', z_mm: 'Z 位置', width_mm: '宽度', depth_mm: '深度', height_mm: '高度', rotation_deg: '旋转' }[field]} value={selectedFixture[field]} unit={field === 'rotation_deg' ? '°' : 'mm'} step={field === 'rotation_deg' ? 5 : 10} onChange={(value) => edit((draft) => {
                 const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!
                 item[field] = value
-                if ((field === 'x_mm' || field === 'z_mm') && selectedFixtureWall !== null) {
-                  const projection = projectPointToWall(finishedRoomBoundary(draft), selectedFixtureWall, item)
-                  if (projection) { item.x_mm = projection.point.x_mm; item.z_mm = projection.point.z_mm }
+                if ((field === 'x_mm' || field === 'z_mm') && fixtureCanBindWall(item.kind)) {
+                  // Coordinate edits should have the same detach semantics as
+                  // dragging: stay bound only while the point remains near a
+                  // finished wall, otherwise clear the stale wall index.
+                  const snap = snapPointToNearestWall(finishedRoomBoundary(draft), item)
+                  if (snap) {
+                    item.x_mm = snap.point.x_mm
+                    item.z_mm = snap.point.z_mm
+                    item.bound_wall_index = snap.wall_index
+                  } else {
+                    item.bound_wall_index = null
+                  }
                 }
               })} />
             ))}

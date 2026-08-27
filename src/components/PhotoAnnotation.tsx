@@ -130,6 +130,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
   const [tool, setTool] = useState<AnnotationTool>('edit')
   const [points, setPoints] = useState<ImageBoundaryPoint[]>(annotation?.boundary ?? [])
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null)
+  const [selectedWallIndex, setSelectedWallIndex] = useState<number | null>(null)
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(null)
   const [dragFixtureId, setDragFixtureId] = useState<string | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -192,6 +193,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     setLineKind(kind)
     setLineDraft({ id: null, points: [] })
     setSelectedPoint(null)
+    setSelectedWallIndex(null)
     setSelectedOpeningId(null)
     setTool(kind ? 'line' : 'edit')
   }
@@ -473,9 +475,16 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
   }
 
   const deletePoint = () => {
-    if (selectedPoint === null || points.length <= 3) return
+    if (selectedPoint === null || points.length <= 2) return
     const next = points.filter((_, index) => index !== selectedPoint)
-    setPoints(next); setSelectedPoint(null); commitBoundary(next)
+    setPoints(next); setSelectedPoint(null); setSelectedWallIndex(null); commitBoundary(next)
+  }
+
+  const deleteWall = () => {
+    if (selectedWallIndex === null || points.length <= 2) return
+    const pointIndex = (selectedWallIndex + 1) % points.length
+    const next = points.filter((_, index) => index !== pointIndex)
+    setPoints(next); setSelectedPoint(null); setSelectedWallIndex(null); commitBoundary(next)
   }
 
   const deleteOpening = () => {
@@ -489,7 +498,8 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
 
   const deleteSelection = () => {
     if (selectedOpeningId) deleteOpening()
-    else deletePoint()
+    else if (selectedPoint !== null) deletePoint()
+    else deleteWall()
   }
 
   const movePointFixture = (fixtureId: string, location: CanvasPoint) => {
@@ -522,19 +532,25 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
         if (selectedOpeningId) {
           event.preventDefault()
           deleteOpening()
-        } else if (selectedPoint !== null && points.length > 3) {
+        } else if (selectedPoint !== null && points.length > 2) {
           event.preventDefault()
           const next = points.filter((_, index) => index !== selectedPoint)
-          setPoints(next); setSelectedPoint(null); commitBoundary(next)
+          setPoints(next); setSelectedPoint(null); setSelectedWallIndex(null); commitBoundary(next)
+        } else if (selectedWallIndex !== null && points.length > 2) {
+          event.preventDefault()
+          const pointIndex = (selectedWallIndex + 1) % points.length
+          const next = points.filter((_, index) => index !== pointIndex)
+          setPoints(next); setSelectedPoint(null); setSelectedWallIndex(null); commitBoundary(next)
         }
       } else if (event.key === 'Escape') {
         setSelectedPoint(null)
+        setSelectedWallIndex(null)
         setSelectedOpeningId(null)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [points, selectedOpeningId, selectedPoint, spec, rotation])
+  }, [points, selectedOpeningId, selectedPoint, selectedWallIndex, spec, rotation])
 
   const createMissingLabel = (start: CanvasPoint, end: CanvasPoint) => {
     const left = Math.min(start.x, end.x), right = Math.max(start.x, end.x)
@@ -564,15 +580,15 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
             <option value="door_line">门线（辅助）</option>
           </select>
         </label>
-        <button className={tool === 'add' ? 'active' : ''} onClick={() => setTool('add')}><Plus size={15} />加折点</button>
-        <button className={tool === 'draw' ? 'active' : ''} onClick={() => { setTool('draw'); setPoints([]); setSelectedPoint(null) }}><PenLine size={15} />重画轮廓</button>
-        <button className={tool === 'opening' ? 'active' : ''} onClick={() => setTool('opening')}><DoorOpen size={15} />加门窗</button>
+        <button className={tool === 'add' ? 'active' : ''} onClick={() => { setTool('add'); setSelectedWallIndex(null); setSelectedOpeningId(null) }}><Plus size={15} />加折点</button>
+        <button className={tool === 'draw' ? 'active' : ''} onClick={() => { setTool('draw'); setPoints([]); setSelectedPoint(null); setSelectedWallIndex(null); setSelectedOpeningId(null) }}><PenLine size={15} />重画轮廓</button>
+        <button className={tool === 'opening' ? 'active' : ''} onClick={() => { setTool('opening'); setSelectedWallIndex(null); setSelectedPoint(null) }}><DoorOpen size={15} />加门窗</button>
         {tool === 'opening' && <select className="annotation-opening-kind" aria-label="新增门窗类型" value={openingKind} onChange={(event) => setOpeningKind(event.target.value as OpeningSpec['kind'])}><option value="door">门</option><option value="window">窗</option><option value="opening">洞口</option></select>}
         <button className={orthogonal ? 'active' : ''} title="限制新增和编辑的线为水平或垂直" aria-pressed={orthogonal} onClick={() => setOrthogonal((value) => !value)}><Grid2X2 size={15} />正交</button>
         <button className={tool === 'label' ? 'active' : ''} onClick={() => setTool('label')}><ScanText size={15} />补录数据</button>
         {regionRole && <button className={tool === 'region' ? 'active' : ''} onClick={() => setTool('region')}><BoxSelect size={15} />圈定范围</button>}
         <button className={showEvidence ? 'active' : ''} title={showEvidence ? '隐藏有效候选框' : '显示有效候选框'} aria-pressed={showEvidence} onClick={() => setShowEvidence((current) => !current)}>{showEvidence ? <EyeOff size={15} /> : <Eye size={15} />}{showEvidence ? '隐藏候选' : '显示候选'}</button>
-        <button className="icon-button danger" title={selectedOpeningId ? '删除所选门窗' : '删除所选折点'} disabled={!selectedOpeningId && (selectedPoint === null || points.length <= 3)} onClick={deleteSelection}><Trash2 size={15} /></button>
+        <button className="icon-button danger" title={selectedOpeningId ? '删除所选门窗' : selectedPoint !== null ? '删除所选折点' : '删除所选轮廓线'} disabled={!selectedOpeningId && (points.length <= 2 || (selectedPoint === null && selectedWallIndex === null))} onClick={deleteSelection}><Trash2 size={15} /></button>
       </div>
       <div className="annotation-status">
         <span>AI 初识草稿 · {points.length} 个折点 · 缺少 {pendingDimensions} 段尺寸{closureAdjustments ? ` · 自动闭合调整 ${closureAdjustments} 段` : ''}{pendingEvidence ? ` · 待校正 ${pendingEvidence} 项` : ''}</span>
@@ -775,10 +791,13 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
           const endRatio = nextRange?.startRatio ?? (unknownWholeWall ? 1 : part.end_mm / hostLength)
           const start = pointAtRatio(wallStart, wallEnd, startRatio)
           const end = pointAtRatio(wallStart, wallEnd, endRatio)
-          return <g key={`annotation-wall-${wallIndex}-${part.key}`} className={selected ? 'annotation-wall selected' : 'annotation-wall'}>
+          return <g key={`annotation-wall-${wallIndex}-${part.key}`} className={selected || selectedWallIndex === wallIndex ? 'annotation-wall selected' : 'annotation-wall'}>
             <line className="annotation-wall-hit" x1={start.x} y1={start.y} x2={end.x} y2={end.y} onPointerDown={(event) => {
               if (tool !== 'edit') return
               event.preventDefault(); event.stopPropagation()
+              if (activeEvidence?.semantic_role !== 'door_size') {
+                setSelectedPoint(null); setSelectedOpeningId(null); setSelectedWallIndex(wallIndex)
+              }
               const location = localPoint(event.clientX, event.clientY)
               if (activeEvidence?.semantic_role === 'door_size') {
                 const ratio = segmentRatio(location, wallStart, wallEnd)
@@ -787,7 +806,11 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
               }
             }} onClick={(event) => {
               if (tool !== 'edit' || activeEvidence?.semantic_role === 'door_size') return
-              event.preventDefault(); event.stopPropagation(); bindEvidenceToWall(wallIndex, localPoint(event.clientX, event.clientY))
+              event.preventDefault(); event.stopPropagation()
+              if (activeEvidence) bindEvidenceToWall(wallIndex, localPoint(event.clientX, event.clientY))
+              else {
+                setSelectedPoint(null); setSelectedOpeningId(null); setSelectedWallIndex(wallIndex)
+              }
             }} />
             <line className="annotation-wall-line" data-wall-index={wallIndex} data-run-start-mm={part.start_mm} data-run-end-mm={part.end_mm} x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
             <text x={(start.x + end.x) / 2} y={(start.y + end.y) / 2 + 4}>{part.label}</text>
@@ -799,7 +822,7 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
           if (tool !== 'edit') return
           event.preventDefault()
           if (activeEvidence?.semantic_role === 'door_size') return
-          event.stopPropagation(); setSelectedOpeningId(null); setSelectedPoint(index); setDragIndex(index); event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
+          event.stopPropagation(); setSelectedOpeningId(null); setSelectedWallIndex(null); setSelectedPoint(index); setDragIndex(index); event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
         }}>
         <circle className="annotation-point-hit" r="20" />
         <circle className="annotation-point-dot" r="8" />

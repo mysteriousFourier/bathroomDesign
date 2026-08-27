@@ -48,8 +48,16 @@ def test_portrait_measurement_sheet_defaults_to_readable_clockwise_rotation(tmp_
     Image.new("RGB", (1080, 1920), "white").save(portrait)
     Image.new("RGB", (1920, 1080), "white").save(landscape)
 
-    assert ai._preferred_plan_rotation(portrait) == 270
+    assert ai._preferred_plan_rotation(portrait) == 90
     assert ai._preferred_plan_rotation(landscape) == 0
+
+
+def test_portrait_rotation_ignores_ambiguous_refined_caches(tmp_path, monkeypatch) -> None:
+    portrait = tmp_path / "portrait-cache.jpg"
+    Image.new("RGB", (1080, 1920), "white").save(portrait)
+    monkeypatch.setattr(ai, "_load_refined_ocr_cache", lambda *_args: {"tokens": []})
+
+    assert ai._preferred_plan_rotation(portrait) == 90
 
 
 def test_custom_fixture_shape_is_kept_when_label_supports_type() -> None:
@@ -163,7 +171,7 @@ def test_structured_values_without_original_bbox_stay_unbound_observations() -> 
         "raw_text": "整屋吊顶 2100", "semantic_role": "ceiling_height",
         "view_id": "direct-height-table-fallback", "bbox": [790, 360, 930, 395],
     }]}) is None
-    assert any(token["view_id"].endswith("-fallback") for token in assist["tokens"])
+    assert assist["tokens"] == []
 
 
 def test_dimension_chain_fallback_bbox_cannot_seed_wall_lengths() -> None:
@@ -354,7 +362,7 @@ def test_provisional_spec_adds_derived_fixture_from_point_marker() -> None:
         positioning={"method": "wall_offsets", "refs": [
             {"from": "left", "value_mm": 1500},
             {"from": "top", "value_mm": 1000},
-        ]},
+        ], "width_mm": 75, "depth_mm": 75, "height_mm": 10},
     )
 
     spec = ai._provisional_room_spec(
@@ -372,7 +380,7 @@ def test_provisional_spec_adds_derived_fixture_from_point_marker() -> None:
     assert spec.fixtures[0].evidence_ids == ["point-marker-1"]
 
 
-def test_incomplete_annotation_keeps_point_marker_as_evidence_without_pixel_scaling() -> None:
+def test_incomplete_annotation_materializes_provisional_point_fixture_for_dragging() -> None:
     shape = ShapeTraceResult(
         corners=[
             ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
@@ -404,10 +412,13 @@ def test_incomplete_annotation_keeps_point_marker_as_evidence_without_pixel_scal
 
     assert spec is not None
     assert spec.boundary == []
-    assert spec.fixtures == []
+    assert len(spec.fixtures) == 1
+    assert spec.fixtures[0].kind == "floor_drain"
+    assert spec.fixtures[0].source.value == "estimated"
+    assert (spec.fixtures[0].x_mm, spec.fixtures[0].z_mm) == (500, 500)
     assert spec.observations[-1].field == "visual_evidence:point-marker-1"
     assert spec.observations[-1].review_required is True
-    assert "禁止按像素比例" in spec.observations[-1].note
+    assert "需人工拖动确认" in spec.observations[-1].note
 
 
 def test_bbox_accepts_provider_array_and_reversed_x() -> None:
@@ -1219,6 +1230,36 @@ def test_template_large_wall_dimension_is_not_summed_with_nearby_noise() -> None
 ])
 def test_point_marker_kinds_remain_distinct(text: str, expected: str) -> None:
     assert ai._point_marker_kind(text) == expected
+
+
+@pytest.mark.asyncio
+async def test_point_marker_pass_uses_full_oriented_sheet(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    async def fake_request_content(_client, _endpoint, _headers, messages, _model, **kwargs):
+        calls.append({"messages": messages, **kwargs})
+        return json.dumps({
+            "rotation_degrees": 0,
+            "evidence": [{
+                "id": "point-1", "kind": "fixture", "text": "地漏",
+                "bbox": {"x_min": 219, "y_min": 365, "x_max": 228, "y_max": 379},
+                "orientation": "free", "related_to": "点位符号", "view_id": "full",
+                "confidence": 0.98,
+            }],
+            "uncertain": [],
+        })
+
+    monkeypatch.setattr(ai, "_request_content", fake_request_content)
+    monkeypatch.setattr(ai, "image_data_url", lambda *_args, **_kwargs: "full-sheet")
+
+    markers = await ai._detect_point_markers(
+        None, "https://example.test", {}, Path("unused.jpg"), 90, ["vision-test"], [],
+    )
+
+    assert len(markers) == 1
+    assert markers[0].bbox.x_min == 219
+    assert calls[0]["messages"][1]["content"][1]["image_url"]["url"] == "full-sheet"
+    assert calls[0]["stage"] == "plan-point-markers"
 
 
 @pytest.mark.asyncio

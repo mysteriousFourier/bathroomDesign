@@ -118,9 +118,11 @@ edge_chain 字段仅为旧客户端兼容的可选读数序列；没有逐边直
 在同一次请求中定位平面草图里的门扇和四分之一圆开启弧，将紧贴门扇/开启弧的 bbox 写入 plan_openings.arc_bbox；门窗表整行的 bbox 仍写 opening_rows.bbox。即使门所在墙段或 offset_mm 不确定，也要保留 arc_bbox。门弧只作为视觉证据，不能变成墙体或尺寸。
 高度、门窗表行和所有采用的数字必须同时给出紧贴原文的 bbox；没有 bbox 只能填 null 或写入 uncertain。
 读取草图框内的实际点位，严格按右侧图例判定：圆圈叉=circle_cross=floor_drain，实心圆点=solid_dot=drain，三角形=triangle=water，方框=square=electric；右侧图例自身不得输出。每个看得见的草图点位都必须写入 fixtures，text 写旁注原文；符号类型不确定时 type 写 other，但不要漏掉有旁注的点位。
+房间内部与房间边界分离的闭合矩形，如果内部明确画有一条对角斜线，按 slashed_box=column=包管识别。bbox 必须紧贴闭合矩形四边，不能包含旁边尺寸文字；包管不得并入 edge_chain、boundary 或普通点位。若旁边有正常横向书写的“宽x深”（例如 250x300），第一项写 width_mm、第二项写 depth_mm；看不清则填 null，不得按像素比例猜毫米数。没有内部斜线的空方框仍按电点或 uncertain 处理，不能猜成包管。
+如果且仅如果图中有从点位中心分别连到两面基准墙的尺寸引线，把 position_method 写为 wall_offsets，并在 point_refs 中逐条返回基准墙和毫米数。如果有从两个明确墙角连到点位中心的两条斜距，则 position_method 写为 two_point_ties。只有一条距离、引线未落在点中心、数字只是靠近点位或基准墙不明确时，必须写 visual_only 和空 point_refs；点位定位数字绝不能写入 dimension_chains。
 所有 bbox 坐标相对完整转正原图归一化为 0 到 1000。看不清填 null，不得猜测。
 只返回 JSON：
-{"edge_chain":[],"dimension_chains":{"top":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"horizontal","confidence":null}]},"right":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"vertical","confidence":null}]},"bottom":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"horizontal","confidence":null}]},"left":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"vertical","confidence":null}]},"recess":{"overall_mm":null,"overall_bbox":null,"segments_mm":[]}},"heights":{"room_height_mm":null,"room_height_bbox":null,"overall_ceiling_mm":null,"overall_ceiling_bbox":null,"local_beam_mm":null,"local_beam_bbox":null},"opening_rows":[{"code":"D1|W1|W2","CG":null,"CK":null,"CH":null,"bbox":null}],"plan_openings":[{"code":"D1","edge_index":null,"offset_mm":null,"width_mm":null,"height_mm":null,"form":"hinged|sliding|folding|pocket|revolving|unknown","confidence":null,"arc_bbox":null}],"fixtures":[{"type":"floor_drain|drain|water|electric|other","text":"旁注原文","bbox":[0,0,0,0],"confidence":null}],"uncertain":[]}
+{"edge_chain":[],"dimension_chains":{"top":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"horizontal","confidence":null}]},"right":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"vertical","confidence":null}]},"bottom":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"horizontal","confidence":null}]},"left":{"overall_mm":null,"overall_bbox":null,"segments_mm":[{"value_mm":null,"bbox":null,"orientation":"vertical","confidence":null}]},"recess":{"overall_mm":null,"overall_bbox":null,"segments_mm":[]}},"heights":{"room_height_mm":null,"room_height_bbox":null,"overall_ceiling_mm":null,"overall_ceiling_bbox":null,"local_beam_mm":null,"local_beam_bbox":null},"opening_rows":[{"code":"D1|W1|W2","CG":null,"CK":null,"CH":null,"bbox":null}],"plan_openings":[{"code":"D1","edge_index":null,"offset_mm":null,"width_mm":null,"height_mm":null,"form":"hinged|sliding|folding|pocket|revolving|unknown","confidence":null,"arc_bbox":null}],"fixtures":[{"id":"P1|B1","type":"floor_drain|drain|water|electric|column|other","symbol":"circle_cross|solid_dot|triangle|square|slashed_box|unknown","text":"旁注原文或 pipe_box","bbox":[0,0,0,0],"position_method":"wall_offsets|two_point_ties|visual_only","point_refs":[{"from":"left|right|top|bottom|corner_top_left|corner_top_right|corner_bottom_left|corner_bottom_right","value_mm":null}],"width_mm":null,"depth_mm":null,"height_mm":null,"confidence":null}],"uncertain":[]}
 """.strip()
 
 # The fast path deliberately uses a smaller contract than the quality pipeline.
@@ -4665,21 +4667,26 @@ def _point_marker_position_from_refs(
             continue
         parsed_refs.append((str(ref.get("from") or "").lower(), value))
     if method == "wall_offsets":
-        x_value: float | None = None
-        z_value: float | None = None
+        x_candidates: list[float] = []
+        z_candidates: list[float] = []
         for origin, value in parsed_refs:
             if origin == "left":
-                x_value = value if x_value is None else (x_value + value) / 2
+                x_candidates.append(min_x + value)
             elif origin == "right":
-                candidate = max_x - value
-                x_value = candidate if x_value is None else (x_value + candidate) / 2
+                x_candidates.append(max_x - value)
             elif origin == "top":
-                z_value = min_z + value if z_value is None else (z_value + min_z + value) / 2
+                z_candidates.append(min_z + value)
             elif origin == "bottom":
-                candidate = max_z - value
-                z_value = candidate if z_value is None else (z_value + candidate) / 2
-        if x_value is None or z_value is None:
+                z_candidates.append(max_z - value)
+        # Require two non-parallel constraints. Conflicting redundant readings
+        # are rejected instead of averaged into a plausible point.
+        if not x_candidates or not z_candidates:
             return None
+        tolerance_mm = 10
+        if max(x_candidates) - min(x_candidates) > tolerance_mm or max(z_candidates) - min(z_candidates) > tolerance_mm:
+            return None
+        x_value = sum(x_candidates) / len(x_candidates)
+        z_value = sum(z_candidates) / len(z_candidates)
         point = Point2D(x_mm=round(x_value), z_mm=round(z_value))
         return point if point_in_polygon(point.x_mm, point.z_mm, metric_boundary) else None
     if method != "two_point_ties" or len(parsed_refs) < 2:
@@ -4896,6 +4903,8 @@ def _local_point_markers(
 
 def _point_marker_kind(text: str) -> str:
     compact = re.sub(r"\s+", "", _normalize_ocr_text(text)).lower()
+    if any(token in compact for token in ("包管", "管井", "管道井", "pipe_box", "pipebox", "pipechase", "column")):
+        return "column"
     if "地漏" in compact or "floor_drain" in compact:
         return "floor_drain"
     if any(token in compact for token in ("排水", "下水", "排污", "drain")):
@@ -6211,12 +6220,15 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
             "排水": "drain", "排水孔": "drain", "马桶排水": "drain",
             "给水": "water", "冷水": "water", "热水": "water",
             "电点": "electric", "插座": "electric",
+            "包管": "column", "包管线": "column", "管井": "column", "管道井": "column",
+            "pipe_box": "column", "pipe_chase": "column",
         }
         label_keywords = {
             "floor_drain": ("地漏",),
             "drain": ("排水", "排水孔", "马桶排水"),
             "water": ("给水", "冷水", "热水"),
             "electric": ("电点", "插座"),
+            "column": ("包管", "管井", "管道井", "pipe_box", "pipe chase"),
         }
         for index, raw in enumerate(raw_fixtures):
             if not isinstance(raw, dict):
@@ -6278,13 +6290,16 @@ def _direct_plan_evidence(payload: dict) -> tuple[list[VisualEvidence], list[Bou
             if fixture_bbox is None:
                 discarded_fixtures.append(f"{point_id or fixture_type}(missing_bbox)")
                 continue
+            evidence_text = label or fixture_type
+            if fixture_type == "column" and _point_marker_kind(evidence_text) != "column":
+                evidence_text = f"包管 {evidence_text}".strip()
             evidence.append(VisualEvidence(
                 id=f"direct-fixture-{index + 1}",
                 kind="fixture",
-                text=label or fixture_type,
+                text=evidence_text,
                 bbox=fixture_bbox,
                 orientation="free",
-                related_to=f"point:{point_id}:{label or fixture_type}:{position or 'unknown'}",
+                related_to=f"point:{point_id}:{evidence_text}:{position or 'unknown'}",
                 view_id="direct-plan-fixture",
                 confidence=confidence,
                 target_id=f"point:{point_id}",
@@ -6605,6 +6620,27 @@ def _normalize_fast_visual_payload(payload: dict) -> dict:
     """Adapt the small visual inventory contract to the existing evidence parser."""
     normalized = dict(payload)
 
+    pipe_boxes = normalized.get("pipe_boxes")
+    if isinstance(pipe_boxes, list):
+        fixtures = list(normalized.get("fixtures")) if isinstance(normalized.get("fixtures"), list) else []
+        for index, item in enumerate(pipe_boxes):
+            if not isinstance(item, dict):
+                continue
+            fixtures.append({
+                "id": item.get("id") or f"B{index + 1}",
+                "type": "column",
+                "symbol": "slashed_box",
+                "label": item.get("label") or item.get("text") or "pipe_box",
+                "bbox": item.get("bbox"),
+                "confidence": item.get("confidence", 0.75),
+                "position_method": "visual_only",
+                "point_refs": [],
+                "width_mm": item.get("width_mm"),
+                "depth_mm": item.get("depth_mm"),
+                "height_mm": item.get("height_mm"),
+            })
+        normalized["fixtures"] = fixtures
+
     numbers = normalized.get("numbers")
     if not isinstance(normalized.get("measurements"), list) and isinstance(numbers, list):
         measurements: list[dict[str, object]] = []
@@ -6838,7 +6874,7 @@ def _merge_template_evidence(ocr_assist: dict, report: PlanEvidenceReport | None
         if item.kind == "fixture":
             center_x = (item.bbox.x_min + item.bbox.x_max) / 2
             center_y = (item.bbox.y_min + item.bbox.y_max) / 2
-            if 40 <= center_x <= 720 and 125 <= center_y <= 950:
+            if _point_marker_kind(item.text) == "column" or (40 <= center_x <= 720 and 125 <= center_y <= 950):
                 point_markers.append(item)
             continue
         token_id = f"TV{index:03d}"
@@ -6949,7 +6985,7 @@ def _append_unbound_visual_evidence(
             "dimension": "wall_segment",
             "height": "room_height",
             "opening": "door_position",
-            "fixture": "drain_position",
+            "fixture": "pipe_box" if _point_marker_kind(item.text) == "column" else "drain_position",
         }.get(item.kind, "other")
         spec.observations.append(
             Observation(
@@ -7598,7 +7634,10 @@ def _provisional_room_spec(
 
     fixtures: list[FixtureSpec] = []
     for index, marker in enumerate(point_markers or []):
-        position = _point_marker_position(marker, annotation_boundary, boundary) if boundary else None
+        measured_position = _point_marker_position_from_refs(marker, boundary) if boundary else None
+        position = measured_position
+        if position is None:
+            position = _point_marker_position(marker, annotation_boundary, boundary) if boundary else None
         provisional_position = False
         if position is None and allow_incomplete_annotation:
             position = _point_marker_position_from_shape(marker, annotation_boundary)
@@ -7607,23 +7646,34 @@ def _provisional_room_spec(
             continue
         evidence_id = f"point-marker-{index + 1}"
         marker_kind = _point_marker_kind(marker.text)
+        is_pipe_box = marker_kind == "column"
+        positioning = marker.positioning or {}
+        width_mm = _direct_mm(positioning.get("width_mm")) if is_pipe_box else None
+        depth_mm = _direct_mm(positioning.get("depth_mm")) if is_pipe_box else None
+        fixture_height_mm = _direct_mm(positioning.get("height_mm")) if is_pipe_box else None
+        target_id = (
+            f"pipe_box:{marker.bbox.x_min},{marker.bbox.y_min},{marker.bbox.x_max},{marker.bbox.y_max}"
+            if is_pipe_box else f"point:{index + 1}"
+        )
         observations.append(
             Observation(
                 field=f"visual_evidence:{evidence_id}",
                 value=marker.text,
-                source=SourceKind.measured,
+                source=SourceKind.measured if measured_position is not None else SourceKind.derived,
                 asset_id=asset_id,
                 bbox=marker.bbox,
                 confidence=marker.confidence,
                 note=(
                     "图中点位符号中心；逐段尺寸未闭合时按照片轮廓归一坐标生成，需人工拖动确认"
                     if provisional_position
+                    else "点位通过两条独立尺寸约束反算为毫米坐标"
+                    if measured_position is not None
                     else "图中点位符号中心；相对照片轮廓映射为毫米坐标"
                 ),
-                semantic_role="drain_position",
-                review_required=provisional_position or marker.confidence < 0.85,
+                semantic_role="pipe_box" if is_pipe_box else "drain_position",
+                review_required=measured_position is None or marker.confidence < 0.85,
                 rotation_degrees=round((ocr_assist or {}).get("rotation_degrees", 0)) % 360,
-                target_id=f"point:{index + 1}",
+                target_id=target_id,
             )
         )
         size_mm = 75 if marker_kind == "floor_drain" else 40
@@ -7631,15 +7681,16 @@ def _provisional_room_spec(
             FixtureSpec(
                 id=f"point-{index + 1}",
                 kind=marker_kind,
-                label=marker.text,
+                label="包管" if is_pipe_box else marker.text,
                 x_mm=position.x_mm,
                 z_mm=position.z_mm,
-                width_mm=size_mm,
-                depth_mm=size_mm,
-                height_mm=10,
-                source=SourceKind.estimated if provisional_position else SourceKind.derived,
-                confidence=min(marker.confidence, 0.65 if provisional_position else 0.85),
+                width_mm=width_mm or (400 if is_pipe_box else size_mm),
+                depth_mm=depth_mm or (400 if is_pipe_box else size_mm),
+                height_mm=fixture_height_mm or ((height_mm or 2400) if is_pipe_box else 10),
+                source=SourceKind.measured if measured_position is not None else SourceKind.estimated if provisional_position else SourceKind.derived,
+                confidence=min(marker.confidence, 0.65 if provisional_position else 0.95 if measured_position is not None else 0.85),
                 evidence_ids=[evidence_id],
+                position_status="measured" if measured_position is not None else "proposed" if is_pipe_box else None,
             )
         )
     for index, edge in enumerate(working_edge_chain):

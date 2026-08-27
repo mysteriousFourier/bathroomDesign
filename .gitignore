@@ -102,3 +102,5 @@ Desktop.ini
 !/public/model-library/surfaces/
 !/public/model-library/surfaces/**
 !backend/data/model_library.json
+
+reports/

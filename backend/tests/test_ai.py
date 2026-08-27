@@ -128,6 +128,28 @@ def test_point_refs_resolve_coordinates_without_using_nearby_numbers() -> None:
     assert ai._point_marker_position_from_refs(marker, boundary) == Point2D(x_mm=600, z_mm=400)
 
 
+def test_point_refs_require_two_non_parallel_wall_offsets() -> None:
+    boundary = [Point2D(x_mm=0, z_mm=0), Point2D(x_mm=2000, z_mm=0), Point2D(x_mm=2000, z_mm=1500), Point2D(x_mm=0, z_mm=1500)]
+    marker = VisualEvidence(
+        id="marker-ref", kind="fixture", text="地漏",
+        bbox=ImageBBox(x_min=480, y_min=480, x_max=520, y_max=520),
+        positioning={"method": "wall_offsets", "refs": [{"from": "left", "value_mm": 600}, {"from": "right", "value_mm": 1400}]},
+        confidence=0.9,
+    )
+    assert ai._point_marker_position_from_refs(marker, boundary) is None
+
+
+def test_conflicting_redundant_point_offsets_are_rejected() -> None:
+    boundary = [Point2D(x_mm=0, z_mm=0), Point2D(x_mm=2000, z_mm=0), Point2D(x_mm=2000, z_mm=1500), Point2D(x_mm=0, z_mm=1500)]
+    marker = VisualEvidence(
+        id="marker-ref", kind="fixture", text="地漏",
+        bbox=ImageBBox(x_min=480, y_min=480, x_max=520, y_max=520),
+        positioning={"method": "wall_offsets", "refs": [{"from": "left", "value_mm": 600}, {"from": "right", "value_mm": 1300}, {"from": "top", "value_mm": 400}]},
+        confidence=0.9,
+    )
+    assert ai._point_marker_position_from_refs(marker, boundary) is None
+
+
 def test_unmarked_fixture_numbers_remain_unknown_evidence() -> None:
     evidence, edges, _ = ai._direct_plan_evidence({
         "measurements": [{
@@ -339,7 +361,7 @@ def test_point_marker_outside_drawn_room_is_rejected() -> None:
     assert ai._point_marker_position(marker, annotation, boundary) is None
 
 
-def test_provisional_spec_adds_derived_fixture_from_point_marker() -> None:
+def test_provisional_spec_adds_measured_fixture_from_independent_point_refs() -> None:
     shape = ShapeTraceResult(
         corners=[
             ShapeCorner(x=100, y=100), ShapeCorner(x=900, y=100),
@@ -375,7 +397,7 @@ def test_provisional_spec_adds_derived_fixture_from_point_marker() -> None:
     assert spec is not None
     assert len(spec.fixtures) == 1
     assert spec.fixtures[0].kind == "floor_drain"
-    assert spec.fixtures[0].source.value == "derived"
+    assert spec.fixtures[0].source.value == "measured"
     assert (spec.fixtures[0].x_mm, spec.fixtures[0].z_mm) == (1500, 1000)
     assert spec.fixtures[0].evidence_ids == ["point-marker-1"]
 

@@ -1,8 +1,11 @@
-import { CircleDot, DoorOpen, Droplet, Focus, Grid2X2, Move, Plug, Spline, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
-import { useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { CircleDot, DoorOpen, Droplet, Eye, EyeOff, Focus, Grid2X2, Move, Plug, Spline, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
+import { Canvas } from '@react-three/fiber'
+import { Suspense, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, nearestValidWetZoneBoundary, openingLine, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength } from '../spec'
 import { resolveFixtureDrag } from '../layoutEngine'
-import type { Asset, FixtureKind, FixturePointUsage, OpeningSpec, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
+import { fixtureTopAppearance, planModelPosition, planTextureLayout, planTopCamera } from '../planAppearance'
+import { FixtureAssetBoundary, FixtureAssetModel } from './ModelCanvas'
+import type { Asset, FixtureKind, FixturePointUsage, FixtureSpec, OpeningSpec, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
 
 type OpeningDrag = { pointerId: number; id: string; mode: 'move' | 'start' | 'end'; startPointer: Point2D; originStart: Point2D; originEnd: Point2D; currentStart: Point2D; currentEnd: Point2D }
 type OpeningCreate = { pointerId: number; start: Point2D; current: Point2D }
@@ -18,10 +21,82 @@ const dimensionTextGapMinPx = 28
 const dimensionTickPx = 8
 const lineKindLabels: Record<PlanLineKind, string> = { pipe_chase: '包管线', inner_wall: '内墙线', door_line: '门线' }
 
-export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onOpeningAdd, onOpeningChange, onOpeningDelete, onFixtureAdd, onPlanLineAdd, onPlanLineExtend, onZoneChange, onEvidenceSelect }: {
+export type PlanSurfaceMaterials = {
+  floor?: { textureSrc: string; widthMm: number; depthMm: number; rotationDeg?: 0 | 90; offsetXmm?: number; offsetZmm?: number; label?: string }
+}
+
+function FixtureTopSymbol({ appearance, width, depth, pointShape, pointSize }: { appearance: ReturnType<typeof fixtureTopAppearance>; width: number; depth: number; pointShape: ReturnType<typeof fixturePointShape>; pointSize: number }): ReactNode {
+  if (appearance === 'toilet') return <g className="fixture-top toilet-top">
+    <ellipse className="fixture-top-body" rx={width * .43} ry={depth * .49} />
+    <ellipse className="fixture-top-detail" cy={depth * .08} rx={width * .28} ry={depth * .29} />
+    <rect className="fixture-top-tank" x={-width * .4} y={-depth * .48} width={width * .8} height={depth * .25} rx={Math.min(7, width * .08)} />
+  </g>
+  if (appearance === 'vanity') return <g className="fixture-top vanity-top">
+    <rect className="fixture-top-body" x={-width / 2} y={-depth / 2} width={width} height={depth} rx="4" />
+    <ellipse className="fixture-top-detail" rx={width * .3} ry={depth * .28} />
+    <circle className="fixture-top-accent" cy={-depth * .32} r={Math.max(2, Math.min(width, depth) * .04)} />
+  </g>
+  if (appearance === 'shower') return <g className="fixture-top shower-top">
+    <rect className="fixture-top-body" x={-width / 2} y={-depth / 2} width={width} height={depth} rx="3" />
+    <path className="fixture-top-detail" d={`M ${-width / 2} ${depth / 2} L ${width / 2} ${-depth / 2} M ${-width / 2} ${-depth / 2} L ${width / 2} ${depth / 2}`} />
+    <circle className="fixture-top-accent" r={Math.max(3, Math.min(width, depth) * .06)} />
+  </g>
+  return pointShape === 'circle'
+    ? <circle className="fixture-symbol" r={pointSize / 2} />
+    : <rect className="fixture-symbol" x={-(pointShape === 'square' ? pointSize : width) / 2} y={-(pointShape === 'square' ? pointSize : depth) / 2} width={pointShape === 'square' ? pointSize : width} height={pointShape === 'square' ? pointSize : depth} rx={pointShape === 'square' ? 0 : 3} />
+}
+
+function FixtureModelsTopLayer({ fixtures, selection, scale, offsetX, offsetZ, viewportZoom }: { fixtures: FixtureSpec[]; selection: Selection; scale: number; offsetX: number; offsetZ: number; viewportZoom: number }) {
+  const layerRef = useRef<SVGForeignObjectElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const camera = planTopCamera(canvasWidth, canvasHeight)
+  const modelFixtures = fixtures.filter((fixture) => !!fixture.model_asset)
+
+  useLayoutEffect(() => {
+    const layer = layerRef.current
+    const viewport = viewportRef.current
+    const svg = layer?.ownerSVGElement
+    if (!layer || !viewport || !svg) return
+    const alignWithSvgUnits = () => {
+      const matrix = layer.getScreenCTM()
+      if (!matrix) return
+      const screenScaleX = Math.hypot(matrix.a, matrix.b)
+      const screenScaleY = Math.hypot(matrix.c, matrix.d)
+      if (screenScaleX <= 0 || screenScaleY <= 0) return
+      const baseScaleX = screenScaleX / viewportZoom
+      const baseScaleY = screenScaleY / viewportZoom
+      // The SVG transform affects both the foreignObject layout viewport and
+      // its HTML contents. R3F then measures that transformed HTML box, so the
+      // bridge scale enters twice; cancel one base-screen copy while retaining
+      // the plan's intentional pan/zoom transform.
+      viewport.style.transform = `scale(${1 / Math.sqrt(baseScaleX)}, ${1 / Math.sqrt(baseScaleY)})`
+    }
+    alignWithSvgUnits()
+    const observer = new ResizeObserver(alignWithSvgUnits)
+    observer.observe(svg)
+    window.addEventListener('resize', alignWithSvgUnits)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', alignWithSvgUnits)
+    }
+  }, [viewportZoom])
+
+  return <foreignObject ref={layerRef} className="fixture-model-top" x="0" y="0" width={canvasWidth} height={canvasHeight} style={{ width: canvasWidth, height: canvasHeight }} pointerEvents="none">
+    <div ref={viewportRef} className="fixture-model-viewport" style={{ width: canvasWidth, height: canvasHeight }}>
+      <Canvas orthographic dpr={[1, 2]} gl={{ alpha: true, antialias: true }} camera={camera} onCreated={({ camera: topCamera }) => topCamera.lookAt(canvasWidth / 2, 0, canvasHeight / 2)}>
+        <ambientLight intensity={2.1} />
+        <directionalLight position={[-3, 6, -4]} intensity={2.5} />
+        <Suspense fallback={null}>{modelFixtures.map((fixture) => <group key={fixture.id} position={planModelPosition(fixture.x_mm, fixture.z_mm, scale, offsetX, offsetZ)} scale={1000 * scale} rotation={[0, -fixture.rotation_deg * Math.PI / 180, 0]}><FixtureAssetBoundary fixture={fixture}><FixtureAssetModel fixture={fixture} selected={selection.type === 'fixture' && selection.id === fixture.id} /></FixtureAssetBoundary></group>)}</Suspense>
+      </Canvas>
+    </div>
+  </foreignObject>
+}
+
+export function PlanReview({ spec, plan, selection, surfaceMaterials, onSelect, onFixtureMove, onOpeningAdd, onOpeningChange, onOpeningDelete, onFixtureAdd, onPlanLineAdd, onPlanLineExtend, onZoneChange, onEvidenceSelect }: {
   spec: RoomSpec
   plan?: Asset
   selection: Selection
+  surfaceMaterials?: PlanSurfaceMaterials
   onSelect: (selection: Selection) => void
   onFixtureMove: (id: string, xMm: number, zMm: number) => void
   onOpeningAdd?: (start: Point2D, end: Point2D) => void
@@ -33,7 +108,9 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
   onZoneChange?: (id: string, boundary: Point2D[]) => void
   onEvidenceSelect?: (id: string) => void
 }) {
+  const patternId = `plan-floor-${useId().replace(/:/g, '')}`
   const [zoom, setZoom] = useState(1)
+  const [showFurniture, setShowFurniture] = useState(true)
   const [addFixture, setAddFixture] = useState<{ kind: FixtureKind; pointUsage?: FixturePointUsage } | null>(null)
   const [addOpening, setAddOpening] = useState(false)
   const [orthogonal, setOrthogonal] = useState(true)
@@ -59,6 +136,8 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
   const mmX = (x: number) => Math.round((x - offsetX) / scale / 10) * 10
   const mmZ = (z: number) => Math.round((z - offsetZ) / scale / 10) * 10
   const points = roomBoundary.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')
+  const floorTexture = surfaceMaterials?.floor
+  const floorLayout = floorTexture ? planTextureLayout(floorTexture.widthMm, floorTexture.depthMm, floorTexture.rotationDeg, floorTexture.offsetXmm, floorTexture.offsetZmm) : null
   const center = roomCentroid(roomBoundary)
   const labels = spec.plan_labels?.length ? spec.plan_labels : [{ id: 'default-room-label', text: spec.name, x_mm: Math.round(center.x), z_mm: Math.round(center.z), source: 'derived' as const, confidence: 1 }]
   const svgPoint = (svg: SVGSVGElement, clientX: number, clientY: number) => {
@@ -244,6 +323,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
             </select>
           </label>
           <button className={`icon-button${addOpening ? ' active-tool' : ''}`} title="拖拽绘制门窗线" onClick={() => { setAddFixture(null); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddOpening((value) => !value) }}><DoorOpen size={17} /></button>
+          <button className={showFurniture ? 'icon-button active-tool' : 'icon-button'} title={showFurniture ? '隐藏家具模型（查看吊顶）' : '显示家具模型'} aria-label={showFurniture ? '隐藏家具模型' : '显示家具模型'} aria-pressed={showFurniture} onClick={() => setShowFurniture((value) => !value)}>{showFurniture ? <Eye size={17} /> : <EyeOff size={17} />}</button>
           <button className={`canvas-mode-toggle${orthogonal ? ' active-tool' : ''}`} title="限制新增和编辑的线为水平或垂直" aria-pressed={orthogonal} onClick={() => setOrthogonal((value) => !value)}><Grid2X2 size={15} /><span>正交</span></button>
           <button className="icon-button danger" title="删除选中的门窗洞口" disabled={selection.type !== 'opening'} onClick={() => selection.type === 'opening' && onOpeningDelete?.(selection.id)}><Trash2 size={17} /></button>
           <button className="icon-button" title="缩小" onClick={() => zoomAt(0.8)}><ZoomOut size={17} /></button>
@@ -404,6 +484,10 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
         <defs>
           <pattern id="minor-grid" width="18" height="18" patternUnits="userSpaceOnUse"><path d="M 18 0 L 0 0 0 18" fill="none" stroke="#d9dcd5" strokeWidth="0.7" /></pattern>
           <pattern id="major-grid" width="90" height="90" patternUnits="userSpaceOnUse"><rect width="90" height="90" fill="url(#minor-grid)" /><path d="M 90 0 L 0 0 0 90" fill="none" stroke="#c4c8bf" strokeWidth="1" /></pattern>
+          {floorTexture && floorLayout && <pattern id={patternId} x={sx(floorLayout.offsetXmm)} y={sz(floorLayout.offsetZmm)} width={floorLayout.tileWidthMm * scale} height={floorLayout.tileDepthMm * scale} patternUnits="userSpaceOnUse">
+            <image href={floorTexture.textureSrc} width={floorLayout.tileWidthMm * scale} height={floorLayout.tileDepthMm * scale} preserveAspectRatio="none" />
+            <rect width={floorLayout.tileWidthMm * scale} height={floorLayout.tileDepthMm * scale} className="plan-floor-joint" />
+          </pattern>}
         </defs>
         <rect width={canvasWidth} height={canvasHeight} fill="url(#major-grid)" data-pan-surface="true" />
         <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
@@ -411,7 +495,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           <polygon points={body.finish.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')} className="wall-finish-body" />
           <polygon points={body.wall.map((point) => `${sx(point.x_mm)},${sz(point.z_mm)}`).join(' ')} className="wall-body" />
         </g>)}
-        <polygon points={points} className={selection.type === 'room' ? 'room-polygon selected' : 'room-polygon'} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'room' }) }} />
+        <polygon points={points} className={`${selection.type === 'room' ? 'room-polygon selected' : 'room-polygon'}${floorTexture ? ' textured-floor' : ''}`} style={floorTexture ? { fill: `url(#${patternId})` } : undefined} data-floor-texture={floorTexture?.textureSrc} data-floor-label={floorTexture?.label} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'room' }) }} />
         <g className={selection.type === 'room' ? 'room-boundary-runs selected' : 'room-boundary-runs'} pointerEvents="none">
           {roomBoundaryRuns.map((run) => <line key={`room-boundary-${run.wall_index}-${run.key}`} data-wall-index={run.wall_index} data-run-start-mm={run.start_mm} data-run-end-mm={run.end_mm} x1={sx(run.start.x_mm)} y1={sz(run.start.z_mm)} x2={sx(run.end.x_mm)} y2={sz(run.end.z_mm)} />)}
         </g>
@@ -447,6 +531,7 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
         </g>}
         {roomBoundary.map((point, index) => <circle key={`wall-node-${index}`} className="wall-node" cx={sx(point.x_mm)} cy={sz(point.z_mm)} r="2.5" />)}
         {labels.filter((label) => label.text.trim()).map((label) => <text key={label.id} className="plan-center-label" x={sx(label.x_mm)} y={sz(label.z_mm)} onClick={(event) => { event.stopPropagation(); onSelect({ type: 'plan_label', id: label.id }) }}>{label.text}</text>)}
+        <FixtureModelsTopLayer fixtures={spec.fixtures.filter((fixture) => showFurniture || fixtureTopAppearance(fixture.kind) === 'utility-point')} selection={selection} scale={scale} offsetX={offsetX} offsetZ={offsetZ} viewportZoom={zoom} />
         {openingCreateState && <g className="opening-segment draft" pointerEvents="none">
           <line className="opening-gap-part" x1={sx(openingCreateState.start.x_mm)} y1={sz(openingCreateState.start.z_mm)} x2={sx(openingCreateState.current.x_mm)} y2={sz(openingCreateState.current.z_mm)} />
           <circle className="opening-jamb" cx={sx(openingCreateState.start.x_mm)} cy={sz(openingCreateState.start.z_mm)} r="4" />
@@ -524,8 +609,10 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
           const depth = Math.max((fixture.depth_mm || defaults.depth_mm) * scale, 18)
           const pointShape = fixturePointShape(fixture.kind)
           const pointSize = Math.max(width, depth)
+          const topAppearance = fixtureTopAppearance(fixture.kind)
+          if (!showFurniture && topAppearance !== 'utility-point') return null
           return (
-            <g key={fixture.id} className={selected ? 'fixture-shape selected' : 'fixture-shape'} data-fixture-id={fixture.id} data-x-mm={fixture.x_mm} data-z-mm={fixture.z_mm} data-bound-wall-index={fixtureBoundWallIndex(spec, fixture) ?? ''} transform={`translate(${sx(fixture.x_mm)} ${sz(fixture.z_mm)}) rotate(${fixture.rotation_deg})`} onPointerDown={(event) => {
+            <g key={fixture.id} className={selected ? 'fixture-shape selected' : 'fixture-shape'} data-fixture-id={fixture.id} data-top-appearance={topAppearance} data-x-mm={fixture.x_mm} data-z-mm={fixture.z_mm} data-bound-wall-index={fixtureBoundWallIndex(spec, fixture) ?? ''} transform={`translate(${sx(fixture.x_mm)} ${sz(fixture.z_mm)}) rotate(${fixture.rotation_deg})`} onPointerDown={(event) => {
               event.preventDefault()
               event.stopPropagation()
               onSelect({ type: 'fixture', id: fixture.id })
@@ -551,9 +638,9 @@ export function PlanReview({ spec, plan, selection, onSelect, onFixtureMove, onO
               target.addEventListener('pointermove', move)
               target.addEventListener('pointerup', up)
             }}>
-              {pointShape === 'circle'
-                ? <circle className="fixture-symbol" r={pointSize / 2} />
-                : <rect className="fixture-symbol" x={-(pointShape === 'square' ? pointSize : width) / 2} y={-(pointShape === 'square' ? pointSize : depth) / 2} width={pointShape === 'square' ? pointSize : width} height={pointShape === 'square' ? pointSize : depth} rx={pointShape === 'square' ? 0 : 3} />}
+              {fixture.model_asset && (showFurniture || topAppearance === 'utility-point')
+                ? <rect className="fixture-model-hit" x={-width / 2} y={-depth / 2} width={width} height={depth} />
+                : <FixtureTopSymbol appearance={topAppearance} width={width} depth={depth} pointShape={pointShape} pointSize={pointSize} />}
               <text y="4">{fixture.label}</text>
               {fixtureBoundWallIndex(spec, fixture) !== null && <text className="fixture-wall-binding" y={depth / 2 + 13}>W{fixtureBoundWallIndex(spec, fixture)! + 1}</text>}
             </g>

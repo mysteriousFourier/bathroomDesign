@@ -1,10 +1,10 @@
-import { Box, BoxSelect, FileBox, FolderOpen, HardDriveUpload, Plus, ScanSearch, Trash2, UploadCloud } from 'lucide-react'
+import { Box, BoxSelect, FileBox, FolderOpen, HardDriveUpload, Link2, PackagePlus, Plus, ScanSearch, Trash2, UploadCloud, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { studioApi } from '../api'
 import type { RoomModelAsset } from '../modelAssets'
 import { droppedModelFiles, inputFiles, validateModelImport, type ModelImportFile } from '../modelImport'
 import { builtInRoomAssets } from '../modelLibrary'
-import type { ImportedModelAsset } from '../types'
+import type { ImportedModelAsset, ProductCatalogOptions } from '../types'
 import { ModelAssetPreview } from './ModelAssetPreview'
 import { completeOrientationMapping, mappingFromLegacyView, type ModelOrientationView, type OrientationFace, type OrientationMapping } from '../modelOrientation'
 
@@ -24,6 +24,22 @@ type DisplayModelAsset = RoomModelAsset & {
 }
 
 const defaultDimensions: Dimensions = { width: 600, depth: 600, height: 600 }
+const emptyCatalogOptions: ProductCatalogOptions = { categories: [], products: [] }
+type PointFixtureKind = '' | 'floor_drain' | 'drain' | 'water' | 'electric'
+
+function pointFixtureKindForCategory(category: string): PointFixtureKind {
+  if (category === '地漏') return 'floor_drain'
+  if (category === '排水点') return 'drain'
+  if (category === '给水点') return 'water'
+  if (category === '电位' || category === '电气面板') return 'electric'
+  return ''
+}
+
+function defaultProductUnit(category: string) {
+  if (category.includes('板') || category.includes('砖') || category === '淋浴隔断') return '平米'
+  if (pointFixtureKindForCategory(category)) return category === '给水点' ? '组' : '个'
+  return '套'
+}
 
 function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
   return {
@@ -38,7 +54,8 @@ function uploadedDisplayAsset(asset: ImportedModelAsset): DisplayModelAsset {
     bytes: asset.bytes,
     source: asset.library_scope === 'builtin' ? '内置模型库' : '共享模型库',
     source_asset_id: asset.id,
-    lifecycle: 'approved',
+    lifecycle: asset.lifecycle ?? 'approved',
+    source_format: asset.source_format,
     dimensions_mm: asset.dimensions_mm ?? defaultDimensions,
     category: asset.category ?? undefined,
     asset_type: 'fixture',
@@ -83,12 +100,21 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const [dimensions, setDimensions] = useState<Record<string, Dimensions>>({})
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [converterAvailable, setConverterAvailable] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [correcting, setCorrecting] = useState(false)
   const [error, setError] = useState('')
   const [correctionNotice, setCorrectionNotice] = useState('')
+  const [catalogOptions, setCatalogOptions] = useState<ProductCatalogOptions>(emptyCatalogOptions)
+  const [bindingCategory, setBindingCategory] = useState('')
   const [bindingSku, setBindingSku] = useState('')
   const [newProductCategory, setNewProductCategory] = useState('')
+  const [newProductSku, setNewProductSku] = useState('')
+  const [newProductModel, setNewProductModel] = useState('')
+  const [newProductPrice, setNewProductPrice] = useState('')
+  const [newProductUnit, setNewProductUnit] = useState('套')
+  const [newProductFixtureKind, setNewProductFixtureKind] = useState<PointFixtureKind>('')
+  const [creatingProduct, setCreatingProduct] = useState(false)
   const [orientationTarget, setOrientationTarget] = useState<OrientationFace | null>(null)
   const [orientationMapping, setOrientationMapping] = useState<OrientationMapping>({})
 
@@ -101,10 +127,12 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
     let active = true
     setLoading(true)
     setError('')
-    void studioApi.modelAssets(projectId)
-      .then((assets) => {
+    void Promise.all([studioApi.modelAssets(projectId), studioApi.productCatalogOptions(), studioApi.health()])
+      .then(([assets, options, health]) => {
         if (!active) return
         setUploadedAssets(assets)
+        setCatalogOptions(options)
+        setConverterAvailable(!!health.model_converter_available)
         setBuiltinOverrides({})
         setSelectedId(assets[0]?.id ?? '')
       })
@@ -114,8 +142,10 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }, [projectId])
 
   const assets = useMemo(() => [
-    ...builtInRoomAssets.filter((asset) => !uploadedAssets.some((uploaded) => uploaded.id === asset.id)).map((asset): DisplayModelAsset => ({ ...asset, ...builtinOverrides[asset.id], filename: asset.filename ?? asset.label, fileCount: 1, builtIn: true })),
-    ...uploadedAssets.map(uploadedDisplayAsset),
+    ...uploadedAssets.map((asset) => ({ ...uploadedDisplayAsset(asset), ...builtinOverrides[asset.id] })),
+    // Fixture visibility is authoritative on the API so stopped built-ins stay
+    // hidden after refresh. Surface materials remain static manifest entries.
+    ...builtInRoomAssets.filter((asset) => asset.asset_type === 'surface').map((asset): DisplayModelAsset => ({ ...asset, filename: asset.filename ?? asset.label, fileCount: 1, builtIn: true })),
   ], [builtinOverrides, uploadedAssets])
   const selected = assets.find((asset) => asset.id === selectedId) ?? assets[0]
   const selectedDimensions = selected ? dimensions[selected.id] ?? selected.dimensions_mm : defaultDimensions
@@ -125,6 +155,22 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   const correctionTag = selected?.correction_tag ?? 'standard'
   const allowedFaces: OrientationFace[] = correctionTag === 'handrail' ? ['front', 'back'] : correctionTag === 'drain' ? ['top', 'bottom'] : ['front', 'back', 'top', 'bottom', 'left', 'right']
   const requiredPairs = correctionTag === 'standard' ? 3 : 1
+  const categoryProducts = useMemo(() => catalogOptions.products.filter((product) => product.category === bindingCategory), [bindingCategory, catalogOptions.products])
+  const bindingProduct = categoryProducts.find((product) => product.code === bindingSku) ?? null
+
+  useEffect(() => {
+    const category = selected?.product_attributes?.['材料名称'] ?? selected?.category ?? ''
+    const code = selected?.catalog_codes?.[0] ?? ''
+    setBindingCategory(category)
+    setBindingSku(catalogOptions.products.some((product) => product.category === category && product.code === code) ? code : '')
+    setNewProductCategory(category)
+    setNewProductSku('')
+    setNewProductModel('')
+    setNewProductPrice('')
+    setNewProductUnit(defaultProductUnit(category))
+    setNewProductFixtureKind(pointFixtureKindForCategory(category))
+    setCreatingProduct(false)
+  }, [catalogOptions.products, selected?.id, selected?.category, selected?.catalog_codes, selected?.product_attributes])
 
   useEffect(() => {
     setOrientationTarget(null)
@@ -180,14 +226,16 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
   }
 
   const removeSelected = async () => {
-    if (!selected || selected.builtIn || selectedInUse) return
-    if (!window.confirm(`从项目模型库删除“${selected.label}”？`)) return
+    if (!selected || selectedInUse) return
+    const action = selected.builtIn ? '停用' : '删除'
+    if (!window.confirm(`${action}模型“${selected.label}”？${selected.builtIn ? '停用后不会再出现在模型库中。' : ''}`)) return
     try {
       setError('')
       await studioApi.deleteModelAsset(projectId, selected.id)
       const remaining = uploadedAssets.filter((asset) => asset.id !== selected.id)
       setUploadedAssets(remaining)
       setSelectedId(remaining[0]?.id ?? '')
+      setCorrectionNotice(`已${action}“${selected.label}”`)
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : '模型删除失败')
     }
@@ -216,14 +264,27 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
       setCorrectionNotice(`标签已设为“${labels[tag]}”`)
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : '标签保存失败') }
   }
-  const bindSelected = async (createProduct = false) => {
-    if (!selected || selected.builtIn || !bindingSku.trim()) return
+  const bindSelected = async (catalogCode: string, newProduct?: Record<string, string>) => {
+    if (!selected || !catalogCode.trim()) return
     try {
       setError('')
-      const newProduct = createProduct ? { '材料名称': newProductCategory.trim(), '物品名称': selected.label } : undefined
-      replaceAsset(await studioApi.bindModelAsset(projectId, selected.id, bindingSku.trim(), newProduct))
-      setCorrectionNotice(`已按 SKU ${bindingSku.trim()} 完成产品绑定`)
+      replaceAsset(await studioApi.bindModelAsset(projectId, selected.id, catalogCode.trim(), newProduct))
+      if (newProduct) setCatalogOptions(await studioApi.productCatalogOptions())
+      setCorrectionNotice(`已绑定 ${newProduct?.['材料名称'] ?? bindingProduct?.category ?? bindingCategory} · ${catalogCode.trim()}`)
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'SKU 绑定失败') }
+  }
+  const createAndBindSelected = async () => {
+    if (!newProductCategory.trim() || !newProductSku.trim() || !newProductModel.trim() || !newProductPrice.trim()) return
+    await bindSelected(newProductSku, {
+      '材料名称': newProductCategory.trim(),
+      '规格型号': newProductModel.trim(),
+      '物品名称': newProductModel.trim(),
+      '单价': newProductPrice.trim(),
+      '数量单位': newProductUnit,
+      '人群': '通用',
+      '风格': '通用',
+      ...(newProductFixtureKind ? { '点位类型': newProductFixtureKind } : {}),
+    })
   }
   const assignOrientationFace = (physical: OrientationFace) => {
     if (!orientationTarget) { setError('请先在右上角选择目标正确面'); return }
@@ -290,13 +351,13 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
         <UploadCloud size={28} />
         <div>
           <strong>{uploading ? '正在上传模型' : dragging ? '松开以导入模型' : '拖放模型或模型文件夹'}</strong>
-          <span>支持 GLB、GLTF、FBX、3DS、OBJ；GLTF 可连同 BIN 与纹理一起导入</span>
+          <span>支持 GLB、GLTF、FBX、3DS、OBJ；{converterAvailable ? 'SKP 等源格式将自动转为 GLB' : 'SKP 转换器尚未配置'}</span>
         </div>
         <div className="model-import-actions">
           <button className="button secondary compact" type="button" disabled={uploading} onClick={(event) => { event.stopPropagation(); fileInputRef.current?.click() }}><FileBox size={15} />选择模型</button>
           <button className="button secondary compact" type="button" disabled={uploading} onClick={(event) => { event.stopPropagation(); folderInputRef.current?.click() }}><FolderOpen size={15} />选择文件夹</button>
         </div>
-        <input ref={fileInputRef} className="visually-hidden" type="file" multiple accept=".glb,.gltf,.fbx,.3ds,.obj,.bin,.mtl,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tga,.dds,.ktx,.ktx2,.basis" onChange={chooseFiles} />
+        <input ref={fileInputRef} className="visually-hidden" type="file" multiple accept=".glb,.gltf,.fbx,.3ds,.obj,.skp,.dae,.stl,.ply,.3mf,.blend,.bin,.mtl,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tga,.dds,.ktx,.ktx2,.basis" onChange={chooseFiles} />
         <input ref={folderInputRef} className="visually-hidden" type="file" multiple onChange={chooseFiles} />
       </div>
 
@@ -310,7 +371,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
             {assets.map((asset) => (
               <button className={`model-asset-row${selected?.id === asset.id ? ' active' : ''}`} key={asset.id} onClick={() => setSelectedId(asset.id)}>
                 <span className="model-asset-icon"><BoxSelect size={19} /></span>
-                <span className="model-asset-copy"><strong>{asset.label}</strong><span>{asset.format.toUpperCase()} · {fileSize(asset.bytes)}</span></span>
+                <span className="model-asset-copy"><strong>{asset.label}</strong><span>{asset.source_format ? `${asset.source_format.toUpperCase()}→` : ''}{asset.format.toUpperCase()} · {fileSize(asset.bytes)}</span></span>
                 <span className={`model-origin ${asset.asset_type === 'surface' ? 'builtin' : 'uploaded'}`}>{asset.asset_type === 'surface' ? '板块' : asset.correction_tag === 'handrail' ? '扶手' : asset.correction_tag === 'drain' ? '地漏' : asset.correction_tag === 'socket' ? '插座' : asset.correction_tag === 'switch' ? '开关' : asset.orientation_corrected ? '已纠正' : '待纠正'}</span>
               </button>
             ))}
@@ -322,7 +383,7 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
             <header className="model-browser-header">
               <div><strong>{selected.label}</strong><span>{selected.filename}</span></div>
               <div>
-                {!selected.builtIn && <button className="icon-button" type="button" title={selectedInUse ? '模型正在房间中使用，不能删除' : '删除上传模型'} disabled={selectedInUse} onClick={() => void removeSelected()}><Trash2 size={16} /></button>}
+                <button className="button danger-text compact" type="button" title={selectedInUse ? '模型正在房间中使用，不能删除或停用' : selected.builtIn ? '停用内置模型' : '删除上传模型'} disabled={selectedInUse} onClick={() => void removeSelected()}><Trash2 size={14} />{selected.builtIn ? '停用模型' : '删除模型'}</button>
                 <button className="button primary compact" type="button" disabled={!canAddToRoom} onClick={() => onAddToRoom(selectedForRoom)}><Plus size={15} />加入房间</button>
               </div>
             </header>
@@ -333,16 +394,46 @@ export function ModelAssetLibrary({ projectId, canAddToRoom, usedAssetIds, onAdd
               <div><span>尺寸</span><strong>{selectedDimensions.width} × {selectedDimensions.depth} × {selectedDimensions.height} mm</strong></div>
               <div><span>校验</span><code>{selected.sha256?.slice(0, 12) ?? '暂无'}</code></div>
               <div><span>标签</span><select aria-label="模型标签" value={correctionTag} onChange={(event) => void changeCorrectionTag(event.target.value as ImportedModelAsset['correction_tag'])}><option value="standard">普通模型</option><option value="handrail">扶手</option><option value="drain">地漏</option><option value="socket">插座</option><option value="switch">开关</option></select></div>
-              {!selected.builtIn && <div><span>产品绑定</span><strong>{selected.catalog_codes?.length ? selected.catalog_codes.join('、') : '未绑定，不参与自动报价布局'}</strong></div>}
+              <div><span>产品绑定</span><strong>{selected.catalog_codes?.length ? selected.catalog_codes.join('、') : '未绑定，不参与自动报价布局'}</strong></div>
             </div>
-            {!selected.builtIn && selected.product_attributes && <details className="model-knowledge-product"><summary>查看知识图谱物品</summary><dl>{Object.entries(selected.product_attributes).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl></details>}
-            {!selected.builtIn && selected.binding_status === 'unbound' && <div className="model-orientation-controls">
-              <span>{selected.binding_note ?? '文件名只作提示，请按 SKU 绑定'}</span>
-              <input aria-label="产品 SKU" value={bindingSku} onChange={(event) => setBindingSku(event.target.value)} placeholder="目录 SKU" />
-              <button type="button" className="button primary compact" disabled={!bindingSku.trim()} onClick={() => void bindSelected(false)}>绑定已有 SKU</button>
-              <input aria-label="新产品品类" value={newProductCategory} onChange={(event) => setNewProductCategory(event.target.value)} placeholder="新产品品类" />
-              <button type="button" className="button secondary compact" disabled={!bindingSku.trim() || !newProductCategory.trim()} onClick={() => void bindSelected(true)}>新增产品并绑定</button>
-            </div>}
+            {selected.product_attributes && <details className="model-knowledge-product"><summary>查看知识图谱物品</summary><dl>{Object.entries(selected.product_attributes).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl></details>}
+            <section className="model-binding-panel" aria-label="产品型号绑定">
+              <header>
+                <div><strong>产品绑定</strong><span>{selected.binding_note ?? '绑定后参与自动布局与报价'}</span></div>
+                <div className="model-binding-header-actions">
+                  <button type="button" className="button secondary compact" aria-expanded={creatingProduct} onClick={() => setCreatingProduct((value) => !value)}>{creatingProduct ? <X size={14} /> : <PackagePlus size={14} />}{creatingProduct ? '收起新建' : '新建种类 / 型号'}</button>
+                  <span className={`binding-status ${selected.binding_status}`}>{selected.binding_status === 'bound' ? '已绑定' : '待绑定'}</span>
+                </div>
+              </header>
+              <div className="model-binding-flow">
+                <label>
+                  <span><b>1</b>种类</span>
+                  <select aria-label="产品种类" value={bindingCategory} onChange={(event) => { const category = event.target.value; setBindingCategory(category); setBindingSku(''); setNewProductCategory(category); setNewProductUnit(defaultProductUnit(category)); setNewProductFixtureKind(pointFixtureKindForCategory(category)) }}>
+                    <option value="">选择种类</option>
+                    {catalogOptions.categories.map((category) => <option value={category} key={category}>{category}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span><b>2</b>具体型号</span>
+                  <select aria-label="产品具体型号" value={bindingSku} disabled={!bindingCategory} onChange={(event) => setBindingSku(event.target.value)}>
+                    <option value="">选择型号</option>
+                    {categoryProducts.map((product) => <option value={product.code} key={product.id}>{product.code} · {product.model}</option>)}
+                  </select>
+                </label>
+                <button type="button" className="button primary compact" disabled={!bindingProduct} onClick={() => void bindSelected(bindingSku)}><Link2 size={14} />{selected.binding_status === 'bound' ? '更新绑定' : '绑定模型'}</button>
+              </div>
+              {bindingProduct && <div className="model-binding-selection"><strong>{bindingProduct.model}</strong><span>{bindingProduct.price ? `¥${bindingProduct.price}/${bindingProduct.unit || '件'}` : '目录未设置价格'} · SKU {bindingProduct.code}</span></div>}
+              {creatingProduct && <form className="model-binding-create" onSubmit={(event) => { event.preventDefault(); void createAndBindSelected() }}>
+                <label><span>种类</span><input aria-label="新产品种类" list="knowledge-product-categories" value={newProductCategory} onChange={(event) => { const category = event.target.value; setNewProductCategory(category); const pointKind = pointFixtureKindForCategory(category); setNewProductFixtureKind(pointKind); setNewProductUnit(defaultProductUnit(category)) }} placeholder="例如：浴室柜" /></label>
+                <datalist id="knowledge-product-categories">{catalogOptions.categories.map((category) => <option value={category} key={category} />)}</datalist>
+                <label><span>SKU</span><input aria-label="新产品 SKU" value={newProductSku} onChange={(event) => setNewProductSku(event.target.value)} placeholder="唯一型号编号" /></label>
+                <label className="model-name-field"><span>型号名称</span><input aria-label="新产品型号名称" value={newProductModel} onChange={(event) => setNewProductModel(event.target.value)} placeholder="材质、颜色、规格" /></label>
+                <label><span>参考单价</span><input aria-label="新产品参考单价" type="number" min="0" step="0.01" value={newProductPrice} onChange={(event) => setNewProductPrice(event.target.value)} placeholder="0.00" /></label>
+                <label><span>单位</span><select aria-label="新产品单位" value={newProductUnit} onChange={(event) => setNewProductUnit(event.target.value)}><option value="套">套</option><option value="台">台</option><option value="件">件</option><option value="平米">平米</option><option value="个">个</option><option value="组">组</option></select></label>
+                <label><span>应用对象</span><select aria-label="新产品应用对象" value={newProductFixtureKind} onChange={(event) => setNewProductFixtureKind(event.target.value as PointFixtureKind)}><option value="">普通产品</option><option value="floor_drain">地漏点位</option><option value="drain">排水点</option><option value="water">给水点</option><option value="electric">电点</option></select></label>
+                <button type="submit" className="button primary compact" disabled={!newProductCategory.trim() || !newProductSku.trim() || !newProductModel.trim() || !newProductPrice.trim()}><Plus size={14} />新建并绑定</button>
+              </form>}
+            </section>
             {orientationEditable && <div className="model-orientation-controls"><span>{correctionTag === 'handrail' ? '扶手仅需配对前/后面' : correctionTag === 'drain' ? '地漏仅需配对上/下面' : '先选右上角目标面，再点模型外框对应面；至少完成三个面'}</span><button type="button" className="button primary compact" disabled={!completeOrientationMapping(orientationMapping, requiredPairs)} onClick={() => void correctSelected()}>完成纠正</button><button type="button" className="button secondary compact" onClick={() => { setOrientationMapping({}); setOrientationTarget(null) }}>重选</button><small>已配对 {Math.min(Object.keys(orientationMapping).length, requiredPairs)}/{requiredPairs}</small></div>}
           </> : selected ? <>
             <header className="model-browser-header"><div><strong>{selected.label}</strong><span>{selected.filename} · 固定板块材质</span></div></header>

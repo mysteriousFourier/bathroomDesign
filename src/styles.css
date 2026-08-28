@@ -276,11 +276,11 @@ p, h1, h2, figure { margin: 0; }
 .room-boundary-runs line { stroke: #4d534c; stroke-width: 2.5; vector-effect: non-scaling-stroke; }
 .dry-wet-zone polygon { stroke-width: 2; stroke-dasharray: 8 5; vector-effect: non-scaling-stroke; cursor: pointer; }
 .dry-wet-zone.dry polygon { fill: rgb(192 199 193 / 24%); stroke: #7b837a; }
-.dry-wet-zone.wet polygon { fill: rgb(73 134 169 / 22%); stroke: #2d6d8c; }
+.dry-wet-zone.wet polygon { fill: #fff; stroke: #60655f; stroke-dasharray: none; }
 .dry-wet-zone.selected polygon { stroke-width: 4; }
 .dry-wet-zone text { text-anchor: middle; font: 700 11px "Microsoft YaHei", sans-serif; paint-order: stroke; stroke: #fff; stroke-width: 4; pointer-events: none; }
 .dry-wet-zone.dry text { fill: #515851; }
-.dry-wet-zone.wet text { fill: #1f5875; }
+.dry-wet-zone.wet text { fill: #323630; }
 .dry-wet-zone-handle { fill: #fff; stroke: #20231f; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: nwse-resize; }
 .dry-wet-zone-handle.edge.horizontal { cursor: ns-resize; }
 .dry-wet-zone-handle.edge.vertical { cursor: ew-resize; }
@@ -418,7 +418,21 @@ p, h1, h2, figure { margin: 0; }
 .plan-center-label { fill: #323630; text-anchor: middle; dominant-baseline: middle; font: 700 20px "Microsoft YaHei", sans-serif; paint-order: stroke; stroke: #faf9f6; stroke-width: 5; cursor: pointer; }
 .fixture-shape { cursor: grab; }
 .fixture-shape:active { cursor: grabbing; }
+.fixture-model-top { overflow: visible; pointer-events: none; }
+.fixture-model-viewport { transform-origin: 0 0; }
+.fixture-model-viewport, .fixture-model-viewport > div, .fixture-model-viewport canvas { overflow: visible; width: 100%; height: 100%; pointer-events: none; }
+/* Keep the model-sized hit target for drag/select, but do not draw a box
+   around imported geometry whose source bounds may include empty margins. */
+.fixture-model-hit { fill: transparent; stroke: none; pointer-events: all; }
 .fixture-shape .fixture-symbol { fill: #dce9e2; stroke: #3e715c; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.room-polygon.textured-floor { stroke: #315b49; }
+.plan-floor-joint { fill: none; stroke: rgb(255 255 255 / 52%); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fixture-top .fixture-top-body { fill: #eef3ef; stroke: #315f4d; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.fixture-top .fixture-top-detail { fill: #fafcfb; stroke: #5a806f; stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+.fixture-top path.fixture-top-detail { fill: none; stroke-dasharray: 4 3; }
+.fixture-top .fixture-top-tank { fill: #d7e3dc; stroke: #315f4d; stroke-width: 1.7; vector-effect: non-scaling-stroke; }
+.fixture-top .fixture-top-accent { fill: #6f9b88; stroke: #315f4d; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fixture-shape.selected .fixture-top-body, .fixture-shape.selected .fixture-top-tank { fill: #f1e4c7; stroke: #9a6815; stroke-width: 3; }
 .fixture-shape.selected .fixture-symbol { fill: #f1e4c7; stroke: #9a6815; stroke-width: 3; }
 .fixture-shape text { fill: #2d4d40; text-anchor: middle; font-size: 9px; pointer-events: none; }
 .fixture-shape .fixture-wall-binding { fill: #7a5100; font: 700 9px Consolas, monospace; paint-order: stroke; stroke: #fff; stroke-width: 3; }
@@ -480,7 +494,7 @@ p, h1, h2, figure { margin: 0; }
 .model-asset-copy span { color: var(--muted); font-size: 9px; }
 .model-origin { padding: 3px 5px; border: 1px solid var(--line); border-radius: 2px; color: var(--muted); background: var(--surface); font-size: 8px; }
 .model-origin.uploaded { color: var(--green); border-color: #a9c0b3; background: #edf4f0; }
-.model-browser { min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(260px, 1fr) auto; }
+.model-browser { min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(260px, 1fr) auto; overflow-y: auto; scrollbar-width: thin; }
 .model-browser-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
 .model-browser-header > div:first-child { min-width: 0; display: grid; gap: 3px; }
 .model-browser-header > div:first-child strong, .model-browser-header > div:first-child span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -750,6 +764,28 @@ p, h1, h2, figure { margin: 0; }
 .model-knowledge-product dl div{display:grid;grid-template-columns:auto 1fr;gap:6px}
 .model-knowledge-product dt{color:var(--muted)}
 .model-knowledge-product dd{margin:0;overflow-wrap:anywhere}
+.model-binding-panel{display:grid;gap:10px;padding:12px 16px;border-top:1px solid var(--line);background:var(--surface-2)}
+.model-binding-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.model-binding-panel>header>div:first-child{min-width:0;display:grid;gap:3px}
+.model-binding-panel>header strong{font-size:11px}
+.model-binding-panel>header span{overflow:hidden;color:var(--muted);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
+.model-binding-header-actions{flex:none;display:flex;align-items:center;gap:7px}
+.binding-status{flex:none;padding:3px 6px;border:1px solid var(--line-strong);border-radius:2px;color:var(--muted);background:var(--surface);font-size:8px}
+.binding-status.bound{border-color:#9db8aa;color:var(--green);background:var(--green-soft)}
+.model-binding-flow{display:grid;grid-template-columns:minmax(130px,.8fr) minmax(210px,1.35fr) auto;gap:8px;align-items:end}
+.model-binding-flow label,.model-binding-create label{min-width:0;display:grid;gap:5px;color:var(--muted);font-size:9px}
+.model-binding-flow label>span{display:flex;align-items:center;gap:5px}
+.model-binding-flow label b{width:16px;height:16px;display:grid;place-items:center;border:1px solid #9db8aa;border-radius:50%;color:var(--green);font:700 8px Consolas,monospace}
+.model-binding-flow select,.model-binding-create input,.model-binding-create select{min-width:0;width:100%;height:32px;padding:0 8px;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--ink);font-size:10px}
+.model-binding-flow select:disabled{color:#949991;background:#ecece8}
+.model-binding-selection{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 9px;border-left:3px solid var(--green);background:var(--surface)}
+.model-binding-selection strong{min-width:0;overflow:hidden;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+.model-binding-selection span{flex:none;color:var(--muted);font:9px Consolas,monospace}
+.model-binding-create-entry{display:flex;justify-content:flex-start}
+.model-binding-create{display:grid;grid-template-columns:minmax(120px,.75fr) minmax(110px,.65fr) minmax(180px,1.2fr) minmax(100px,.55fr) 80px auto;gap:8px;align-items:end;padding-top:10px;border-top:1px dashed var(--line-strong)}
+.model-binding-create .model-name-field{min-width:180px}
+.model-binding-create .button{white-space:nowrap}
+@media(max-width:1180px){.model-binding-flow{grid-template-columns:1fr 1.35fr}.model-binding-flow>.button{grid-column:1/-1;justify-self:start}.model-binding-create{grid-template-columns:repeat(2,minmax(0,1fr))}.model-binding-create .model-name-field{min-width:0}.model-binding-create>.button{justify-self:start}}
 .orientation-preview-pool{position:fixed;left:-10000px;top:0;width:420px;height:320px;overflow:hidden;pointer-events:none}
 .orientation-preview-pool .model-preview-stage{width:420px;height:320px}
 

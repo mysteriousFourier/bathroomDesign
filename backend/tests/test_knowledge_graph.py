@@ -18,6 +18,18 @@ def test_incremental_catalog(tmp_path: Path):
     result=graph.import_catalog("p.csv","SKU,名称\nA1,恒温花洒\n".encode())
     assert result["updated"]==1 and result["deactivated"]==1
 
+def test_catalog_options_groups_active_products_for_two_step_binding(tmp_path: Path):
+    graph=ProductKnowledgeGraph(tmp_path/"graph.json")
+    graph.import_catalog("p.csv","材料编号,材料名称,规格型号,单价,数量单位\nMT1,马桶,基础马桶,500,套\nYSG1,浴室柜,米白浴室柜,1200,套\n".encode())
+    created=graph.create_product({"材料编号":"NEW-WP","材料名称":"新墙板","规格型号":"灰色 600x3000","单价":"88","数量单位":"平米"})
+    options=graph.catalog_options()
+    assert options["categories"]==["马桶","浴室柜","新墙板"]
+    assert [item["code"] for item in options["products"]]==["MT1","YSG1","NEW-WP"]
+    assert options["products"][-1]=={
+        "id":created["id"],"code":"NEW-WP","category":"新墙板","model":"灰色 600x3000",
+        "price":"88","unit":"平米","attributes":created["attributes"],
+    }
+
 def test_accessible_rule_forbids_partition():
     result=equipment_rules("老人坐轮椅，需要洗漱、淋浴和坐便")
     assert "适老浴室柜" in result["必须设备"]

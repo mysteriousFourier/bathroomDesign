@@ -26,8 +26,10 @@ type DataTransferItemWithEntry = DataTransferItem & {
 }
 
 export const modelPrimaryExtensions = ['glb', 'gltf', 'fbx', '3ds', 'obj'] as const
+export const modelConversionSourceExtensions = ['skp', 'dae', 'stl', 'ply', '3mf', 'blend'] as const
 const dependencyExtensions = new Set([
   ...modelPrimaryExtensions,
+  ...modelConversionSourceExtensions,
   'bin', 'mtl', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tga', 'dds', 'ktx', 'ktx2', 'basis',
 ])
 const ignoredNames = new Set(['.ds_store', 'thumbs.db', 'desktop.ini'])
@@ -92,6 +94,7 @@ export function validateModelImport(entries: ModelImportFile[]) {
   const unsupported = entries.find((entry) => !dependencyExtensions.has(extension(entry.path)))
   if (unsupported) throw new Error(`模型文件夹包含不支持的文件：${unsupported.path}`)
   const primary = entries.filter((entry) => modelPrimaryExtensions.includes(extension(entry.path) as typeof modelPrimaryExtensions[number]))
-  if (primary.length !== 1) throw new Error('每次请选择一个主模型；GLTF 的 BIN 与纹理可以一起上传。')
-  return primary[0]
+  const conversionSource = entries.filter((entry) => modelConversionSourceExtensions.includes(extension(entry.path) as typeof modelConversionSourceExtensions[number]))
+  if (primary.length > 1 || (!primary.length && conversionSource.length !== 1)) throw new Error('每次请选择一个主模型；SKP 等源格式会在入库时自动转换。')
+  return primary[0] ?? conversionSource[0]
 }

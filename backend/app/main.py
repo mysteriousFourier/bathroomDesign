@@ -27,6 +27,7 @@ from .auto_layout import generate_model_layout
 from .knowledge_graph import ProductKnowledgeGraph
 from .measurement import measurement_contract_export, measurement_from_spec, validate_measurement
 from .measurement_import import MeasurementImportError, import_measurement_file, inspect_measurement_file
+from .model_conversion import model_converter_available
 from .model_assets import bind_model_asset, delete_model_asset, list_model_assets, resolve_model_asset_file, set_model_asset_tag, set_model_orientation, store_model_asset
 from .models import (
     AnalysisResponse,
@@ -80,6 +81,18 @@ async def lifespan(_application: FastAPI):
     # imports keep using the same stable material numbers and update it in place.
     if default_product_catalog.is_file() and not product_graph.path.is_file():
         product_graph.import_catalog(default_product_catalog.name, default_product_catalog.read_bytes())
+    if default_product_catalog.is_file():
+        with default_product_catalog.open("r", encoding="utf-8-sig", newline="") as source:
+            baseline_products = [
+                {key: value.strip() for key, value in row.items() if key and value and value.strip()}
+                for row in csv.DictReader(source)
+            ]
+        point_products = [row for row in baseline_products if row.get("点位类型")]
+        bathroom_cabinets = [row for row in baseline_products if row.get("材料名称") in {"浴室柜", "适老浴室柜"}]
+        product_graph.ensure_products(point_products)
+        # An older seed mislabeled bathroom-cabinet SKUs as XYJ, which belongs
+        # to washing machines. Keep washer rows and correct only cabinet types.
+        product_graph.sync_baseline_categories(bathroom_cabinets, {"浴室柜", "适老浴室柜"}, ("XYJ",))
     yield
 
 
@@ -123,6 +136,7 @@ def health() -> dict:
         "chat_model": settings.chat_model or None,
         "fallback_model": fallback_model,
         "ocr_configured": settings.ocr_engine.lower() == "paddle",
+        "model_converter_available": model_converter_available(settings.model_converter_command),
         **runtime_status(),
     }
 
@@ -132,6 +146,10 @@ async def import_products(file: UploadFile = File(...)) -> dict:
     if len(content)>50*1024*1024:raise HTTPException(413,"产品清单不能超过 50 MB")
     try:return product_graph.import_catalog(Path(file.filename or "catalog.xlsx").name,content)
     except (ValueError,KeyError,zipfile.BadZipFile) as error:raise HTTPException(422,str(error)) from error
+
+@app.get("/api/knowledge/product-options")
+def product_options() -> dict:
+    return product_graph.catalog_options()
 
 @app.post("/api/design-chat")
 async def design_chat_endpoint(payload: DesignChatRequest) -> dict:

@@ -591,10 +591,11 @@ export default function App() {
     if (!spec) return
     const pointKind = modelAssetPointKind(asset)
     if (pointKind) {
+      const pointKindLabel = { floor_drain: '地漏点位', drain: '排水点', water: '给水点', electric: '电点' }[pointKind]
       const next = cloneSpec(spec)
       const targets = next.fixtures.filter((fixture) => fixture.kind === pointKind)
       if (!targets.length) {
-        showMessage('error', pointKind === 'floor_drain' ? '房间中没有可应用模型的地漏点位' : '房间中没有可应用模型的电点')
+        showMessage('error', `房间中没有可应用模型的${pointKindLabel}`)
         return
       }
       const modelAsset = fixtureModelAssetFromLibrary(asset)
@@ -606,8 +607,8 @@ export default function App() {
       })
       commitSpec(next)
       setSelection({ type: 'fixture', id: targets[0].id })
-      setMode('model')
-      showMessage('success', `${asset.label} 已应用到 ${targets.length} 个${pointKind === 'floor_drain' ? '地漏点位' : '电点'}`)
+      setMode('review')
+      showMessage('success', `${asset.label} 已应用到 ${targets.length} 个${pointKindLabel}，二维审图已显示真实俯视模型`)
       return
     }
     const center = finishedRoomBoundary(spec).length ? projectPointToWall(finishedRoomBoundary(spec), 0, { x_mm: 700, z_mm: 305 })?.point : null
@@ -773,6 +774,7 @@ export default function App() {
                   key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`}
                   spec={spec}
                   plan={plan}
+                  surfaceMaterials={appliedSurfaces?.floor?.texture_src ? { floor: { textureSrc: appliedSurfaces.floor.texture_src, widthMm: appliedSurfaces.floor.dimensions_mm.width, depthMm: appliedSurfaces.floor.dimensions_mm.depth, rotationDeg: activeLayout?.floor_layout.rotation_deg, offsetXmm: activeLayout?.floor_layout.offset_x_mm, offsetZmm: activeLayout?.floor_layout.offset_z_mm, label: appliedSurfaces.floor.label } } : undefined}
                   selection={selection}
                   onSelect={setSelection}
                   onOpeningAdd={(start, end) => {

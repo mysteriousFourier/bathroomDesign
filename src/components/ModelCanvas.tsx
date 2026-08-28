@@ -139,8 +139,8 @@ function FloorZoneMesh({ boundary }: { boundary: Point2D[] }) {
   }, [boundary])
   return <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]}>
     <shapeGeometry args={[shape]} />
-    <meshStandardMaterial color="#739bb6" transparent opacity={0.28} roughness={0.82} side={DoubleSide} />
-    <Edges color="#47738f" />
+    <meshStandardMaterial color="#ffffff" roughness={0.9} side={DoubleSide} />
+    <Edges color="#60655f" />
   </mesh>
 }
 
@@ -196,7 +196,9 @@ function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: Fixtur
   }, [fixture.depth_mm, fixture.height_mm, fixture.width_mm, fixture.model_asset?.orientation_mapping, fixture.model_asset?.orientation_view, object])
 
   return <>
-    <primitive object={scene} position={position} scale={scale} />
+    <group position={position} scale={scale}>
+      <primitive object={scene} />
+    </group>
     <mesh position={[0, 0.01, 0]} visible={selected}>
       <boxGeometry args={[fixture.width_mm / 1000, 0.02, fixture.depth_mm / 1000]} />
       <meshStandardMaterial color="#c89638" transparent opacity={0.22} />
@@ -258,7 +260,7 @@ function WasherProxy({ fixture, selected, onSelect }: { fixture: FixtureSpec; se
   </>
 }
 
-function FixtureAssetModel({ fixture, selected }: { fixture: FixtureSpec; selected: boolean }) {
+export function FixtureAssetModel({ fixture, selected }: { fixture: FixtureSpec; selected: boolean }) {
   const asset = fixture.model_asset
   if (!asset) return null
   const format = modelAssetFormat(asset)
@@ -269,7 +271,7 @@ function FixtureAssetModel({ fixture, selected }: { fixture: FixtureSpec; select
   return null
 }
 
-class FixtureAssetBoundary extends Component<{fixture:FixtureSpec;children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(){}render(){return this.state.failed ? null : this.props.children}}
+export class FixtureAssetBoundary extends Component<{fixture:FixtureSpec;children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(){}render(){return this.state.failed ? null : this.props.children}}
 class SceneBoundary extends Component<{children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(error:Error){console.error('3D scene failed safely',error)}render(){return this.state.failed?<div className="empty-state" role="alert">三维场景加载失败，请检查点位或管网数据后重试；二维设计数据未丢失。</div>:this.props.children}}
 
 function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; selected: boolean; onSelect: () => void }) {
@@ -327,7 +329,7 @@ function PlumbingManifold({ route }:{ route:PlumbingRoute }) {
   </group>)}</>
 }
 
-function RoomModel({ spec, selection, showCeiling, showPlumbing, cutaway, hiddenWallIndexes, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; showPlumbing:boolean; cutaway: boolean; hiddenWallIndexes: number[]; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
+function RoomModel({ spec, selection, showCeiling, showFixtures, showPlumbing, cutaway, hiddenWallIndexes, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; showFixtures: boolean; showPlumbing:boolean; cutaway: boolean; hiddenWallIndexes: number[]; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
   const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
   const floorShape = useMemo(() => {
     const shape = new Shape()
@@ -373,14 +375,14 @@ function RoomModel({ spec, selection, showCeiling, showPlumbing, cutaway, hidden
         if (cutaway && hiddenWallIndexes.includes(index)) return null
         return <Wall key={index} spec={spec} index={index} layers={wallLayers[index]} selected={selection.type === 'room'} onSelect={() => onSelect({ type: 'room' })} surface={surfaceMaterials?.wall} emphasizeJoints={emphasizeJoints} />
       })}
-      {spec.fixtures.map((fixture) => <Fixture key={fixture.id} fixture={fixture} selected={selection.type === 'fixture' && selection.id === fixture.id} onSelect={() => onSelect({ type: 'fixture', id: fixture.id })} />)}
+      {spec.fixtures.filter((fixture) => showFixtures || ['floor_drain', 'drain', 'water', 'electric'].includes(fixture.kind)).map((fixture) => <Fixture key={fixture.id} fixture={fixture} selected={selection.type === 'fixture' && selection.id === fixture.id} onSelect={() => onSelect({ type: 'fixture', id: fixture.id })} />)}
       {showPlumbing && plumbing&&<PlumbingManifold route={plumbing}/>}
       {showPlumbing && plumbing?.segments.map(item=><Pipe key={item.id} item={item}/>)}
     </group>
   )
 }
 
-function CameraAwareRoom({ spec, selection, showCeiling, showPlumbing, cutaway, onHiddenWallsChange, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; showPlumbing:boolean; cutaway: boolean; onHiddenWallsChange: (indexes: number[]) => void; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
+function CameraAwareRoom({ spec, selection, showCeiling, showFixtures, showPlumbing, cutaway, onHiddenWallsChange, onSelect, groupRef, surfaceMaterials, emphasizeJoints }: { spec: RoomSpec; selection: Selection; showCeiling: boolean; showFixtures: boolean; showPlumbing:boolean; cutaway: boolean; onHiddenWallsChange: (indexes: number[]) => void; onSelect: (selection: Selection) => void; groupRef: React.RefObject<Group>; surfaceMaterials?: SurfaceMaterials; emphasizeJoints: boolean }) {
   const { camera } = useThree()
   const roomBoundary = useMemo(() => finishedRoomBoundary(spec), [spec])
   const [hiddenWallIndexes, setHiddenWallIndexes] = useState<number[]>([])
@@ -403,7 +405,7 @@ function CameraAwareRoom({ spec, selection, showCeiling, showPlumbing, cutaway, 
     onHiddenWallsChange(next)
   })
 
-  return <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} showPlumbing={showPlumbing} cutaway={cutaway} hiddenWallIndexes={hiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
+  return <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} showFixtures={showFixtures} showPlumbing={showPlumbing} cutaway={cutaway} hiddenWallIndexes={hiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
 }
 
 type QuoteLine = { name: string; quantity: number; unit: string; price: number; spec: string }
@@ -411,6 +413,7 @@ type LayoutInfo = { title: string; level: 'level1' | 'level2' | 'level3'; totalP
 
 export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selection: Selection; onSelect: (selection: Selection) => void; layoutInfo?: LayoutInfo | null; surfaceMaterials?: SurfaceMaterials }>(function ModelCanvas({ spec, selection, onSelect, layoutInfo, surfaceMaterials }, ref) {
   const [showCeiling, setShowCeiling] = useState(false)
+  const [showFixtures, setShowFixtures] = useState(true)
   const [showPlumbing,setShowPlumbing]=useState(true)
   const [plumbingOpen,setPlumbingOpen]=useState(false)
   const [cutaway, setCutaway] = useState(true)
@@ -445,6 +448,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
         <div>
           <span className={cutaway ? 'cutaway-status active' : 'cutaway-status'}>{cutaway ? `剖切隐藏 ${hiddenWallIndexes.length ? hiddenWallIndexes.map((index) => `W${index + 1}`).join('、') : '自动判定中'}` : '完整墙体'}</span>
           <button className="icon-button" onClick={() => setShowCeiling((value) => !value)} title={showCeiling ? '隐藏顶板' : '显示顶板'}>{showCeiling ? <EyeOff size={17} /> : <Eye size={17} />}</button>
+          <button className={showFixtures ? 'icon-button active-tool' : 'icon-button'} onClick={() => setShowFixtures((value) => !value)} title={showFixtures ? '隐藏家具' : '显示家具'} aria-label={showFixtures ? '隐藏家具' : '显示家具'} aria-pressed={showFixtures}>{showFixtures ? <Eye size={17} /> : <EyeOff size={17} />}</button>
           <button className={showPlumbing?'icon-button active-tool':'icon-button'} onClick={()=>setShowPlumbing(value=>!value)} title={showPlumbing?'隐藏给水管':'显示给水管'} aria-pressed={showPlumbing}><Waves size={17}/></button>
           <button className={plumbingOpen?'icon-button active-tool':'icon-button'} onClick={()=>setPlumbingOpen(value=>!value)} title="给水管网详情"><Layers size={17}/></button>
           <button className={cutaway ? 'icon-button active-tool' : 'icon-button'} onClick={() => setCutaway((value) => !value)} title={cutaway ? '显示完整墙体' : '开启剖切视图'}><Layers size={17} /></button>
@@ -470,7 +474,7 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
         <ambientLight intensity={1.3} />
         <directionalLight position={[4, 7, 3]} intensity={2.2} castShadow shadow-mapSize={[1024, 1024]} />
         <Suspense fallback={null}>
-          <CameraAwareRoom spec={spec} selection={selection} showCeiling={showCeiling} showPlumbing={showPlumbing} cutaway={cutaway} onHiddenWallsChange={setHiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
+          <CameraAwareRoom spec={spec} selection={selection} showCeiling={showCeiling} showFixtures={showFixtures} showPlumbing={showPlumbing} cutaway={cutaway} onHiddenWallsChange={setHiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
         </Suspense>
         <Grid position={[center.x / 1000, -0.006, center.z / 1000]} args={[12, 12]} cellSize={0.1} cellThickness={0.45} cellColor="#c4c7bf" sectionSize={1} sectionThickness={0.8} sectionColor="#aeb2aa" fadeDistance={12} fadeStrength={1.2} infiniteGrid />
         <ContactShadows position={[0, -0.002, 0]} opacity={0.3} scale={12} blur={2.3} far={5} frames={1} resolution={512} />

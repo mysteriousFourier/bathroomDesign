@@ -23,6 +23,7 @@ export type BuiltInModelRecord = {
   styles: string[]
   orientation_view?: ModelOrientationView
   orientation_mapping?: OrientationMapping
+  correction_tag?: RoomModelAsset['correction_tag']
   unit_price?: number
   price_unit?: string
   source: string
@@ -57,7 +58,18 @@ const sharedModelRecords: BuiltInModelRecord[] = [{
 // Keep explicitly verified shared assets ahead of generated category matches;
 // this preserves SKU snapshots (for example MT3) when a source directory also
 // contains a similarly named raw export.
-const records = [...sharedModelRecords, ...(manifest.assets as BuiltInModelRecord[])]
+const pointModelOverrides: Record<string, Partial<BuiltInModelRecord>> = {
+  '地漏01': { category: '地漏', catalog_codes: ['DL-01'], dimensions_mm: { width: 100, depth: 100, height: 44.3 }, correction_tag: 'drain' },
+  '地漏02': { category: '地漏', catalog_codes: ['DL-02'], dimensions_mm: { width: 100, depth: 100, height: 44.3 }, correction_tag: 'drain' },
+  '三孔16A插座': { category: '电位', catalog_codes: ['EP-16A'], dimensions_mm: { width: 86, depth: 15, height: 86 }, correction_tag: 'socket' },
+  '双开面板': { category: '电位', catalog_codes: ['EP-2K'], dimensions_mm: { width: 86, depth: 15, height: 86 }, correction_tag: 'switch' },
+  '夜灯面板': { category: '电位', catalog_codes: ['EP-NL'], dimensions_mm: { width: 86, depth: 15, height: 86 }, correction_tag: 'switch' },
+  '正五孔插座': { category: '电位', catalog_codes: ['EP-5H'], dimensions_mm: { width: 86, depth: 15, height: 86 }, correction_tag: 'socket' },
+  '浴霸面板': { category: '电位', catalog_codes: ['EP-YB'], dimensions_mm: { width: 86, depth: 15, height: 86 }, correction_tag: 'switch' },
+  '防溅盒': { category: '电位', catalog_codes: ['EP-FJ'], dimensions_mm: { width: 100, depth: 50, height: 100 }, correction_tag: 'socket' },
+}
+const normalizedManifestRecords = (manifest.assets as BuiltInModelRecord[]).map((asset) => ({ ...asset, ...pointModelOverrides[asset.label] }))
+const records = [...sharedModelRecords, ...normalizedManifestRecords]
 
 export const builtInModelRecords = records
 
@@ -85,6 +97,7 @@ function roomAssetFromRecord(asset: BuiltInModelRecord): RoomModelAsset {
     styles: asset.styles,
     orientation_view: asset.orientation_view,
     orientation_mapping: asset.orientation_mapping,
+    correction_tag: asset.correction_tag,
   }
 }
 

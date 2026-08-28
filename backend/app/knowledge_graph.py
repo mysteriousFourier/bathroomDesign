@@ -71,6 +71,22 @@ class ProductKnowledgeGraph:
     def product_by_code(self, code:str):
         normalized=code.strip()
         return next((p for p in self.load()["products"].values() if p.get("active",True) and p.get("attributes",{}).get("材料编号")==normalized),None)
+    def catalog_options(self):
+        """Return active products in deterministic category/model selection order."""
+        products=[];categories=[]
+        for product in self.load().get("products",{}).values():
+            if not product.get("active",True):continue
+            attributes={str(key):str(value) for key,value in product.get("attributes",{}).items()}
+            code=attributes.get("材料编号","").strip();category=attributes.get("材料名称","").strip()
+            if not code or not category:continue
+            if category not in categories:categories.append(category)
+            products.append({
+                "id":str(product.get("id") or ""),"code":code,"category":category,
+                "model":attributes.get("规格型号","").strip() or attributes.get("物品名称","").strip() or code,
+                "price":attributes.get("单价","").strip(),"unit":attributes.get("数量单位","").strip(),
+                "attributes":attributes,
+            })
+        return {"categories":categories,"products":products}
     def create_product(self, attributes:dict[str,str]):
         record={str(k).strip():str(v).strip() for k,v in attributes.items() if str(k).strip() and str(v).strip()}
         code=record.get("材料编号","");category=record.get("材料名称","")
@@ -82,6 +98,45 @@ class ProductKnowledgeGraph:
         self._rebuild_relations(graph);self.path.parent.mkdir(parents=True,exist_ok=True)
         self.path.write_text(json.dumps(graph,ensure_ascii=False,indent=2),"utf-8")
         return graph["products"][pid]
+    def ensure_products(self, records:list[dict[str,str]]):
+        """Add newly shipped baseline products without replacing user graph entries."""
+        graph=self.load();products=graph["products"]
+        existing_codes={p.get("attributes",{}).get("材料编号","").strip() for p in products.values()}
+        created=0
+        for attributes in records:
+            record={str(k).strip():str(v).strip() for k,v in attributes.items() if str(k).strip() and str(v).strip()}
+            code=record.get("材料编号","");category=record.get("材料名称","")
+            if not code or not category or code in existing_codes:continue
+            pid=hashlib.sha256(f"{code}|{category}".encode()).hexdigest()[:20]
+            digest=hashlib.sha256(json.dumps(record,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+            products[pid]={"id":pid,"digest":digest,"active":True,"attributes":record}
+            existing_codes.add(code);created+=1
+        if created:
+            self._rebuild_relations(graph);self.path.parent.mkdir(parents=True,exist_ok=True)
+            self.path.write_text(json.dumps(graph,ensure_ascii=False,indent=2),"utf-8")
+        return created
+    def sync_baseline_categories(self, records:list[dict[str,str]], categories:set[str], stale_prefixes:tuple[str,...]=()):
+        """Upsert corrected baseline rows and retire known stale codes in those categories."""
+        graph=self.load();products=graph["products"];changed=False;created=updated=deactivated=0
+        for product in products.values():
+            attrs=product.get("attributes",{});code=str(attrs.get("材料编号","")).strip();category=str(attrs.get("材料名称","")).strip()
+            if category in categories and stale_prefixes and code.startswith(stale_prefixes) and product.get("active",True):
+                product["active"]=False;changed=True;deactivated+=1
+        for attributes in records:
+            record={str(k).strip():str(v).strip() for k,v in attributes.items() if str(k).strip() and str(v).strip()}
+            code=record.get("材料编号","");category=record.get("材料名称","")
+            if not code or category not in categories:continue
+            pid=hashlib.sha256(f"{code}|{category}".encode()).hexdigest()[:20]
+            digest=hashlib.sha256(json.dumps(record,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+            replacement={"id":pid,"digest":digest,"active":True,"attributes":record}
+            if pid not in products:created+=1
+            elif products[pid]!=replacement:updated+=1
+            else:continue
+            products[pid]=replacement;changed=True
+        if changed:
+            self._rebuild_relations(graph);self.path.parent.mkdir(parents=True,exist_ok=True)
+            self.path.write_text(json.dumps(graph,ensure_ascii=False,indent=2),"utf-8")
+        return {"created":created,"updated":updated,"deactivated":deactivated}
     @staticmethod
     def _terms(text:str):
         chunks=[x.lower() for x in re.findall(r"[\w\u4e00-\u9fff]+",text) if len(x)>1]
@@ -109,7 +164,7 @@ class ProductKnowledgeGraph:
     def _rebuild_relations(self,graph):
         """Materialize a small, deterministic property graph from catalog fields."""
         entities={};relations=[]
-        relation_fields={"材料名称":"CATEGORY","人群":"AUDIENCE","风格":"STYLE","规格型号":"SPEC"}
+        relation_fields={"材料名称":"CATEGORY","人群":"AUDIENCE","风格":"STYLE","规格型号":"SPEC","点位类型":"FIXTURE_KIND"}
         for product in graph["products"].values():
             if not product.get("active",True):continue
             entities[product["id"]]={"id":product["id"],"type":"PRODUCT","label":product["attributes"].get("物品名称") or product["attributes"].get("材料名称",product["id"])}

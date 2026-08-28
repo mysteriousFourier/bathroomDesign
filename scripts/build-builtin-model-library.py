@@ -21,6 +21,7 @@ Image.MAX_IMAGE_PIXELS = 600_000_000
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MODEL_SOURCE = Path(r"D:\opc\富邦花园2-4-701")
 SURFACE_SOURCE = MODEL_SOURCE / "墙板"
+BATHROOM_CABINET_SET_SOURCE = MODEL_SOURCE / "浴室柜" / "成套浴室柜"
 DIMENSION_SOURCE = PROJECT_ROOT / "outputs" / "bathroom-model-dimensions" / "卫生间通用部品_建模长宽高.json"
 CATALOG_SOURCE = PROJECT_ROOT / "backend" / "data" / "product_catalog.csv"
 PUBLIC_ROOT = PROJECT_ROOT / "public" / "model-library"
@@ -44,6 +45,7 @@ DEFAULT_DIMENSIONS_MM: dict[str, dict[str, float]] = {
     "扶手": {"width": 80, "depth": 600, "height": 750},
     "无障碍淋浴室坐凳001": {"width": 420, "depth": 360, "height": 450},
     "马桶": {"width": 380, "depth": 680, "height": 760},
+    "浴室柜": {"width": 800, "depth": 520, "height": 2000},
     "洗衣机": {"width": 600, "depth": 620, "height": 850},
     "热水器": {"width": 720, "depth": 180, "height": 430},
     "花洒": {"width": 120, "depth": 80, "height": 1100},
@@ -118,10 +120,19 @@ def selected_model_files() -> list[Path]:
     # Keep every source model. Different exports with the same stem are still
     # useful variants (for example FBX and GLB), and their relative paths give
     # them distinct stable asset IDs.
-    return sorted(
-        (path for path in MODEL_SOURCE.rglob("*") if path.is_file() and path.suffix.lower() in PRIMARY_EXTENSIONS and path.relative_to(MODEL_SOURCE).parts[0] in MODEL_CATEGORIES),
-        key=lambda item: item.relative_to(MODEL_SOURCE).as_posix(),
-    )
+    selected: list[Path] = []
+    for path in MODEL_SOURCE.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in PRIMARY_EXTENSIONS:
+            continue
+        relative = path.relative_to(MODEL_SOURCE)
+        if relative.parts[0] not in MODEL_CATEGORIES:
+            continue
+        # The bathroom-cabinet root contains historical basin and mirror-cabinet
+        # fragments. Only the supplied complete sets are valid library models.
+        if relative.parts[0] == "浴室柜" and BATHROOM_CABINET_SET_SOURCE not in path.parents:
+            continue
+        selected.append(path)
+    return sorted(selected, key=lambda item: item.relative_to(MODEL_SOURCE).as_posix())
 
 
 def copy_dependencies(source: Path, destination_dir: Path) -> int:

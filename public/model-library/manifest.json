@@ -4,11 +4,11 @@
     "D:\\opc\\富邦花园2-4-701",
     "D:\\opc\\富邦花园2-4-701\\墙板"
   ],
-  "asset_count": 85,
+  "asset_count": 77,
   "assets": [
     {
       "id": "builtin-cfae087909ac",
-      "label": "地漏01",
+      "label": "地漏01 100x100 不锈钢",
       "category": "地漏",
       "source_category": "地漏",
       "asset_type": "fixture",
@@ -25,13 +25,17 @@
       },
       "dimension_status": "review",
       "price_tier": "basic",
-      "catalog_codes": [],
-      "styles": [],
+      "catalog_codes": [
+        "DL-01"
+      ],
+      "styles": [
+        "通用"
+      ],
       "source": "卫生间通用部品2026-08-04"
     },
     {
       "id": "builtin-00c10ec0a5d5",
-      "label": "地漏02",
+      "label": "地漏02 100x100 深水封",
       "category": "地漏",
       "source_category": "地漏",
       "asset_type": "fixture",
@@ -48,8 +52,12 @@
       },
       "dimension_status": "review",
       "price_tier": "premium",
-      "catalog_codes": [],
-      "styles": [],
+      "catalog_codes": [
+        "DL-02"
+      ],
+      "styles": [
+        "通用"
+      ],
       "source": "卫生间通用部品2026-08-04"
     },
     {
@@ -380,21 +388,21 @@
       "source": "卫生间通用部品2026-08-04"
     },
     {
-      "id": "builtin-d6131b95f1ad",
+      "id": "builtin-1700810cf4d0",
       "label": "YSG1-1 三聚氰胺板 米白色",
       "category": "浴室柜",
       "source_category": "浴室柜",
       "asset_type": "fixture",
       "format": "fbx",
-      "src": "/model-library/models/builtin-d6131b95f1ad/%E6%B4%97%E9%9D%A2%E7%9B%8604.fbx",
-      "filename": "洗面盆04.fbx",
-      "bytes": 135026,
-      "sha256": "2693ee1c3a52786ca8632fb7812d870d7cdd9a635591189202991df33f36fd92",
-      "file_count": 1,
+      "src": "/model-library/models/builtin-1700810cf4d0/%E6%B5%B4%E5%AE%A4%E6%9F%9C02.fbx",
+      "filename": "浴室柜02.fbx",
+      "bytes": 1254133,
+      "sha256": "f7031c653243848033bad6825d434aa42df50478ee411eebd8dc3486deb497cf",
+      "file_count": 3,
       "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
+        "width": 800.0,
+        "depth": 520.0,
+        "height": 2000.0
       },
       "dimension_status": "review",
       "price_tier": "basic",
@@ -408,54 +416,8 @@
       "source": "卫生间通用部品2026-08-04"
     },
     {
-      "id": "builtin-1700810cf4d0",
-      "label": "浴室柜02",
-      "category": "浴室柜",
-      "source_category": "浴室柜",
-      "asset_type": "fixture",
-      "format": "fbx",
-      "src": "/model-library/models/builtin-1700810cf4d0/%E6%B5%B4%E5%AE%A4%E6%9F%9C02.fbx",
-      "filename": "浴室柜02.fbx",
-      "bytes": 1254133,
-      "sha256": "f7031c653243848033bad6825d434aa42df50478ee411eebd8dc3486deb497cf",
-      "file_count": 3,
-      "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
-      },
-      "dimension_status": "review",
-      "price_tier": "basic",
-      "catalog_codes": [],
-      "styles": [],
-      "source": "卫生间通用部品2026-08-04"
-    },
-    {
-      "id": "builtin-9e0a42722f6c",
-      "label": "浴室柜02",
-      "category": "浴室柜",
-      "source_category": "浴室柜",
-      "asset_type": "fixture",
-      "format": "fbx",
-      "src": "/model-library/models/builtin-9e0a42722f6c/%E6%B5%B4%E5%AE%A4%E6%9F%9C02.fbx",
-      "filename": "浴室柜02.fbx",
-      "bytes": 1239543,
-      "sha256": "1e6d2ab69b5350dad3bde1e26a2a44cb9582405c0c3f4b57d09df64841cc61fa",
-      "file_count": 1,
-      "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
-      },
-      "dimension_status": "review",
-      "price_tier": "basic",
-      "catalog_codes": [],
-      "styles": [],
-      "source": "卫生间通用部品2026-08-04"
-    },
-    {
       "id": "builtin-024b54f30708",
-      "label": "浴室柜03",
+      "label": "YSG1-2 三聚氰胺板 深砂灰",
       "category": "浴室柜",
       "source_category": "浴室柜",
       "asset_type": "fixture",
@@ -466,32 +428,9 @@
       "sha256": "4e528b57cefaca63ba64827cdf31a680257256d1b7a69fa2d5688581411e936a",
       "file_count": 5,
       "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
-      },
-      "dimension_status": "review",
-      "price_tier": "basic",
-      "catalog_codes": [],
-      "styles": [],
-      "source": "卫生间通用部品2026-08-04"
-    },
-    {
-      "id": "builtin-ee86844f3374",
-      "label": "YSG1-2 三聚氰胺板 深砂灰",
-      "category": "浴室柜",
-      "source_category": "浴室柜",
-      "asset_type": "fixture",
-      "format": "fbx",
-      "src": "/model-library/models/builtin-ee86844f3374/%E6%B5%B4%E5%AE%A4%E6%9F%9C04.fbx",
-      "filename": "浴室柜04.fbx",
-      "bytes": 5485862,
-      "sha256": "37e843d3fec4e899b245d78d6bae41186c04b1d24175c4e57d254ac830acb983",
-      "file_count": 11,
-      "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
+        "width": 800.0,
+        "depth": 520.0,
+        "height": 2000.0
       },
       "dimension_status": "review",
       "price_tier": "basic",
@@ -504,8 +443,31 @@
       "source": "卫生间通用部品2026-08-04"
     },
     {
+      "id": "builtin-ee86844f3374",
+      "label": "浴室柜04",
+      "category": "浴室柜",
+      "source_category": "浴室柜",
+      "asset_type": "fixture",
+      "format": "fbx",
+      "src": "/model-library/models/builtin-ee86844f3374/%E6%B5%B4%E5%AE%A4%E6%9F%9C04.fbx",
+      "filename": "浴室柜04.fbx",
+      "bytes": 5485862,
+      "sha256": "37e843d3fec4e899b245d78d6bae41186c04b1d24175c4e57d254ac830acb983",
+      "file_count": 11,
+      "dimensions_mm": {
+        "width": 800.0,
+        "depth": 520.0,
+        "height": 2000.0
+      },
+      "dimension_status": "review",
+      "price_tier": "comfort",
+      "catalog_codes": [],
+      "styles": [],
+      "source": "卫生间通用部品2026-08-04"
+    },
+    {
       "id": "builtin-4e6aa7c674d3",
-      "label": "浴室柜12",
+      "label": "YSG2-1 实木 银灰色",
       "category": "浴室柜",
       "source_category": "浴室柜",
       "asset_type": "fixture",
@@ -516,81 +478,12 @@
       "sha256": "953c66127b16c6e83a4b49cdce152da53aa2f652271d04bb451f5eac5fa831d5",
       "file_count": 3,
       "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
+        "width": 800.0,
+        "depth": 520.0,
+        "height": 2000.0
       },
       "dimension_status": "review",
-      "price_tier": "comfort",
-      "catalog_codes": [],
-      "styles": [],
-      "source": "卫生间通用部品2026-08-04"
-    },
-    {
-      "id": "builtin-1b3bc3a48425",
-      "label": "浴室柜12",
-      "category": "浴室柜",
-      "source_category": "浴室柜",
-      "asset_type": "fixture",
-      "format": "fbx",
-      "src": "/model-library/models/builtin-1b3bc3a48425/%E6%B5%B4%E5%AE%A4%E6%9F%9C12.fbx",
-      "filename": "浴室柜12.fbx",
-      "bytes": 1627381,
-      "sha256": "4f097fd27602be52996970ba9eb6e652a2c0a35583cac76e2e60e3bdc63ebc0b",
-      "file_count": 1,
-      "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
-      },
-      "dimension_status": "review",
-      "price_tier": "comfort",
-      "catalog_codes": [],
-      "styles": [],
-      "source": "卫生间通用部品2026-08-04"
-    },
-    {
-      "id": "builtin-9939b2a3a052",
-      "label": "浴室柜13",
-      "category": "浴室柜",
-      "source_category": "浴室柜",
-      "asset_type": "fixture",
-      "format": "fbx",
-      "src": "/model-library/models/builtin-9939b2a3a052/%E6%B5%B4%E5%AE%A4%E6%9F%9C13.fbx",
-      "filename": "浴室柜13.fbx",
-      "bytes": 12400465,
-      "sha256": "e608dcc44567262aebf98dbc88b867f662cdf0c9688f033a46bafa353fa47715",
-      "file_count": 5,
-      "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
-      },
-      "dimension_status": "review",
-      "price_tier": "comfort",
-      "catalog_codes": [],
-      "styles": [],
-      "source": "卫生间通用部品2026-08-04"
-    },
-    {
-      "id": "builtin-6aae822551e2",
-      "label": "YSG2-1 实木 银灰色",
-      "category": "浴室柜",
-      "source_category": "浴室柜",
-      "asset_type": "fixture",
-      "format": "fbx",
-      "src": "/model-library/models/builtin-6aae822551e2/%E6%B5%B4%E5%AE%A4%E6%9F%9C13.fbx",
-      "filename": "浴室柜13.fbx",
-      "bytes": 1859025,
-      "sha256": "1109fe13314ecbb651e82dc0b7c88becfd8274141a82af3425253a3ddcabb118",
-      "file_count": 1,
-      "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
-      },
-      "dimension_status": "review",
-      "price_tier": "comfort",
+      "price_tier": "premium",
       "catalog_codes": [
         "YSG2-1"
       ],
@@ -601,90 +494,21 @@
       "source": "卫生间通用部品2026-08-04"
     },
     {
-      "id": "builtin-c5c72471dd6f",
-      "label": "镜柜02",
-      "category": "浴室柜",
-      "source_category": "浴室柜",
-      "asset_type": "fixture",
-      "format": "fbx",
-      "src": "/model-library/models/builtin-c5c72471dd6f/%E9%95%9C%E6%9F%9C02.fbx",
-      "filename": "镜柜02.fbx",
-      "bytes": 22767,
-      "sha256": "e7429955554495260e409cfff84988b40e2be808c895607212ed2080c1072df8",
-      "file_count": 3,
-      "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
-      },
-      "dimension_status": "review",
-      "price_tier": "premium",
-      "catalog_codes": [],
-      "styles": [],
-      "source": "卫生间通用部品2026-08-04"
-    },
-    {
-      "id": "builtin-9c410dc5b0c2",
-      "label": "镜柜04",
-      "category": "浴室柜",
-      "source_category": "浴室柜",
-      "asset_type": "fixture",
-      "format": "fbx",
-      "src": "/model-library/models/builtin-9c410dc5b0c2/%E9%95%9C%E6%9F%9C04.fbx",
-      "filename": "镜柜04.fbx",
-      "bytes": 28973,
-      "sha256": "b5b95cb56275010758aeca1cad6609b61748c1b80492bf1764fe2c353dee35f3",
-      "file_count": 3,
-      "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
-      },
-      "dimension_status": "review",
-      "price_tier": "premium",
-      "catalog_codes": [],
-      "styles": [],
-      "source": "卫生间通用部品2026-08-04"
-    },
-    {
-      "id": "builtin-1814e8c30ae3",
-      "label": "镜柜12",
-      "category": "浴室柜",
-      "source_category": "浴室柜",
-      "asset_type": "fixture",
-      "format": "fbx",
-      "src": "/model-library/models/builtin-1814e8c30ae3/%E9%95%9C%E6%9F%9C12.fbx",
-      "filename": "镜柜12.fbx",
-      "bytes": 30269,
-      "sha256": "cc031d86ef243ce05457b604253907e979024fa8bab547d54ab0877331549564",
-      "file_count": 3,
-      "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
-      },
-      "dimension_status": "review",
-      "price_tier": "premium",
-      "catalog_codes": [],
-      "styles": [],
-      "source": "卫生间通用部品2026-08-04"
-    },
-    {
-      "id": "builtin-830af2b34ef3",
+      "id": "builtin-9939b2a3a052",
       "label": "YSG2-2 实木 深砂灰",
       "category": "浴室柜",
       "source_category": "浴室柜",
       "asset_type": "fixture",
       "format": "fbx",
-      "src": "/model-library/models/builtin-830af2b34ef3/%E9%95%9C%E6%9F%9C13.fbx",
-      "filename": "镜柜13.fbx",
-      "bytes": 10549752,
-      "sha256": "220dd4d77dd6abd1ce9d20b796852c4180d44cc6f8384b8654171036986413aa",
+      "src": "/model-library/models/builtin-9939b2a3a052/%E6%B5%B4%E5%AE%A4%E6%9F%9C13.fbx",
+      "filename": "浴室柜13.fbx",
+      "bytes": 12400465,
+      "sha256": "e608dcc44567262aebf98dbc88b867f662cdf0c9688f033a46bafa353fa47715",
       "file_count": 5,
       "dimensions_mm": {
-        "width": 600.0,
-        "depth": 600.0,
-        "height": 600.0
+        "width": 800.0,
+        "depth": 520.0,
+        "height": 2000.0
       },
       "dimension_status": "review",
       "price_tier": "premium",

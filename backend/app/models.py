@@ -907,6 +907,8 @@ class ModelAssetResponse(BaseModel):
     binding_status: Literal["bound", "unbound"] = "unbound"
     binding_note: str | None = None
     product_attributes: dict[str, str] | None = None
+    lifecycle: Literal["approved", "converted", "converted_duplicate"] = "approved"
+    source_format: str | None = None
 
 
 class ModelOrientationRequest(BaseModel):

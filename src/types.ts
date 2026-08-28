@@ -317,6 +317,23 @@ export interface ImportedModelAsset {
   binding_status: 'bound' | 'unbound'
   binding_note: string | null
   product_attributes: Record<string, string> | null
+  lifecycle?: 'approved' | 'converted' | 'converted_duplicate'
+  source_format?: string | null
+}
+
+export interface ProductCatalogOption {
+  id: string
+  code: string
+  category: string
+  model: string
+  price: string
+  unit: string
+  attributes: Record<string, string>
+}
+
+export interface ProductCatalogOptions {
+  categories: string[]
+  products: ProductCatalogOption[]
 }
 
 export interface CaptureCheck {
@@ -392,6 +409,7 @@ export interface Health {
   voice_configured?: boolean
   voice_asr_model?: string
   voice_tts?: string
+  model_converter_available?: boolean
 }
 export interface ChatMessage { role:'user'|'assistant'; content:string }
 export interface SurfaceEstimate { source:string; floor_area_sqm:number; ceiling_area_sqm:number; wall_gross_area_sqm:number|null; opening_area_sqm:number; wall_net_area_sqm:number|null; waste_rate:number; floor_purchase_sqm:number; ceiling_purchase_sqm:number; wall_purchase_sqm:number|null; floor_layout:string; ceiling_layout:string; wall_layout:string; warnings:string[] }

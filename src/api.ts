@@ -1,4 +1,4 @@
-import type { AnalysisResponse, Asset, AutoLayoutResponse, CaptureAssessment, ChatMessage, ChatSession, ChatSessionSummary, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, Project, RoomSpec, VoiceAudioResponse, VoiceTurnResponse } from './types'
+import type { AnalysisResponse, Asset, AutoLayoutResponse, CaptureAssessment, ChatMessage, ChatSession, ChatSessionSummary, DesignChatResponse, Health, ImportedModelAsset, MeasurementImportInspection, MeasurementImportResponse, ProductCatalogOptions, Project, RoomSpec, VoiceAudioResponse, VoiceTurnResponse } from './types'
 import type { ModelImportFile } from './modelImport'
 
 const defaultTimeoutMs = 90_000
@@ -73,6 +73,7 @@ export const studioApi = {
     return request<Asset>(`/api/projects/${id}/assets`, { method: 'POST', body: form })
   },
   modelAssets: (id: string) => request<ImportedModelAsset[]>(`/api/projects/${id}/model-assets`),
+  productCatalogOptions: () => request<ProductCatalogOptions>('/api/knowledge/product-options'),
   uploadModelAsset: async (id: string, entries: ModelImportFile[]) => {
     const form = new FormData()
     for (const entry of entries) {

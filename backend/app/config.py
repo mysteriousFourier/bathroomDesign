@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     edge_tts_voice: str = "zh-CN-XiaoxiaoNeural"
     melotts_speaker: str = "ZH"
     melotts_speed: float = 1.0
+    # JSON argv or a command template using {input}/{output}; output must be GLB.
+    model_converter_command: str = ""
+    model_conversion_timeout_seconds: int = 180
 
     @field_validator("app_data_dir", "ocr_cache_dir", "voice_model_cache_dir", mode="after")
     @classmethod

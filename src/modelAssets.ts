@@ -12,11 +12,19 @@ export interface RoomModelAsset extends FixtureModelAsset {
   styles?: string[]
   tags?: string[]
   correction_tag?: 'standard' | 'handrail' | 'drain' | 'socket' | 'switch'
+  product_attributes?: Record<string, string> | null
+  source_format?: string | null
 }
 
-export function modelAssetPointKind(asset: Pick<RoomModelAsset, 'correction_tag'>) {
-  if (asset.correction_tag === 'drain') return 'floor_drain' as const
-  if (asset.correction_tag === 'socket' || asset.correction_tag === 'switch') return 'electric' as const
+export type ModelAssetPointKind = Extract<FixtureSpec['kind'], 'floor_drain' | 'drain' | 'water' | 'electric'>
+
+export function modelAssetPointKind(asset: Pick<RoomModelAsset, 'correction_tag' | 'category' | 'product_attributes'>): ModelAssetPointKind | null {
+  const explicit = asset.product_attributes?.['点位类型']
+  if (explicit === 'floor_drain' || explicit === 'drain' || explicit === 'water' || explicit === 'electric') return explicit
+  if (asset.correction_tag === 'drain' || asset.category === '地漏') return 'floor_drain'
+  if (asset.category === '排水点') return 'drain'
+  if (asset.category === '给水点') return 'water'
+  if (asset.correction_tag === 'socket' || asset.correction_tag === 'switch' || asset.category === '电位' || asset.category === '电气面板') return 'electric'
   return null
 }
 

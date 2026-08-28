@@ -726,3 +726,13 @@ async def test_model_binding_can_create_product_and_rejects_category_mismatch(tm
         assert created.status_code == 200
         assert created.json()["catalog_codes"] == [code]
         assert main_module.product_graph.product_by_code(code)["id"] == created.json()["product_ids"][0]
+
+
+@pytest.mark.asyncio
+async def test_product_options_endpoint_includes_new_graph_category_and_model(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main_module.product_graph, "path", tmp_path / "product-graph.json")
+    product = main_module.product_graph.create_product({"材料编号":"NEW-01","材料名称":"新种类","规格型号":"新型号","单价":"99","数量单位":"件"})
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/knowledge/product-options")
+    assert response.status_code == 200
+    assert response.json() == {"categories":["新种类"],"products":[{"id":product["id"],"code":"NEW-01","category":"新种类","model":"新型号","price":"99","unit":"件","attributes":product["attributes"]}]}

@@ -596,20 +596,22 @@ async def test_model_folder_upload_list_read_and_delete(tmp_path) -> None:
 
         listed = await client.get(f"/api/projects/{project_id}/model-assets")
         assert listed.status_code == 200
-        assert [item["id"] for item in listed.json()] == [asset["id"]]
+        shared_assets = [item for item in listed.json() if item["library_scope"] == "shared"]
+        assert [item["id"] for item in shared_assets] == [asset["id"]]
+        assert any(item["library_scope"] == "builtin" for item in listed.json())
         second_project_assets = (await client.get(f"/api/projects/{second_project_id}/model-assets")).json()
-        assert [item["id"] for item in second_project_assets] == [asset["id"]]
+        assert [item["id"] for item in second_project_assets if item["library_scope"] == "shared"] == [asset["id"]]
 
         corrected = await client.put(
             f"/api/projects/{project_id}/model-assets/{asset['id']}/orientation",
-            json={"view": "side"},
+            json={"view": "left"},
         )
         assert corrected.status_code == 200
-        assert corrected.json()["orientation_view"] == "side"
+        assert corrected.json()["orientation_view"] == "left"
         assert corrected.json()["orientation_corrected"] is True
         assert corrected.json()["orientation_source"] == "manual"
-        reloaded = (await client.get(f"/api/projects/{project_id}/model-assets")).json()[0]
-        assert reloaded["orientation_view"] == "side"
+        reloaded = next(item for item in (await client.get(f"/api/projects/{project_id}/model-assets")).json() if item["id"] == asset["id"])
+        assert reloaded["orientation_view"] == "left"
 
         model_file = await client.get(asset["src"])
         assert model_file.status_code == 200
@@ -644,7 +646,7 @@ async def test_model_upload_rejects_unsafe_paths_and_multiple_primary_files(tmp_
             ],
         )
         assert multiple.status_code == 422
-        assert "只能包含一个" in multiple.json()["detail"]
+        assert "一个主模型" in multiple.json()["detail"]
 
 
 @pytest.mark.asyncio

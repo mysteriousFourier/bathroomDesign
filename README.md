@@ -4,10 +4,13 @@
 
 ## 本地运行
 
-要求 Node.js 20+、Python 3.11+ 和 `uv`。
+Windows x64 计算机只需 PowerShell 5.1+ 和首次安装时的网络连接。启动器会优先
+使用系统已有的 Node.js 20+ 与 `uv`；缺少时自动下载经过官方 SHA-256 校验的固定版本
+到项目内 `.tools/`，不需要管理员权限。其他平台开发环境要求 Node.js 20+、Python
+3.11+ 和 `uv`。
 
-Windows 可直接双击仓库根目录的 `start-system.bat`。启动器会检查工具与
-项目依赖、在缺少 `.env` 时复制模板、构建前端、启动后端并打开
+Windows 可直接双击仓库根目录的 `start-system.bat`。启动器会检查并补齐工具与
+项目运行依赖、在缺少 `.env` 时复制模板、构建前端、启动后端并打开
 `http://127.0.0.1:8000`。启动完成后终端会持续显示运行状态；保持窗口开启，使用结束后在窗口中按 Enter，启动器会停止后端并释放 `8000` 端口。
 
 首次运行可能需要联网安装依赖。API 配置缺失时系统仍可启动，但 AI 识别功能
@@ -19,7 +22,7 @@ Copy-Item .env.example .env
 # 编辑 .env，填写兼容 API 地址、密钥和支持图像输入的模型名
 npm install
 $env:UV_CACHE_DIR='.uv-cache'
-uv sync --dev --extra voice
+uv sync --dev
 ```
 
 开发时打开两个 PowerShell 窗口：
@@ -45,10 +48,12 @@ npm run build
 
 需求助手标题栏的电话按钮可进入语音通话。浏览器录音由本机 CPU 上的 FunASR
 转写，助手回复默认使用 `zh-CN-XiaoxiaoNeural` 中文神经音色；每次语音问答仍作为
-标准的用户/助手消息保存，挂断后可在原对话继续输入文字。首次使用前安装可选依赖：
+标准的用户/助手消息保存，挂断后可在原对话继续输入文字。首次使用前安装可选依赖；
+Windows 启动器可直接传入 `-WithVoice`：
 
 ```powershell
 uv sync --extra voice
+start-system.bat -WithVoice
 ```
 
 首次通话会下载语音模型并预热，耗时明显长于后续通话。生产环境需要 HTTPS
@@ -114,6 +119,22 @@ npm test
 .\.venv\Scripts\python.exe -m pytest -q
 npm run build
 ```
+
+## 发布包
+
+`v1.0.0` 发布包包含完整源码、已构建前端和内置产品模型，不包含 `.env`、API
+密钥、运行数据库或本机缓存。接收方解压后按
+[`docs/DEPLOYMENT_AND_TESTING.md`](docs/DEPLOYMENT_AND_TESTING.md) 完成校验、配置和测试；
+版本内容及已知限制见 [`RELEASE_NOTES.md`](RELEASE_NOTES.md)。
+
+维护者可在干净的提交上生成同规格 ZIP 和 SHA-256 文件：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-release.ps1
+```
+
+产物写入 `release/`，该目录由 `.gitignore` 排除，不提交到 Git。发布前应先执行测试
+与构建；打包脚本也会重新构建前端，并拒绝从有未提交改动的工作区生成正式包。
 
 ## Docker
 

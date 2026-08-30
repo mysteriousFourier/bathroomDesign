@@ -1,7 +1,8 @@
 param(
     [switch]$CheckOnly,
     [switch]$NoBrowser,
-    [switch]$ExitAfterReady
+    [switch]$ExitAfterReady,
+    [switch]$WithVoice
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +13,8 @@ $AppBaseUrl = "http://127.0.0.1:8000"
 $AppUrl = $AppBaseUrl
 $HealthUrl = "$AppBaseUrl/api/health"
 $BackendProcess = $null
+$PortableNodeVersion = "24.12.0"
+$PortableUvVersion = "0.11.3"
 
 function Write-Step {
     param([string]$Message)
@@ -19,16 +22,123 @@ function Write-Step {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
-function Require-Command {
+function Get-CommandPath {
     param(
-        [string]$Name,
-        [string]$InstallHint
+        [string]$Name
     )
     $Command = Get-Command $Name -ErrorAction SilentlyContinue
-    if (-not $Command) {
-        throw "Required command '$Name' was not found. $InstallHint"
+    if ($Command) {
+        return $Command.Source
     }
-    return $Command.Source
+    return $null
+}
+
+function Get-VerifiedDownload {
+    param(
+        [string]$Url,
+        [string]$ChecksumUrl,
+        [string]$ArchiveName,
+        [string]$Destination
+    )
+    Write-Host "Downloading $ArchiveName..."
+    $ChecksumContent = (Invoke-WebRequest -Uri $ChecksumUrl -UseBasicParsing).Content
+    $ChecksumText = if ($ChecksumContent -is [byte[]]) {
+        [System.Text.Encoding]::UTF8.GetString($ChecksumContent)
+    } else {
+        [string]$ChecksumContent
+    }
+    $ChecksumPattern = "(?im)^([a-f0-9]{64})\s+\*?$([regex]::Escape($ArchiveName))\s*$"
+    $ChecksumMatch = [regex]::Match($ChecksumText, $ChecksumPattern)
+    if (-not $ChecksumMatch.Success) {
+        throw "The official checksum for $ArchiveName could not be found."
+    }
+    $Bits = Get-Command "Start-BitsTransfer" -ErrorAction SilentlyContinue
+    if ($Bits) {
+        try {
+            Start-BitsTransfer -Source $Url -Destination $Destination -ErrorAction Stop
+        }
+        catch {
+            Write-Warning "BITS download was unavailable; retrying with Invoke-WebRequest."
+            Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+        }
+    }
+    else {
+        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+    }
+    $ActualHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
+    if ($ActualHash -ne $ChecksumMatch.Groups[1].Value) {
+        throw "Checksum verification failed for $ArchiveName."
+    }
+}
+
+function Get-NodeTools {
+    $Node = Get-CommandPath "node.exe"
+    $Npm = Get-CommandPath "npm.cmd"
+    if ($Node -and $Npm) {
+        $VersionText = (& $Node --version).Trim()
+        if ($LASTEXITCODE -eq 0 -and $VersionText -match '^v(?<major>\d+)\.' -and [int]$Matches.major -ge 20) {
+            return [pscustomobject]@{ Node = $Node; Npm = $Npm; Version = $VersionText }
+        }
+        Write-Warning "The installed Node.js is older than version 20; a project-local version will be used."
+    }
+
+    if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne "X64") {
+        throw "Automatic Node.js installation currently supports Windows x64 only. Install Node.js 20+ manually on this computer."
+    }
+    $ToolsRoot = Join-Path $ProjectRoot ".tools"
+    $NodeFolderName = "node-v$PortableNodeVersion-win-x64"
+    $NodeDirectory = Join-Path $ToolsRoot $NodeFolderName
+    $PortableNode = Join-Path $NodeDirectory "node.exe"
+    $PortableNpm = Join-Path $NodeDirectory "npm.cmd"
+    if (-not (Test-Path -LiteralPath $PortableNode -PathType Leaf) -or -not (Test-Path -LiteralPath $PortableNpm -PathType Leaf)) {
+        Write-Host "Node.js was not found; installing a portable copy inside .tools."
+        $DownloadDirectory = Join-Path $ProjectRoot ".tmp\tool-bootstrap"
+        New-Item -ItemType Directory -Force -Path $DownloadDirectory | Out-Null
+        New-Item -ItemType Directory -Force -Path $ToolsRoot | Out-Null
+        $ArchiveName = "$NodeFolderName.zip"
+        $ArchivePath = Join-Path $DownloadDirectory $ArchiveName
+        Get-VerifiedDownload `
+            -Url "https://nodejs.org/dist/v$PortableNodeVersion/$ArchiveName" `
+            -ChecksumUrl "https://nodejs.org/dist/v$PortableNodeVersion/SHASUMS256.txt" `
+            -ArchiveName $ArchiveName `
+            -Destination $ArchivePath
+        if (Test-Path -LiteralPath $NodeDirectory) {
+            Remove-Item -LiteralPath $NodeDirectory -Recurse -Force
+        }
+        Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ToolsRoot -Force
+    }
+    $env:PATH = "$NodeDirectory$([System.IO.Path]::PathSeparator)$env:PATH"
+    return [pscustomobject]@{ Node = $PortableNode; Npm = $PortableNpm; Version = (& $PortableNode --version).Trim() }
+}
+
+function Get-UvTool {
+    $Uv = Get-CommandPath "uv.exe"
+    if ($Uv) {
+        return $Uv
+    }
+    if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne "X64") {
+        throw "Automatic uv installation currently supports Windows x64 only. Install uv manually on this computer."
+    }
+
+    $ToolsRoot = Join-Path $ProjectRoot ".tools"
+    $UvDirectory = Join-Path $ToolsRoot "uv-$PortableUvVersion"
+    $PortableUv = Join-Path $UvDirectory "uv.exe"
+    if (-not (Test-Path -LiteralPath $PortableUv -PathType Leaf)) {
+        Write-Host "uv was not found; installing a portable copy inside .tools."
+        $DownloadDirectory = Join-Path $ProjectRoot ".tmp\tool-bootstrap"
+        New-Item -ItemType Directory -Force -Path $DownloadDirectory | Out-Null
+        New-Item -ItemType Directory -Force -Path $UvDirectory | Out-Null
+        $ArchiveName = "uv-x86_64-pc-windows-msvc.zip"
+        $ArchivePath = Join-Path $DownloadDirectory "uv-$PortableUvVersion.zip"
+        $ReleaseUrl = "https://github.com/astral-sh/uv/releases/download/$PortableUvVersion"
+        Get-VerifiedDownload `
+            -Url "$ReleaseUrl/$ArchiveName" `
+            -ChecksumUrl "$ReleaseUrl/$ArchiveName.sha256" `
+            -ArchiveName $ArchiveName `
+            -Destination $ArchivePath
+        Expand-Archive -LiteralPath $ArchivePath -DestinationPath $UvDirectory -Force
+    }
+    return $PortableUv
 }
 
 function Invoke-Checked {
@@ -208,16 +318,14 @@ function Invoke-Startup {
     Write-Host "Project: $ProjectRoot"
 
     Write-Step "Checking required tools"
-    $Node = Require-Command "node.exe" "Install Node.js 20 or newer from https://nodejs.org/."
-    $Npm = Require-Command "npm.cmd" "Reinstall Node.js with npm enabled."
-    $Uv = Require-Command "uv.exe" "Install uv from https://docs.astral.sh/uv/."
+    $NodeTools = Get-NodeTools
+    $Node = $NodeTools.Node
+    $Npm = $NodeTools.Npm
+    $Uv = Get-UvTool
 
     $NodeVersionText = (& $Node --version).Trim()
     if ($NodeVersionText -notmatch '^v(?<major>\d+)\.') {
         throw "Unable to parse Node.js version '$NodeVersionText'."
-    }
-    if ([int]$Matches.major -lt 20) {
-        throw "Node.js 20 or newer is required; found $NodeVersionText."
     }
     $NpmVersion = (& $Npm --version).Trim()
     $UvVersion = (& $Uv --version).Trim()
@@ -262,7 +370,12 @@ function Invoke-Startup {
 
     Write-Step "Checking Python dependencies"
     $env:UV_CACHE_DIR = Join-Path $ProjectRoot ".uv-cache"
-    Invoke-Checked -FilePath $Uv -Arguments @("sync", "--dev", "--extra", "voice", "--locked") -Description "Python dependency synchronization"
+    $UvArguments = @("sync", "--locked")
+    if ($WithVoice) {
+        $UvArguments += @("--extra", "voice")
+        Write-Host "Optional voice dependencies are enabled."
+    }
+    Invoke-Checked -FilePath $Uv -Arguments $UvArguments -Description "Python dependency synchronization"
     $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $Python)) {
         throw "uv completed but $Python was not created."

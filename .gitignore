@@ -11,6 +11,7 @@
 # Dependencies and build output
 node_modules/
 dist/
+.tools/
 .vite/
 *.tsbuildinfo
 vite.config.js
@@ -49,12 +50,13 @@ coverage/
 playwright-report/
 test-results/
 .eslintcache
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Generated evidence and local demo assets
+# Generated release archives, evidence, and local demo assets
 /release/
 /evidence/**/*.png
 /evidence/**/*.jpg

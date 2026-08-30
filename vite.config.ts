@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 declare const process: { env: Record<string, string | undefined> }
@@ -7,6 +7,10 @@ const apiProxyTarget = process.env.OPC_API_PROXY_TARGET ?? 'http://127.0.0.1:800
 
 export default defineConfig(({ command }) => ({
   plugins: [react()],
+  test: {
+    exclude: ['**/node_modules/**', '**/.git/**', '**/.tmp/**'],
+    testTimeout: 30000,
+  },
   // FastAPI serves public assets directly in production. Avoid recopying the
   // large model library into dist on every launcher run.
   publicDir: command === 'build' ? false : 'public',

@@ -1753,7 +1753,8 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
       // reduced aisle is reported as a warning instead of a batch hard error.
       const roomBoundsNow=rectangleBounds(spec), halfDepth=item.depth_mm/2, halfWidth=item.width_mm/2
       const candidateXs=[0,100,-100,200,-200,300,-300,400,-400,500,-500].map((offset)=>Math.max(roomBoundsNow.minX+halfWidth+1, Math.min(roomBoundsNow.maxX-halfWidth-1, washerAnchor.x_mm+offset)))
-      const candidateZ=Math.max(roomBoundsNow.minZ+halfDepth+1, Math.min(roomBoundsNow.maxZ-halfDepth-1, washerAnchor.z_mm+halfDepth))
+      const drainHalfDepth=(washerDrain?.depth_mm??0)/2
+      const candidateZ=Math.max(roomBoundsNow.minZ+halfDepth+1, Math.min(roomBoundsNow.maxZ-halfDepth-1, washerAnchor.z_mm+halfDepth-drainHalfDepth))
       const fallback= candidateXs.map((x)=>({ ...item, x_mm:x, z_mm:candidateZ, rotation_deg:washerAnchor.rotation_deg ?? 0, bound_wall_index:null }))
         .find((candidate)=>fixtureInsideRoom(candidate, layoutBoundary(spec)) && !blocksFurnitureOpeningEnvelope(spec,candidate) && !occupied.some((other)=>!permittedAssembly(candidate,other)&&overlaps(candidate,other,bodyCollisionClearance(candidate,other))))
       if (fallback) Object.assign(item, fallback)
@@ -2491,30 +2492,69 @@ function syncSolutionWetZoneSize(spec: RoomSpec, solution: LayoutSolution) {
   // applying a solution cannot perform a second search and drift away from a
   // measured shower drain. Legacy rooms without drain evidence retain the
   // nominal fixture envelope.
-  if (!spec.fixtures.some((item) => item.kind === 'floor_drain' && fixturePointUsage(item) === 'shower')) return solution
+  const measuredDrains = spec.fixtures.filter((item) => item.kind === 'floor_drain' && fixturePointUsage(item) === 'shower')
+  if (!measuredDrains.length) return solution
+  let boundary: Point2D[]
   try {
-    const boundary = wetZoneBoundaryForSolution(spec, solution)
-    const minX = Math.min(...boundary.map((point) => point.x_mm)); const maxX = Math.max(...boundary.map((point) => point.x_mm))
-    const minZ = Math.min(...boundary.map((point) => point.z_mm)); const maxZ = Math.max(...boundary.map((point) => point.z_mm))
-    solution.wet_zone_boundary = boundary.map((point) => ({ ...point }))
-    solution.wet_zone = { x_mm: (minX + maxX) / 2, z_mm: (minZ + maxZ) / 2, width_mm: maxX - minX, depth_mm: maxZ - minZ }
-    solution.solver_trace.reachable = isReachable(
-      spec,
-      solution.fixtures.filter((fixture) => (fixture.elevation_mm ?? 0) === 0 && !['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(fixture.kind)),
-      { x: solution.wet_zone.x_mm, z: solution.wet_zone.z_mm },
-    )
-    const reachability = solution.checks.find((check) => check.code === 'G05')
-    if (reachability) {
-      reachability.passed = solution.solver_trace.reachable
-      reachability.message = reachability.passed ? '家具布局完成后，门口至最大湿区存在连续可达路径' : '家具布局完成后，门口至最大湿区通路未通过，需选择其他候选'
-    }
-    const showerSizeCheck = solution.checks.find((check) => check.code === 'S01')
-    if (showerSizeCheck) {
-      showerSizeCheck.passed = Math.min(solution.wet_zone.width_mm, solution.wet_zone.depth_mm) >= BATHROOM_AUTO_LAYOUT_RULES.shower_min_internal_mm
-      showerSizeCheck.message = `家具布局完成后最大湿区 ${solution.wet_zone.width_mm}×${solution.wet_zone.depth_mm}mm`
-    }
+    // plumbingObjective caches a provisional boundary for candidate ranking.
+    // Recompute after the winning furniture layout is known so the persisted
+    // rectangle is maximized and still contains the measured drain envelope.
+    solution.wet_zone_boundary = undefined
+    boundary = wetZoneBoundaryForSolution(spec, solution)
   } catch {
-    // The apply step remains authoritative if no legal rectangle exists.
+    // If maximization is impossible, retain the solver's nominal wet envelope
+    // only when it remains legal and contains every measured drain in full.
+    const wet = solution.wet_zone_anchor ?? solution.wet_zone
+    boundary = [
+      { x_mm: wet.x_mm - wet.width_mm / 2, z_mm: wet.z_mm - wet.depth_mm / 2 },
+      { x_mm: wet.x_mm + wet.width_mm / 2, z_mm: wet.z_mm - wet.depth_mm / 2 },
+      { x_mm: wet.x_mm + wet.width_mm / 2, z_mm: wet.z_mm + wet.depth_mm / 2 },
+      { x_mm: wet.x_mm - wet.width_mm / 2, z_mm: wet.z_mm + wet.depth_mm / 2 },
+    ]
+    const validationSpec = {
+      ...spec,
+      fixtures: [...spec.fixtures, ...solution.fixtures.filter((item) => !/淋浴隔断/.test(item.label))],
+      dry_wet_zones: [],
+    }
+    if (!measuredDrains.every((drain) => fixtureInsideRoom(drain, boundary))
+      || !wetZoneBoundaryValid(validationSpec, `candidate-${solution.id}`, boundary)) {
+      const showerSizeCheck = solution.checks.find((check) => check.code === 'S01')
+      if (showerSizeCheck) {
+        showerSizeCheck.passed = false
+        showerSizeCheck.severity = 'error'
+        showerSizeCheck.message = '家具布局完成后无法生成同时包含实测淋浴地漏的合法湿区'
+      }
+      return solution
+    }
+  }
+
+  const minX = Math.min(...boundary.map((point) => point.x_mm)); const maxX = Math.max(...boundary.map((point) => point.x_mm))
+  const minZ = Math.min(...boundary.map((point) => point.z_mm)); const maxZ = Math.max(...boundary.map((point) => point.z_mm))
+  solution.wet_zone_boundary = boundary.map((point) => ({ ...point }))
+  solution.wet_zone = { x_mm: (minX + maxX) / 2, z_mm: (minZ + maxZ) / 2, width_mm: maxX - minX, depth_mm: maxZ - minZ }
+  if (solution.fixtures.some((item) => /淋浴隔断/.test(item.label))) {
+    solution.fixtures = solution.fixtures.filter((item) => !/淋浴隔断/.test(item.label))
+    const wetFixture = fixture(
+      `${solution.id}-wet-zone`, 'shower', '淋浴湿区',
+      solution.wet_zone.x_mm, solution.wet_zone.z_mm,
+      solution.wet_zone.width_mm, solution.wet_zone.depth_mm, 2000,
+    )
+    appendShowerScreenPanels(spec, wetFixture, solution.fixtures, solution.id, budgets.indexOf(solution.budget))
+  }
+  solution.solver_trace.reachable = isReachable(
+    spec,
+    solution.fixtures.filter((item) => (item.elevation_mm ?? 0) === 0 && !['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(item.kind)),
+    { x: solution.wet_zone.x_mm, z: solution.wet_zone.z_mm },
+  )
+  const reachability = solution.checks.find((check) => check.code === 'G05')
+  if (reachability) {
+    reachability.passed = solution.solver_trace.reachable
+    reachability.message = reachability.passed ? '家具布局完成后，门口至最大湿区存在连续可达路径' : '家具布局完成后，门口至最大湿区通路未通过，需选择其他候选'
+  }
+  const showerSizeCheck = solution.checks.find((check) => check.code === 'S01')
+  if (showerSizeCheck) {
+    showerSizeCheck.passed = Math.min(solution.wet_zone.width_mm, solution.wet_zone.depth_mm) >= BATHROOM_AUTO_LAYOUT_RULES.shower_min_internal_mm
+    showerSizeCheck.message = `家具布局完成后最大湿区 ${solution.wet_zone.width_mm}×${solution.wet_zone.depth_mm}mm`
   }
   return solution
 }

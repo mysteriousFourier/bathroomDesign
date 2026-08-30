@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { applyWetZoneBoundaryChange, cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWall, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, projectPointToWall, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, snapPointToNearestWall, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallFinishGap, wallLength, wallPanelCutList, wetZoneBoundaryValid } from '../spec'
+import { resolveFixtureDrag } from '../layoutEngine'
+import { applyWetZoneBoundaryChange, cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureBoundWallIndex, fixtureCanBindWallForFixture, fixtureCenterForWallBinding, fixtureDefaults, fixtureLabels, fixturePointUsage, fixturePointUsageLabels, finishSurfaceOffset, generateDryWetZones, generateWallFinishProfiles, nextOpeningLabel, polylineLength, polylineSegmentLength, resizePolylineSegment, roomBounds, roomCentroid, setOpeningOnWall, snapPointToNearestWall, stripsExistingFinish, structuralInnerBoundary, wallFinishBaseThickness, wallFinishGap, wallLength, wallPanelCutList, wetZoneBoundaryValid } from '../spec'
 import type { Asset, DryWetZone, EvidenceRole, FixtureKind, FixturePointUsage, PlanLineKind, RoomSpec, Selection, SourceKind } from '../types'
 import { EvidenceReview } from './EvidenceReview'
 
@@ -82,9 +83,9 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
     const defaults = fixtureDefaults[kind]
     const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`
     edit((draft) => {
-      if (kind === 'floor_drain' && pointUsage === 'shower') draft.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
+      if (kind === 'floor_drain' && pointUsage === 'shower') draft.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
       draft.fixtures.push({
-        id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : kind === 'drain' && pointUsage === 'toilet' ? '马桶排水' : fixtureLabels[kind], x_mm: Math.round(center.x), z_mm: Math.round(center.z),
+        id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : kind === 'floor_drain' && pointUsage === 'washer' ? '洗衣机地漏' : kind === 'drain' && pointUsage === 'toilet' ? '马桶排水' : fixtureLabels[kind], x_mm: Math.round(center.x), z_mm: Math.round(center.z),
         ...defaults, width_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.width_mm, depth_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.depth_mm, rotation_deg: 0, source: 'user', confidence: 1,
         point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined,
       })
@@ -190,9 +191,13 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
                 }))
                 ensureWallFinishGapsForBoundPoints(draft)
                 draft.fixtures.forEach((fixture) => {
-                  if (!fixtureCanBindWall(fixture.kind) || fixture.bound_wall_index === undefined || fixture.bound_wall_index === null) return
-                  const projection = projectPointToWall(finishedRoomBoundary(draft), fixture.bound_wall_index, fixture)
-                  if (projection) { fixture.x_mm = projection.point.x_mm; fixture.z_mm = projection.point.z_mm }
+                  if (!fixtureCanBindWallForFixture(fixture) || fixture.bound_wall_index === undefined || fixture.bound_wall_index === null) return
+                  const placement = fixtureCenterForWallBinding(draft, fixture.bound_wall_index, fixture)
+                  if (placement) {
+                    fixture.x_mm = placement.point.x_mm
+                    fixture.z_mm = placement.point.z_mm
+                    if (fixture.kind === 'vanity' || /浴室柜/.test(fixture.label)) fixture.rotation_deg = placement.rotation_deg
+                  }
                 })
               })}>生成逐墙饰面</button>
               {(spec.wall_finish_profiles ?? []).map((finish) => <div className="finish-row" key={`finish-row-${finish.wall_index}`}>
@@ -229,7 +234,7 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             {(selectedFixture.kind === 'floor_drain' || selectedFixture.kind === 'drain' || selectedFixture.kind === 'water') && <label className="text-field"><span>{selectedFixture.kind === 'floor_drain' ? '地漏类型' : '使用对象'}</span><select value={fixturePointUsage(selectedFixture) ?? 'general'} onChange={(event) => edit((draft) => {
               const usage = event.target.value as FixturePointUsage
               const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!
-              if (item.kind === 'floor_drain' && usage === 'shower') draft.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain' && fixture.id !== item.id) { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
+              if (item.kind === 'floor_drain' && usage === 'shower') draft.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain' && fixture.id !== item.id && fixturePointUsage(fixture) === 'shower') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
               item.point_usage = usage
               if (item.kind === 'drain' && usage === 'toilet') {
                 item.label = '马桶排水'
@@ -238,25 +243,24 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
               }
               if (item.kind === 'floor_drain') {
                 if (usage === 'shower') item.label = '淋浴地漏'
-                else if (item.label === '淋浴地漏') item.label = '地漏'
+                else if (usage === 'washer') item.label = '洗衣机地漏'
+                else if (item.label === '淋浴地漏' || item.label === '洗衣机地漏') item.label = '地漏'
+                if (usage === 'washer') item.bound_wall_index = null
               }
-            })}>{(selectedFixture.kind === 'floor_drain' ? (['general', 'shower'] as FixturePointUsage[]) : Object.keys(fixturePointUsageLabels) as FixturePointUsage[]).map((usage) => <option key={usage} value={usage}>{selectedFixture.kind === 'floor_drain' ? (usage === 'shower' ? '淋浴地漏' : '普通地漏') : `${fixturePointUsageLabels[usage]}${selectedFixture.kind === 'water' ? '给水' : '排水'}`}</option>)}</select></label>}
-            {(['x_mm', 'z_mm', 'width_mm', 'depth_mm', 'height_mm', 'rotation_deg'] as const).map((field) => (
-              <NumberField key={field} label={{ x_mm: 'X 位置', z_mm: 'Z 位置', width_mm: '宽度', depth_mm: '深度', height_mm: '高度', rotation_deg: '旋转' }[field]} value={selectedFixture[field]} unit={field === 'rotation_deg' ? '°' : 'mm'} step={field === 'rotation_deg' ? 5 : 10} onChange={(value) => edit((draft) => {
+            })}>{(selectedFixture.kind === 'floor_drain' ? (['general', 'shower', 'washer'] as FixturePointUsage[]) : Object.keys(fixturePointUsageLabels) as FixturePointUsage[]).map((usage) => <option key={usage} value={usage}>{selectedFixture.kind === 'floor_drain' ? (usage === 'shower' ? '淋浴地漏' : usage === 'washer' ? '洗衣机地漏' : '普通地漏') : `${fixturePointUsageLabels[usage]}${selectedFixture.kind === 'water' ? '给水' : '排水'}`}</option>)}</select></label>}
+             {(['x_mm', 'z_mm', 'width_mm', 'depth_mm', 'height_mm', 'rotation_deg'] as const).map((field) => (
+              <NumberField key={field} label={{ x_mm: 'X 位置', z_mm: 'Z 位置', width_mm: '宽度', depth_mm: '深度', height_mm: '高度', rotation_deg: '旋转' }[field]} value={selectedFixture[field]} unit={field === 'rotation_deg' ? '°' : 'mm'} step={field === 'rotation_deg' ? 5 : 10} disabled={(selectedFixture.kind === 'vanity' || /浴室柜/.test(selectedFixture.label)) && ['width_mm', 'depth_mm', 'height_mm'].includes(field)} onChange={(value) => edit((draft) => {
                 const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!
+                // Bathroom cabinets are a fixed installation product. Keep
+                // the envelope immutable even if an external caller invokes
+                // the field handler directly instead of using the disabled UI.
+                if ((item.kind === 'vanity' || /浴室柜/.test(item.label)) && ['width_mm', 'depth_mm', 'height_mm'].includes(field)) return
                 item[field] = value
-                if ((field === 'x_mm' || field === 'z_mm') && fixtureCanBindWall(item.kind)) {
-                  // Coordinate edits should have the same detach semantics as
-                  // dragging: stay bound only while the point remains near a
-                  // finished wall, otherwise clear the stale wall index.
-                  const snap = snapPointToNearestWall(finishedRoomBoundary(draft), item)
-                  if (snap) {
-                    item.x_mm = snap.point.x_mm
-                    item.z_mm = snap.point.z_mm
-                    item.bound_wall_index = snap.wall_index
-                  } else {
-                    item.bound_wall_index = null
-                  }
+                if ((field === 'x_mm' || field === 'z_mm') && fixtureCanBindWallForFixture(item)) {
+                  // Coordinate edits use the same legacy washer-drain
+                  // inference and detach behavior as canvas dragging.
+                  const resolved = resolveFixtureDrag(draft, item.id, { x_mm: item.x_mm, z_mm: item.z_mm })
+                  if (resolved) Object.assign(item, resolved)
                 }
               })} />
             ))}
@@ -266,13 +270,17 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
               <div><span>版本</span><strong>{selectedFixture.model_asset.version ?? '1.0.0'}</strong></div>
               <div><span>SHA256</span><code>{selectedFixture.model_asset.sha256?.slice(0, 12) ?? '未登记'}</code></div>
             </div>}
-            {fixtureCanBindWall(selectedFixture.kind) && <label className="text-field"><span>绑定墙段</span><select value={selectedFixtureWall ?? ''} onChange={(event) => edit((draft) => {
+            {fixtureCanBindWallForFixture(selectedFixture) && <label className="text-field"><span>绑定墙段</span><select value={selectedFixtureWall ?? ''} onChange={(event) => edit((draft) => {
               const item = draft.fixtures.find((candidate) => candidate.id === selectedFixture.id)!
               if (event.target.value === '') { item.bound_wall_index = null; return }
               const wallIndex = Number(event.target.value)
-              const projection = projectPointToWall(finishedRoomBoundary(draft), wallIndex, item)
-              item.bound_wall_index = projection ? wallIndex : null
-              if (projection) { item.x_mm = projection.point.x_mm; item.z_mm = projection.point.z_mm }
+              const placement = fixtureCenterForWallBinding(draft, wallIndex, item)
+              item.bound_wall_index = placement ? wallIndex : null
+              if (placement) {
+                item.x_mm = placement.point.x_mm
+                item.z_mm = placement.point.z_mm
+                if (item.kind === 'vanity' || /浴室柜/.test(item.label)) item.rotation_deg = placement.rotation_deg
+              }
             })}><option value="">未绑定</option>{spec.boundary.map((_, index) => <option key={index} value={index}>W{index + 1}</option>)}</select></label>}
             <button className="button danger-text wide" onClick={() => { edit((draft) => { draft.fixtures = draft.fixtures.filter((item) => item.id !== selectedFixture.id) }); onSelect({ type: 'room' }) }}><Trash2 size={15} />删除设施</button>
           </div>
@@ -373,6 +381,7 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
         <div className="add-row">
           <select defaultValue="" onChange={(event) => {
             if (event.target.value === 'floor_drain:shower') addFixture('floor_drain', 'shower')
+            else if (event.target.value === 'floor_drain:washer') addFixture('floor_drain', 'washer')
             else if (event.target.value === 'drain:toilet') addFixture('drain', 'toilet')
             else if (event.target.value) addFixture(event.target.value as FixtureKind)
             event.target.value = ''
@@ -380,6 +389,7 @@ export function Inspector({ spec, assets, selection, onSelect, onChange, onEvide
             <option value="" disabled>添加设施…</option>
             {Object.entries(fixtureLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
             <option value="floor_drain:shower">淋浴地漏</option>
+            <option value="floor_drain:washer">洗衣机地漏</option>
             <option value="drain:toilet">马桶排水点</option>
           </select>
           <button className="icon-button" title="添加门窗洞口" onClick={addOpening}><Plus size={16} /></button>

@@ -12,8 +12,8 @@ describe('routePlumbing',()=>{
       {id:'heater-outlet',kind:'water',label:'热水器热水出水角阀',x_mm:2800,z_mm:2200,width_mm:40,depth_mm:40,height_mm:40,elevation_mm:1500,rotation_deg:0,source:'user',confidence:1,bound_wall_index:2},
     )
     const route=routePlumbing(spec)!
-    expect(route.inlet).toEqual({x_mm:800,z_mm:0,y_mm:2540})
-    expect(route.supply_origin).toEqual({x_mm:800,z_mm:-300,y_mm:2540})
+    expect(route.inlet).toEqual({x_mm:800,z_mm:0,y_mm:2760})
+    expect(route.supply_origin).toEqual({x_mm:800,z_mm:-300,y_mm:2760})
     const penetration=route.segments.slice(0,2)
     expect(penetration.map(item=>[item.from.x_mm,item.from.z_mm,item.to.x_mm,item.to.z_mm])).toEqual([
       [800,-300,800,0],
@@ -67,7 +67,7 @@ describe('routePlumbing',()=>{
     )
     const route=routePlumbing(spec)!
     expect(route.manifold_wall_index).toBeNull()
-    expect(route.cold_manifold.y_mm).toBe(2540)
+    expect(route.cold_manifold.y_mm).toBeGreaterThan(spec.height_mm!)
     expect(route.hot_manifold).toBeNull()
     expect(route.manifold_ports).toBe(6)
     expect(route.cold_manifold.x_mm).not.toBe(0)
@@ -107,6 +107,37 @@ describe('routePlumbing',()=>{
     horizontal.forEach((item)=>{
       expect(crossesObstacle(item.from,item.to,cabinetFixture(spec))).toBe(false)
     })
+  })
+
+  it('keeps every appliance connection vertical and uses the heater projection for the hot riser', () => {
+    const spec = manualRoom(3200, 2400, 2600)
+    spec.fixtures.push(
+      { id:'heater', kind:'other', label:'热水器', x_mm:2800, z_mm:300, width_mm:720, depth_mm:180, height_mm:430, elevation_mm:1800, rotation_deg:0, source:'derived', confidence:1 },
+      { id:'heater-hot', kind:'water', label:'热水器热水出水角阀', x_mm:2800, z_mm:300, width_mm:40, depth_mm:40, height_mm:40, elevation_mm:1800, rotation_deg:0, source:'user', confidence:1 },
+      { id:'basin-hot-a', kind:'water', label:'台盆热水 A', x_mm:400, z_mm:2100, width_mm:40, depth_mm:40, height_mm:40, elevation_mm:500, rotation_deg:0, source:'user', confidence:1 },
+      { id:'basin-hot-b', kind:'water', label:'台盆热水 B', x_mm:1200, z_mm:2100, width_mm:40, depth_mm:40, height_mm:40, elevation_mm:500, rotation_deg:0, source:'user', confidence:1 },
+    )
+    const route = routePlumbing(spec)!
+    expect(route.hot_manifold).toBeTruthy()
+    const hotDrops = route.segments.filter((item) => item.temperature === 'hot' && item.id.endsWith('-drop'))
+    expect(hotDrops.map((item) => item.fixture_id).sort()).toEqual(['basin-hot-a', 'basin-hot-b'])
+    hotDrops.forEach((item) => {
+      expect(item.from.x_mm).toBe(item.to.x_mm)
+      expect(item.from.z_mm).toBe(item.to.z_mm)
+    })
+    const riser = route.segments.find((item) => item.id === 'hot-source-rise')!
+    expect(riser.from.x_mm).toBe(riser.to.x_mm)
+    expect(riser.from.z_mm).toBe(riser.to.z_mm)
+  })
+
+  it('connects a wall terminal recorded on the finished face to its cabinet host', () => {
+    const spec = manualRoom(2400, 1800, 2600)
+    spec.fixtures.push(
+      { id:'cabinet', kind:'vanity', label:'浴室柜', x_mm:1200, z_mm:300, width_mm:800, depth_mm:520, height_mm:900, elevation_mm:0, rotation_deg:0, source:'user', confidence:1, bound_wall_index:0 },
+      { id:'cabinet-cold', kind:'water', label:'浴室柜冷水', x_mm:1200, z_mm:0, width_mm:40, depth_mm:40, height_mm:40, elevation_mm:500, rotation_deg:0, source:'user', confidence:1, bound_wall_index:0 },
+    )
+    const route = routePlumbing(spec)!
+    expect(route.segments.some((item) => item.fixture_id === 'cabinet-cold' && item.from.x_mm === item.to.x_mm && item.from.z_mm === item.to.z_mm)).toBe(true)
   })
 })
 

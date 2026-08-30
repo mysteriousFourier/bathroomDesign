@@ -15,7 +15,7 @@ import { WorkflowStatus } from './components/WorkflowStatus'
 import { metricBoundaryFromEdges } from './geometry'
 import { applyEvidenceToSpec, deleteEvidenceFromSpec, measurementNumbers, wallTarget } from './measurementDraft'
 import { fixtureModelAssetFromLibrary, modelAssetPointKind, refreshFixtureModelAsset, refreshFixtureModelAssets, type RoomModelAsset } from './modelAssets'
-import { applyLayoutSolution, generateDeterministicLayoutSolutions, generateLayoutSolutions, reattachWallDependentFixtures, resolveFixtureDrag, syncDraggedFixtureServicePoints, type LayoutSolution } from './layoutEngine'
+import { applyLayoutSolution, clearGeneratedLayout, generateDeterministicLayoutSolutions, generateLayoutSolutions, hasGeneratedLayout, normalizeGeneratedShowerDimensions, reattachWallDependentFixtures, resolveFixtureDrag, syncDraggedFixtureServicePoints, type LayoutSolution } from './layoutEngine'
 import { surfaceMaterialsForDesignQuote } from './modelLibrary'
 import { applyWetZoneBoundaryChange, clientValidate, cloneSpec, ensureWallFinishGapsForBoundPoints, finishedRoomBoundary, fixtureDefaults, fixtureLabels, fixturePointUsage, manualRoom, nextOpeningLabel, projectPointToWall, repairPendingOpeningImageBindings, setOpeningOnWall, snapPointToNearestWall, syncOpeningBindings, updateOpeningFromLine, wallLength } from './spec'
 import type { BoundaryEdge, DesignChatResponse, EvidenceRole, FixtureKind, FixturePointUsage, Health, ImageBoundaryPoint, ImportedModelAsset, MeasurementImportResponse, PlanLineKind, Point2D, Project, RoomSpec, Selection } from './types'
@@ -26,6 +26,9 @@ const ModelCanvas = lazy(() => import('./components/ModelCanvas').then(({ ModelC
 const ModelAssetLibrary = lazy(() => import('./components/ModelAssetLibrary').then(({ ModelAssetLibrary: component }) => ({ default: component })))
 
 const MAX_AUTO_LAYOUT_ATTEMPTS = 4
+
+const isAutoLayoutPoint = (fixture: { kind: FixtureKind }) =>
+  ['floor_drain', 'drain', 'water', 'electric'].includes(fixture.kind) || fixture.kind === 'toilet'
 
 function ModelLoadingFallback() {
   return <div className="loading-screen"><LoaderCircle className="spin" size={28} /><span>正在加载三维模块…</span></div>
@@ -44,7 +47,11 @@ const layoutGeometrySignature = (solution: LayoutSolution) => {
   const fixturePositions = solution.fixtures
     .filter((fixture) => !['water', 'electric', 'floor_drain', 'drain'].includes(fixture.kind))
     .map((fixture) => `${role(fixture.label, fixture.kind)}:${fixture.x_mm}:${fixture.z_mm}:${fixture.rotation_deg}`)
-  return [`wet_zone:${solution.wet_zone.x_mm}:${solution.wet_zone.z_mm}`, ...fixturePositions].sort().join('|')
+  // The wet-zone envelope is part of the actual geometry.  Its dimensions
+  // may be the only legal tier difference when measured anchors lock the
+  // furniture to one wall, so comparing only the centre falsely classifies
+  // otherwise distinct layouts as duplicates.
+  return [`wet_zone:${solution.wet_zone.x_mm}:${solution.wet_zone.z_mm}:${solution.wet_zone.width_mm}:${solution.wet_zone.depth_mm}`, ...fixturePositions].sort().join('|')
 }
 
 const duplicateLayoutGroups = (solutions: LayoutSolution[]) => {
@@ -60,14 +67,18 @@ const invalidLayoutSolutions = (solutions: LayoutSolution[]) => solutions.filter
   solution.checks.some((check) => !check.passed && check.severity === 'error'),
 )
 
-const layoutBatchReady = (solutions: LayoutSolution[]) =>
-  solutions.length === 3 && invalidLayoutSolutions(solutions).length === 0 && duplicateLayoutGroups(solutions).length === 0 &&
+const layoutProductBatchReady = (solutions: LayoutSolution[]) =>
+  solutions.length === 3 && invalidLayoutSolutions(solutions).length === 0 &&
   new Set(solutions.map((solution) => [...solution.selected_product_ids].sort().join('|'))).size === 3 &&
   [...solutions].sort((left, right) => ['basic', 'comfort', 'premium'].indexOf(left.budget) - ['basic', 'comfort', 'premium'].indexOf(right.budget))
     .every((solution, index, ordered) => index === 0 || ordered[index - 1].total_price < solution.total_price)
 
-const usableLayoutSolutions = (solutions: LayoutSolution[]) => {
+const layoutBatchReady = (solutions: LayoutSolution[]) =>
+  layoutProductBatchReady(solutions) && duplicateLayoutGroups(solutions).length === 0
+
+const usableLayoutSolutions = (solutions: LayoutSolution[], allowGeometryDuplicates = false) => {
   const valid = solutions.filter((solution) => !solution.checks.some((check) => !check.passed && check.severity === 'error'))
+  if (allowGeometryDuplicates) return valid
   const seen = new Set<string>()
   return valid.filter((solution) => {
     const signature = layoutGeometrySignature(solution)
@@ -77,7 +88,7 @@ const usableLayoutSolutions = (solutions: LayoutSolution[]) => {
   })
 }
 
-const completeLayoutSolutions = (primary: LayoutSolution[], fallback: LayoutSolution[]) => {
+const completeLayoutSolutions = (primary: LayoutSolution[], fallback: LayoutSolution[], allowFallbackGeometryDuplicates = false) => {
   const tierOrder: LayoutSolution['budget'][] = ['basic', 'comfort', 'premium']
   const result: LayoutSolution[] = []
   const signatures = new Set<string>()
@@ -86,7 +97,7 @@ const completeLayoutSolutions = (primary: LayoutSolution[], fallback: LayoutSolu
     if (!candidate || tiers.has(candidate.budget)) return
     if (candidate.checks.some((check) => !check.passed && check.severity === 'error')) return
     const signature = layoutGeometrySignature(candidate)
-    if (signatures.has(signature)) return
+    if (signatures.has(signature) && !allowGeometryDuplicates) return
     signatures.add(signature)
     tiers.add(candidate.budget)
     result.push(candidate)
@@ -96,6 +107,10 @@ const completeLayoutSolutions = (primary: LayoutSolution[], fallback: LayoutSolu
   // remote batch only after it passes every three-tier gate; otherwise apply
   // the already validated local batch as a whole.
   const source = layoutBatchReady(primary) ? primary : fallback
+  // Fixed measured points can make all tiers share the same physical
+  // coordinates. Local fallback still remains valid when products and prices
+  // are distinct, so only reject duplicate geometry for a remote batch.
+  const allowGeometryDuplicates = source === fallback && allowFallbackGeometryDuplicates && layoutProductBatchReady(source)
   for (const tier of tierOrder) add(source.find((candidate) => candidate.budget === tier))
   if (result.length !== tierOrder.length) {
     throw new Error('三个价位档位未能全部生成无硬错误且互不重复的可应用方案')
@@ -129,6 +144,13 @@ const layoutRetryFeedback = (solutions: LayoutSolution[], attempt: number) => ({
   ],
 })
 
+const layoutInputSignature = (spec: RoomSpec) => JSON.stringify({
+  ...spec,
+  observations: undefined,
+  issues: undefined,
+  fixtures: spec.fixtures.map(({ model_asset: _modelAsset, ...fixture }) => fixture),
+})
+
 const wetZonesOnly = (spec: RoomSpec) => {
   const wetZones = spec.dry_wet_zones?.filter((zone) => zone.kind === 'wet' && zone.id !== 'wet-auto-1') ?? []
   if (wetZones.length === (spec.dry_wet_zones?.length ?? 0)) return spec
@@ -138,7 +160,10 @@ const wetZonesOnly = (spec: RoomSpec) => {
 const visibleSpec = (value: Project | null) => {
   const spec = value?.spec ?? null
   if (!spec) return null
-  const normalized = cloneSpec(spec)
+  // Persisted projects may contain the legacy 120x80x1100 auto-layout shower.
+  // Normalize it before rendering or re-saving so the old envelope cannot
+  // silently reappear after a project switch or browser reload.
+  const normalized = normalizeGeneratedShowerDimensions(cloneSpec(spec))
   repairPendingOpeningImageBindings(normalized)
   syncOpeningBindings(normalized)
   return wetZonesOnly(normalized)
@@ -659,26 +684,67 @@ export default function App() {
       showMessage('success', `已在三维房间显示“${solution.title}”，${solution.fixtures.length} 个实体按量房坐标和真实高度落地`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setLayoutError(`“${solution.title}”不可应用：${message}`)
-      showMessage('error', `方案切换失败：${message}`)
+      console.warn('[auto-layout] apply failed', { solution: solution.id, message })
+      setLayoutError('该方案暂未能应用，当前房型数据已保留，请重试自动布局。')
+      showMessage('error', '方案暂未能应用，已保留当前房型数据。')
     }
+  }
+
+  const clearAutoLayout = () => {
+    if (!spec || !hasGeneratedLayout(spec)) return
+    if (!window.confirm('清理自动布局将删除生成的家具、水电点、湿区和吊顶区域，量房边界、门窗及实测点位会保留。确定继续吗？')) return
+    commitSpec(clearGeneratedLayout(spec))
+    setLayoutSolutions([])
+    setActiveLayout(null)
+    layoutBaseSpecRef.current = null
+    setLayoutError(null)
+    setSelection({ type: 'room' })
+    showMessage('success', '自动布局已清理，量房边界、门窗及实测点位均已保留')
   }
 
   const runModelAutoLayout = async () => {
     if (!spec || busy === 'layout') return
     const sourceSpec = cloneSpec(spec)
+    const sourceSignature = layoutInputSignature(sourceSpec)
     // Preview every solution in a generated batch from the same room snapshot.
     layoutBaseSpecRef.current = cloneSpec(sourceSpec)
     const sourceProjectId = project?.id
     setBusy('layout')
     setLayoutError(null)
     try {
-    const localFallbackCandidates = generateDeterministicLayoutSolutions(sourceSpec, { style: designQuote?.style_match.catalog_style })
-    const localFallback = usableLayoutSolutions(localFallbackCandidates)
-    if (!layoutBatchReady(localFallback)) {
-      const diagnostic = generateDeterministicLayoutSolutions(sourceSpec, { style: designQuote?.style_match.catalog_style })[0]
-      const failed = diagnostic?.checks.filter((check) => !check.passed && check.severity === 'error').map((check) => `${check.code}: ${check.message}`).join('；')
-      throw new Error(`当前房型本地几何求解无法生成三档有效方案${failed ? `：${failed}` : ''}`)
+    // Compute a deterministic batch before contacting the model.  Geometry
+    // diagnostics are kept in the developer log; they are not user-facing
+    // failures and must never prevent a valid local batch from being shown.
+    let localFallbackCandidates: LayoutSolution[] = []
+    try {
+      localFallbackCandidates = generateDeterministicLayoutSolutions(sourceSpec, { style: designQuote?.style_match.catalog_style })
+    } catch (error) {
+      console.warn('[auto-layout] local candidate generation failed', error)
+    }
+    // Product tiers may legitimately share the same physical coordinates when
+    // the measured drains/toilet lock the only viable installation wall. Keep
+    // all three validated product tiers; geometry uniqueness is enforced only
+    // for remote model batches where a distinct script is expected.
+    const allowLocalGeometryDuplicates = true
+    let localFallback = usableLayoutSolutions(localFallbackCandidates, true)
+    if (!layoutProductBatchReady(localFallback)) {
+      const diagnostics = localFallbackCandidates.flatMap((solution) => solution.checks
+        .filter((check) => !check.passed && check.severity === 'error')
+        .map((check) => ({ solution: solution.id, code: check.code, message: check.message })))
+      console.warn('[auto-layout] local batch gate failed; retaining only validated tiers', diagnostics)
+      // A style-specific catalog can be incomplete after a model response or
+      // a stale cache. Retry the same geometry against the catalog defaults;
+      // this changes products only and never relaxes geometry hard rules.
+      try {
+        const catalogFallback = generateDeterministicLayoutSolutions(sourceSpec)
+        const catalogUsable = usableLayoutSolutions(catalogFallback, true)
+        if (layoutProductBatchReady(catalogUsable)) {
+          localFallbackCandidates = catalogFallback
+          localFallback = catalogUsable
+        }
+      } catch (error) {
+        console.warn('[auto-layout] catalog fallback failed', error)
+      }
     }
     const requirements = designQuote?.requirements.collected ?? {
       使用人群: ['成人'],
@@ -697,7 +763,8 @@ export default function App() {
       })
       modelCalls.push(response.model_call)
       let attempts = 1
-      while (!layoutBatchReady(solutions) && attempts < MAX_AUTO_LAYOUT_ATTEMPTS) {
+      const attemptLimit = localFallback.length ? 1 : MAX_AUTO_LAYOUT_ATTEMPTS
+      while (!layoutBatchReady(solutions) && attempts < attemptLimit) {
         const feedback = layoutRetryFeedback(solutions, attempts)
         response = await studioApi.autoLayout(sourceSpec, requirements, response.layout_levels, feedback)
         modelCalls.push(response.model_call)
@@ -709,19 +776,39 @@ export default function App() {
       // the guaranteed geometry fallback for transport/schema/model failures.
       solutions = []
     }
-    solutions = completeLayoutSolutions(solutions, localFallback)
+    try {
+      solutions = completeLayoutSolutions(solutions, localFallback, allowLocalGeometryDuplicates)
+    } catch (error) {
+      // A complete three-price batch is a presentation goal, not a geometry
+      // requirement. Keep any hard-check-passing tier instead of reporting a
+      // solvable room as unfinished because model products were duplicated.
+      console.warn('[auto-layout] batch completion failed', error)
+      const validated = usableLayoutSolutions([...solutions, ...localFallbackCandidates], true)
+      const recovered = (['basic', 'comfort', 'premium'] as LayoutSolution['budget'][]).flatMap((budget) => {
+        const candidate = validated.filter((solution) => solution.budget === budget).sort((left, right) => right.score - left.score)[0]
+        return candidate ? [candidate] : []
+      })
+      if (!recovered.length) throw new Error('AUTO_LAYOUT_NO_VALID_SOLUTION')
+      solutions = recovered
+    }
     if (response) solutions.forEach((solution) => { solution.model_call = response!.model_call; solution.model_calls = modelCalls })
     setLayoutSolutions(solutions)
     const selected = selectAutomaticLayoutSolution(solutions)
     if (!selected) throw new Error('布局结果未通过自动选择门禁，未展示或应用无效方案')
-    if (projectRef.current?.id !== sourceProjectId || specRef.current !== spec) {
+    if (projectRef.current?.id !== sourceProjectId || !specRef.current || layoutInputSignature(specRef.current) !== sourceSignature) {
       throw new Error('布局生成期间房间数据已改变，已保留当前编辑内容；请基于最新房型重新生成布局')
     }
     applyAutoLayout(selected, layoutBaseSpecRef.current, false)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      console.warn('[auto-layout] run failed', error)
+      const reason = error instanceof Error ? error.message : String(error)
+      const message = reason.includes('布局生成期间房间数据已改变')
+        ? reason
+        : reason === 'AUTO_LAYOUT_NO_VALID_SOLUTION'
+          ? '自动布局未找到通过碰撞、净空和可达性硬校验的方案；请检查下方房间数据后重试。'
+          : `自动布局失败：${reason || '未知错误'}。当前房型数据已保留。`
       setLayoutError(message)
-      throw error
+      showMessage('error', message)
     } finally {
       setBusy((current) => current === 'layout' ? null : current)
     }
@@ -764,7 +851,12 @@ export default function App() {
               <button className={mode === 'library' ? 'active' : ''} onClick={() => setMode('library')}><Box size={16} />模型库</button>
               <button className={mode === 'model' ? 'active' : ''} onClick={() => canPreview && setMode('model')} disabled={!canPreview}><BoxSelect size={16} />三维预览</button>
             </div>
-            {mode === 'review' && <SolutionList spec={spec} solutions={layoutSolutions} selectedSolution={activeLayout} onSelectSolution={(solution) => applyAutoLayout(solution, layoutBaseSpecRef.current ?? spec)} onFocusSolution={(solution) => applyAutoLayout(solution, layoutBaseSpecRef.current ?? spec, false)} onOpenModel={() => canPreview && setMode('model')} onStartAutoLayout={runModelAutoLayout} layoutRunning={busy === 'layout'} layoutError={layoutError} />}
+            {mode === 'review' && <SolutionList spec={spec} solutions={layoutSolutions} selectedSolution={activeLayout} onSelectSolution={(solution) => applyAutoLayout(solution, layoutBaseSpecRef.current ?? spec)} onFocusSolution={(solution) => applyAutoLayout(solution, layoutBaseSpecRef.current ?? spec, false)} onOpenModel={() => canPreview && setMode('model')} onStartAutoLayout={runModelAutoLayout} onClearLayout={clearAutoLayout} canClearLayout={hasGeneratedLayout(spec)} onPointLocksChange={(fixtureIds) => {
+              const next = cloneSpec(spec)
+              const locked = new Set(fixtureIds)
+              next.fixtures.filter(isAutoLayoutPoint).forEach((fixture) => { fixture.placement_locked = locked.has(fixture.id) })
+              commitSpec(next)
+            }} layoutRunning={busy === 'layout'} layoutError={layoutError} />}
             {mode === 'annotation'
               ? <PhotoAnnotation key={`${project.id}:${plan?.id ?? 'none'}:${project.updated_at}`} spec={spec} plan={plan} activeEvidenceId={activeEvidenceId} onChange={commitSpec} onEvidenceSelect={setFocusEvidenceId} onConfirm={confirmAnnotation} />
               : mode === 'library'
@@ -805,9 +897,10 @@ export default function App() {
                     const next = cloneSpec(spec)
                     const defaults = fixtureDefaults[kind]
                     const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`
-                    const projected = wallIndex === null ? null : projectPointToWall(finishedRoomBoundary(next), wallIndex, { x_mm: xMm, z_mm: zMm })
-                    if (kind === 'floor_drain' && pointUsage === 'shower') next.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
-                    next.fixtures.push({ id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : kind === 'drain' && pointUsage === 'toilet' ? '马桶排水' : fixtureLabels[kind], x_mm: projected?.point.x_mm ?? xMm, z_mm: projected?.point.z_mm ?? zMm, ...defaults, width_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.width_mm, depth_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.depth_mm, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: projected ? wallIndex : null, point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined })
+                    const washerDrain = kind === 'floor_drain' && pointUsage === 'washer'
+                    const projected = washerDrain || wallIndex === null ? null : projectPointToWall(finishedRoomBoundary(next), wallIndex, { x_mm: xMm, z_mm: zMm })
+                    if (kind === 'floor_drain' && pointUsage === 'shower') next.fixtures.forEach((fixture) => { if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower') { fixture.point_usage = 'general'; if (fixture.label === '淋浴地漏') fixture.label = '地漏' } })
+                    next.fixtures.push({ id, kind, label: kind === 'floor_drain' && pointUsage === 'shower' ? '淋浴地漏' : kind === 'floor_drain' && pointUsage === 'washer' ? '洗衣机地漏' : kind === 'drain' && pointUsage === 'toilet' ? '马桶排水' : fixtureLabels[kind], x_mm: projected?.point.x_mm ?? xMm, z_mm: projected?.point.z_mm ?? zMm, ...defaults, width_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.width_mm, depth_mm: kind === 'drain' && pointUsage === 'toilet' ? 110 : defaults.depth_mm, rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: kind === 'floor_drain' && pointUsage === 'washer' ? null : projected ? wallIndex : null, point_usage: kind === 'floor_drain' || kind === 'drain' || kind === 'water' ? pointUsage ?? 'general' : undefined })
                     commitSpec(next)
                     setSelection({ type: 'fixture', id })
                   }}

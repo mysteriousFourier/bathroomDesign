@@ -116,7 +116,7 @@ class FixtureSpec(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1)
     evidence_ids: list[str] = Field(default_factory=list)
     bound_wall_index: int | None = Field(default=None, ge=0)
-    point_usage: Literal["general", "toilet", "shower", "basin"] | None = None
+    point_usage: Literal["general", "toilet", "shower", "basin", "heater", "washer"] | None = None
     model_asset: ModelAsset | None = None
     layout_generated: bool = False
     position_status: Literal["measured", "proposed"] | None = None
@@ -731,7 +731,7 @@ class MeasurementAnchor(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1)
     status: Literal["verified", "unverified", "provisional"] = "unverified"
     evidence_ids: list[str] = Field(default_factory=list)
-    point_usage: Literal["general", "toilet", "shower", "basin"] | None = None
+    point_usage: Literal["general", "toilet", "shower", "basin", "heater", "washer"] | None = None
 
 
 class MeasurementEvidence(BaseModel):

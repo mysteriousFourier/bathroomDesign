@@ -98,7 +98,7 @@ export interface OpeningSpec {
 }
 
 export type FixtureKind = 'toilet' | 'vanity' | 'shower' | 'floor_drain' | 'drain' | 'water' | 'electric' | 'pipe' | 'column' | 'radiator' | 'other'
-export type FixturePointUsage = 'general' | 'toilet' | 'shower' | 'basin' | 'heater'
+export type FixturePointUsage = 'general' | 'toilet' | 'shower' | 'basin' | 'heater' | 'washer'
 
 export type ModelAssetFormat = 'gltf' | 'glb' | 'fbx' | '3ds' | 'obj'
 export type ModelAssetLifecycle = 'approved' | 'needs_conversion' | 'converted' | 'converted_duplicate' | 'deprecated'
@@ -145,6 +145,9 @@ export interface FixtureSpec {
   // Layout runs may be replaced without discarding measured utility points.
   layout_generated?: boolean
   position_status?: 'measured' | 'proposed'
+  // A user-pinned point keeps its exact position across auto-layout runs;
+  // the solver anchors the matching appliance to it instead of moving it.
+  placement_locked?: boolean
 }
 
 export interface WallProfile {

@@ -30,6 +30,7 @@ async def test_frontend_and_template_routes_do_not_depend_on_working_directory(t
 
     assert homepage.status_code == 200
     assert '<div id="root"></div>' in homepage.text
+    assert homepage.headers["cache-control"] == "no-store, no-cache, must-revalidate"
     assert template.status_code == 200
     assert "单房间量房记录" in template.text
     assert model_manifest.status_code == 200
@@ -695,6 +696,16 @@ def test_model_lookup_applies_reviewed_orientation_to_bounds(monkeypatch):
     assert lookup["model_dimensions_mm"] == {"width":380,"depth":680,"height":760}
     assert lookup["model_orientation_mapping"] == asset.orientation_mapping
     assert lookup["binding_status"] == "bound"
+
+
+def test_model_lookup_keeps_reviewed_shower_envelope() -> None:
+    from backend.app.design_chat import _model_lookup
+
+    lookup = _model_lookup(
+        {"id": "shower-product", "attributes": {"材料编号": "HS2-1", "材料名称": "花洒", "风格": "通用", "规格型号": "恒温花洒"}},
+        {},
+    )
+    assert lookup["model_dimensions_mm"] == {"width": 285.0, "depth": 485.0, "height": 1327.0}
 
 
 def test_model_lookup_applies_builtin_orientation_override(monkeypatch):

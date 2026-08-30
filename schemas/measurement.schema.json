@@ -237,7 +237,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["floor_drain", "wall_drain", "toilet_drain", "sink_drain", "shower_drain", "bathtub_drain"],
+          "enum": ["floor_drain", "wall_drain", "toilet_drain", "sink_drain", "shower_drain", "washer_drain", "bathtub_drain"],
           "description": "Type of drainage point."
         },
         "diameter": {
@@ -341,7 +341,7 @@
         },
         "pointUsage": {
           "type": "string",
-          "enum": ["general", "toilet", "shower", "basin", "heater"]
+          "enum": ["general", "toilet", "shower", "basin", "heater", "washer"]
         }
       },
       "additionalProperties": false

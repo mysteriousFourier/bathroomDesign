@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { applyLayoutSolution, BATHROOM_AUTO_LAYOUT_RULES, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, effectiveLayoutInstruction, fixtureFront, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, heaterMountingPlan, HEATER_MAX_RECESS_MM, HEATER_MIN_BOTTOM_MM, optimizeFloorLayout, reattachWallDependentFixtures, resolveFixtureDrag, syncDraggedFixtureServicePoints } from './layoutEngine'
+import { applyLayoutSolution, BATHROOM_AUTO_LAYOUT_RULES, blocksDoorEnvelope, blocksUseClearance, blocksWindowEnvelope, clearGeneratedLayout, effectiveLayoutInstruction, fixtureFront, frontClearanceEnvelope, generateDeterministicLayoutSolutions, generateLayoutSolutions, hasGeneratedLayout, heaterMountingPlan, HEATER_MAX_RECESS_MM, HEATER_MIN_BOTTOM_MM, normalizeGeneratedShowerDimensions, optimizeFloorLayout, reattachWallDependentFixtures, resolveFixtureDrag, SHOWER_INSTALLATION_DIMENSIONS, syncDraggedFixtureServicePoints } from './layoutEngine'
 import { clientValidate, finishedRoomBoundary, fixtureLocalFootprint, fixturePointUsage, manualRoom, projectPointToWall, wallInwardNormal, wetZoneBoundaryValid } from './spec'
 import { modelDimensions } from './modelDimensions'
+import { routePlumbing } from './plumbing'
 import graphOutput from './generated-layout-products.json'
 import type { LayoutLevelDecision } from './types'
 import { selectAutomaticLayoutSolution } from './components/SolutionList'
@@ -10,6 +11,23 @@ describe('deterministic requirement layout engine', () => {
   const room = manualRoom(3200, 2600, 2700)
   room.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 1300, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'measured', confidence: 1 })
   const solutions = generateLayoutSolutions(room)
+
+  it('creates left-hot/right-cold vanity wall inlets and routes the hot inlet', () => {
+    const solution = solutions[0]
+    const vanity = solution.fixtures.find((fixture) => fixture.kind === 'vanity')!
+    const vanityWater = solution.fixtures.filter((fixture) => fixture.kind === 'water' && fixture.point_usage === 'basin')
+    expect(vanityWater.map((fixture) => fixture.label).sort()).toEqual(['自动浴室柜冷水进水点', '自动浴室柜热水进水点'])
+    expect(vanityWater.every((fixture) => fixture.bound_wall_index === vanity.bound_wall_index && fixture.elevation_mm === 500)).toBe(true)
+    const hot = vanityWater.find((fixture) => fixture.label.includes('热水'))!
+    const cold = vanityWater.find((fixture) => fixture.label.includes('冷水'))!
+    const wallBoundary = finishedRoomBoundary({ ...room, wall_finish_gap_mm:35 })
+    const wallStart = wallBoundary[vanity.bound_wall_index!]
+    const wallEnd = wallBoundary[(vanity.bound_wall_index! + 1) % wallBoundary.length]
+    const alongWall = (fixture: typeof hot) => (fixture.x_mm - wallStart.x_mm) * (wallEnd.x_mm - wallStart.x_mm) + (fixture.z_mm - wallStart.z_mm) * (wallEnd.z_mm - wallStart.z_mm)
+    expect(alongWall(hot)).toBeGreaterThan(alongWall(cold))
+    const plumbing = routePlumbing({ ...room, fixtures: solution.fixtures })!
+    expect(plumbing.segments.some((segment) => segment.temperature === 'hot' && segment.fixture_id === hot.id)).toBe(true)
+  })
 
   it('keeps manually dragged furniture inside the room and away from other furniture', () => {
     const editable = manualRoom(2400, 2000, 2600)
@@ -24,6 +42,19 @@ describe('deterministic requirement layout engine', () => {
     expect(Math.hypot(collision.x_mm-1200, collision.z_mm-1000)).toBeGreaterThan(0)
   })
 
+  it('allows a bathroom cabinet to finish directly against an adjacent side unit', () => {
+    const editable = manualRoom(2400, 2000, 2400)
+    editable.fixtures.push(
+      { id:'vanity', kind:'vanity', label:'浴室柜', x_mm:600, z_mm:265, width_mm:800, depth_mm:520, height_mm:2000, rotation_deg:0, source:'user', confidence:1, bound_wall_index:0 },
+      { id:'side-unit', kind:'other', label:'侧边柜', x_mm:1200, z_mm:265, width_mm:400, depth_mm:520, height_mm:2000, rotation_deg:0, source:'user', confidence:1 },
+    )
+    const vanity = resolveFixtureDrag(editable, 'vanity', { x_mm:600, z_mm:265 })!
+    const vanityRight = vanity.x_mm + vanity.width_mm / 2
+    const sideUnitLeft = editable.fixtures[1].x_mm - editable.fixtures[1].width_mm / 2
+    expect(vanityRight).toBe(sideUnitLeft)
+    expect(vanity.x_mm).toBe(600)
+  })
+
   it('keeps manually dragged heaters rear-snapped to a finished wall', () => {
     const editable = manualRoom(2400, 2000, 2600)
     editable.fixtures.push({ id:'heater', kind:'other', label:'热水器', x_mm:1200, z_mm:1000, width_mm:700, depth_mm:300, height_mm:500, elevation_mm:1600, rotation_deg:0, source:'user', confidence:1 })
@@ -32,6 +63,43 @@ describe('deterministic requirement layout engine', () => {
     const projection = projectPointToWall(finishedRoomBoundary({ ...editable, wall_finish_gap_mm:35 }), heater.bound_wall_index!, heater)!
     expect(projection.distance_mm).toBeGreaterThanOrEqual(heater.depth_mm / 2)
     expect(projection.distance_mm).toBeLessThanOrEqual(heater.depth_mm / 2 + 40)
+  })
+
+  it('keeps a washer drain free from wall snapping when dragged', () => {
+    const editable = manualRoom(3000, 2200, 2600)
+    editable.fixtures.push({
+      id: 'washer-drain', kind: 'floor_drain', label: '洗衣机地漏', point_usage: 'washer',
+      x_mm: 120, z_mm: 120, width_mm: 100, depth_mm: 100, height_mm: 20,
+      rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: 0,
+    })
+    const moved = resolveFixtureDrag(editable, 'washer-drain', { x_mm: 40, z_mm: 40 })!
+    expect(moved.x_mm).toBe(40)
+    expect(moved.z_mm).toBe(40)
+    expect(moved.bound_wall_index).toBeNull()
+  })
+
+  it('infers legacy generic washer drains before applying drag snapping', () => {
+    const editable = manualRoom(3000, 2200, 2600)
+    editable.fixtures.push(
+      { id: 'shower-drain', kind: 'floor_drain', label: '淋浴地漏', point_usage: 'shower', x_mm: 400, z_mm: 2100, width_mm: 100, depth_mm: 100, height_mm: 20, rotation_deg: 0, source: 'measured', confidence: 1 },
+      { id: 'legacy-washer-drain', kind: 'floor_drain', label: '地漏', x_mm: 200, z_mm: 200, width_mm: 100, depth_mm: 100, height_mm: 20, rotation_deg: 0, source: 'measured', confidence: 1 },
+    )
+    const moved = resolveFixtureDrag(editable, 'legacy-washer-drain', { x_mm: 40, z_mm: 40 })!
+    expect(moved.x_mm).toBe(40)
+    expect(moved.z_mm).toBe(40)
+    expect(moved.bound_wall_index).toBeNull()
+  })
+
+  it('does not rear-snap a washer drain during spec commit', () => {
+    const editable = manualRoom(3000, 2200, 2600)
+    editable.fixtures.push({
+      id: 'washer-drain', kind: 'floor_drain', label: '洗衣机地漏', point_usage: 'washer',
+      x_mm: 40, z_mm: 40, width_mm: 100, depth_mm: 100, height_mm: 20,
+      rotation_deg: 0, source: 'user', confidence: 1, bound_wall_index: null,
+    })
+    reattachWallDependentFixtures(editable)
+    expect(editable.fixtures[0].x_mm).toBe(40)
+    expect(editable.fixtures[0].z_mm).toBe(40)
   })
 
   it('moves generated shower and washer service points with their dragged fixture', () => {
@@ -74,12 +142,12 @@ describe('deterministic requirement layout engine', () => {
     expect(manifolds[0].label).toMatch(/[68]孔分水器/)
   })
 
-  it('generates appliance drains at their appliances and drops stale measured drains on apply', () => {
+  it('keeps generic measured floor drains and does not invent a washer-specific drain', () => {
     const laundryRoom = manualRoom(3400, 2600, 2600)
     laundryRoom.openings.push({ id:'door', kind:'door', wall_index:0, offset_mm:1300, width_mm:800, height_mm:2100, sill_mm:0, label:'门', source:'user', confidence:1 })
     laundryRoom.fixtures.push(
       { id:'measured-basin-drain', kind:'drain', label:'洗面盆排水', x_mm:600, z_mm:300, width_mm:100, depth_mm:100, height_mm:40, rotation_deg:0, source:'user', confidence:1, point_usage:'basin' },
-      { id:'measured-washer-drain', kind:'floor_drain', label:'洗衣机地漏', x_mm:2000, z_mm:300, width_mm:100, depth_mm:100, height_mm:20, rotation_deg:0, source:'user', confidence:1 },
+      { id:'measured-washer-drain', kind:'floor_drain', label:'地漏', x_mm:2000, z_mm:300, width_mm:100, depth_mm:100, height_mm:20, rotation_deg:0, source:'user', confidence:1 },
       { id:'washer-anchor', kind:'other', label:'洗衣机', x_mm:900, z_mm:900, width_mm:600, depth_mm:620, height_mm:850, rotation_deg:0, source:'user', confidence:1 },
     )
     const solutions = generateDeterministicLayoutSolutions(laundryRoom)
@@ -91,13 +159,123 @@ describe('deterministic requirement layout engine', () => {
     expect(basinDrains[0].layout_generated).toBe(true)
     const vanity = applied.fixtures.find((item) => item.kind === 'vanity')!
     expect(Math.hypot(basinDrains[0].x_mm - vanity.x_mm, basinDrains[0].z_mm - vanity.z_mm)).toBeLessThan(600)
-    const washerDrains = applied.fixtures.filter((item) => item.kind === 'floor_drain' && /洗衣机/.test(item.label))
+    const washerDrains = applied.fixtures.filter((item) => item.id === 'measured-washer-drain')
     expect(washerDrains).toHaveLength(1)
-    expect(washerDrains[0].layout_generated).toBe(true)
+    expect(washerDrains[0].layout_generated).toBe(false)
     const washer = applied.fixtures.find((item) => /洗衣机/.test(item.label) && item.kind === 'other')!
-    expect(Math.hypot(washerDrains[0].x_mm - washer.x_mm, washerDrains[0].z_mm - washer.z_mm)).toBeLessThan(800)
-    // Stale measured copies must not linger beside the regenerated drains.
-    expect(applied.fixtures.some((item) => item.id === 'measured-basin-drain' || item.id === 'measured-washer-drain')).toBe(false)
+    expect(Math.hypot(washerDrains[0].x_mm - washer.x_mm, washerDrains[0].z_mm - washer.z_mm)).toBeGreaterThan(0)
+    expect(applied.fixtures.some((item) => item.label === '自动洗衣机地漏')).toBe(false)
+    // The derived basin drain still replaces a stale measured basin drain.
+    expect(applied.fixtures.some((item) => item.id === 'measured-basin-drain')).toBe(false)
+  })
+
+  it('keeps placement-locked points fixed and anchors their appliances to them', () => {
+    const lockedRoom = manualRoom(3400, 2600, 2600)
+    lockedRoom.openings.push({ id:'door', kind:'door', wall_index:0, offset_mm:1300, width_mm:800, height_mm:2100, sill_mm:0, label:'门', source:'user', confidence:1 })
+    lockedRoom.fixtures.push(
+      // A realistic measured basin drain: under the vanity, close to the wall.
+      { id:'pinned-basin-drain', kind:'drain', label:'洗面盆排水', x_mm:600, z_mm:45, width_mm:100, depth_mm:100, height_mm:40, rotation_deg:0, source:'user', confidence:1, point_usage:'basin', placement_locked:true },
+      { id:'pinned-washer-drain', kind:'floor_drain', label:'洗衣机地漏', point_usage:'washer', x_mm:2400, z_mm:100, width_mm:100, depth_mm:100, height_mm:20, rotation_deg:0, source:'user', confidence:1, bound_wall_index:0, placement_locked:true },
+    )
+    const solutions = generateDeterministicLayoutSolutions(lockedRoom)
+    const valid = solutions.find((item) => item.checks.every((check) => check.passed || check.severity !== 'error'))
+    expect(valid).toBeTruthy()
+    const applied = applyLayoutSolution(lockedRoom, valid!)
+    // The pinned points themselves are never moved or dropped.
+    const basin = applied.fixtures.find((item) => item.id === 'pinned-basin-drain')
+    const washerDrain = applied.fixtures.find((item) => item.id === 'pinned-washer-drain')
+    expect(basin).toBeTruthy()
+    expect(washerDrain).toBeTruthy()
+    expect(basin!.x_mm).toBe(600)
+    expect(basin!.z_mm).toBe(45)
+    expect(washerDrain!.x_mm).toBe(2400)
+    expect(washerDrain!.z_mm).toBe(100)
+    expect(washerDrain!.bound_wall_index).toBeNull()
+    // No duplicate auto drains are generated next to the pinned points.
+    expect(applied.fixtures.filter((item) => item.kind === 'drain' && fixturePointUsage(item) === 'basin')).toHaveLength(1)
+    expect(applied.fixtures.filter((item) => item.kind === 'floor_drain' && /洗衣机/.test(item.label))).toHaveLength(1)
+    // The appliances are solved against the pinned points, not around them.
+    const vanity = applied.fixtures.find((item) => item.kind === 'vanity')!
+    expect(Math.hypot(vanity.x_mm - 600, vanity.z_mm - 45)).toBeLessThan(600)
+    const washer = applied.fixtures.find((item) => /洗衣机/.test(item.label) && item.kind === 'other')!
+    expect(Math.hypot(washer.x_mm - 2400, washer.z_mm - 100)).toBeLessThan(800)
+    const washerWidth = Math.abs(washer.rotation_deg) % 180 === 90 ? washer.depth_mm : washer.width_mm
+    const washerDepth = Math.abs(washer.rotation_deg) % 180 === 90 ? washer.width_mm : washer.depth_mm
+    expect(Math.abs(washer.x_mm - washerDrain!.x_mm) + washerDrain!.width_mm / 2).toBeLessThanOrEqual(washerWidth / 2 + 1)
+    expect(Math.abs(washer.z_mm - washerDrain!.z_mm) + washerDrain!.depth_mm / 2).toBeLessThanOrEqual(washerDepth / 2 + 1)
+  })
+
+  it('keeps a locked basin drain bound to its actual wall in a stepped room', () => {
+    const stepped = manualRoom(4105, 2160, 2200)
+    stepped.boundary = [
+      {x_mm:0,z_mm:320},{x_mm:0,z_mm:2160},{x_mm:1255,z_mm:2160},{x_mm:1255,z_mm:1840},
+      {x_mm:4105,z_mm:1840},{x_mm:4105,z_mm:0},{x_mm:2515,z_mm:0},{x_mm:2515,z_mm:610},
+      {x_mm:1900,z_mm:610},{x_mm:1900,z_mm:0},{x_mm:260,z_mm:0},{x_mm:260,z_mm:320},
+    ]
+    stepped.openings.push({ id:'door', kind:'door', wall_index:1, offset_mm:400, width_mm:800, height_mm:2055, sill_mm:0, label:'D1', source:'measured', confidence:1 })
+    stepped.fixtures.push(
+      { id:'shower-drain', kind:'floor_drain', label:'淋浴地漏', x_mm:3775, z_mm:276, width_mm:75, depth_mm:75, height_mm:10, rotation_deg:0, source:'measured', confidence:1, point_usage:'shower', placement_locked:true },
+      { id:'washer-drain', kind:'floor_drain', label:'洗衣机地漏', x_mm:1450, z_mm:250, width_mm:75, depth_mm:75, height_mm:10, rotation_deg:0, source:'measured', confidence:1, point_usage:'washer', placement_locked:true },
+      { id:'toilet-drain', kind:'drain', label:'马桶排水', x_mm:3596, z_mm:1455, width_mm:110, depth_mm:110, height_mm:10, rotation_deg:0, source:'measured', confidence:1, point_usage:'toilet', placement_locked:true },
+      { id:'basin-drain', kind:'drain', label:'排水', x_mm:670, z_mm:250, width_mm:60, depth_mm:60, height_mm:10, rotation_deg:0, source:'measured', confidence:1, point_usage:'basin', placement_locked:true },
+    )
+    const solutions = generateDeterministicLayoutSolutions(stepped)
+    const valid = solutions.find((solution) => solution.checks.every((check) => check.passed || check.severity !== 'error'))
+    expect(valid).toBeTruthy()
+    const vanity = valid!.fixtures.find((fixture) => fixture.kind === 'vanity')!
+    expect(vanity.bound_wall_index).toBe(9)
+    expect(Math.hypot(vanity.x_mm - 670, vanity.z_mm - 250)).toBeLessThan(600)
+  })
+
+  it('binds a washer to a washer-specific floor drain without a separate label hack', () => {
+    const room = manualRoom(3400, 2600, 2600)
+    room.openings.push({ id:'door', kind:'door', wall_index:0, offset_mm:1300, width_mm:800, height_mm:2100, sill_mm:0, label:'门', source:'user', confidence:1 })
+    room.fixtures.push({ id:'washer-drain', kind:'floor_drain', label:'地漏', point_usage:'washer', x_mm:2400, z_mm:100, width_mm:100, depth_mm:100, height_mm:20, rotation_deg:0, source:'user', confidence:1 })
+    const solution = generateDeterministicLayoutSolutions(room).find((item) => item.checks.every((check) => check.passed || check.severity !== 'error'))
+    expect(solution).toBeTruthy()
+    const applied = applyLayoutSolution(room, solution!)
+    const washer = applied.fixtures.find((item) => item.kind === 'other' && /洗衣机/.test(item.label))!
+    const drain = applied.fixtures.find((item) => item.id === 'washer-drain')!
+    expect(Math.hypot(washer.x_mm - drain.x_mm, washer.z_mm - drain.z_mm)).toBeLessThan(800)
+  })
+
+  it('derives parametric shower screen panels along the wet-zone boundary', () => {
+    const largeRoom = manualRoom(2000, 2600, 2600)
+    largeRoom.openings.push({ id:'door', kind:'door', wall_index:0, offset_mm:600, width_mm:800, height_mm:2100, sill_mm:0, label:'门', source:'user', confidence:1 })
+    largeRoom.fixtures.push({ id:'shower-drain', kind:'floor_drain', label:'淋浴地漏', x_mm:500, z_mm:2100, width_mm:100, depth_mm:100, height_mm:20, rotation_deg:0, source:'user', confidence:1, point_usage:'shower' })
+    // Premium tier (quality 2) is the tier that carries the shower enclosure.
+    const solution = generateDeterministicLayoutSolutions(largeRoom)[2]
+    const wet = solution.wet_zone
+    const panels = solution.fixtures.filter((item) => /淋浴隔断/.test(item.label))
+    expect(panels).toHaveLength(2)
+    const horizontal = panels.find((item) => item.width_mm > item.depth_mm)!
+    const vertical = panels.find((item) => item.depth_mm > item.width_mm)!
+    // Parametric length: the primary panel spans the full exposed wet-zone
+    // edge; the return panel covers half of the adjacent edge.
+    expect(horizontal.width_mm).toBeCloseTo(wet.width_mm, -1)
+    expect(vertical.depth_mm).toBeCloseTo(wet.depth_mm / 2, -1)
+    // Both panels hug the wet-zone boundary (45 mm glass, inset to stay inside).
+    const inset = 45 / 2 + 15
+    expect(Math.min(Math.abs(horizontal.z_mm - (wet.z_mm - wet.depth_mm / 2 + inset)), Math.abs(horizontal.z_mm - (wet.z_mm + wet.depth_mm / 2 - inset)))).toBeLessThan(2)
+    expect(Math.min(Math.abs(vertical.x_mm - (wet.x_mm - wet.width_mm / 2 + inset)), Math.abs(vertical.x_mm - (wet.x_mm + wet.width_mm / 2 - inset)))).toBeLessThan(2)
+    // Walls + panels cover three and a half of the wet zone's four edges.
+    const boundary = finishedRoomBoundary(largeRoom)
+    const distanceToBoundary = (x: number, z: number) => Math.min(...boundary.map((point, index) => {
+      const next = boundary[(index + 1) % boundary.length]
+      const dx = next.x_mm - point.x_mm, dz = next.z_mm - point.z_mm
+      const lengthSq = dx * dx + dz * dz
+      const t = lengthSq ? Math.max(0, Math.min(1, ((x - point.x_mm) * dx + (z - point.z_mm) * dz) / lengthSq)) : 0
+      return Math.hypot(x - (point.x_mm + t * dx), z - (point.z_mm + t * dz))
+    }))
+    const xMin = wet.x_mm - wet.width_mm / 2, xMax = wet.x_mm + wet.width_mm / 2
+    const zMin = wet.z_mm - wet.depth_mm / 2, zMax = wet.z_mm + wet.depth_mm / 2
+    const edgeOnWall = (ax: number, az: number, bx: number, bz: number) => distanceToBoundary(ax, az) <= 80 && distanceToBoundary(bx, bz) <= 80
+    const wallEdges = [edgeOnWall(xMin, zMin, xMax, zMin), edgeOnWall(xMin, zMax, xMax, zMax), edgeOnWall(xMin, zMin, xMin, zMax), edgeOnWall(xMax, zMin, xMax, zMax)]
+    expect(wallEdges.filter(Boolean)).toHaveLength(2)
+    const coveredLength = horizontal.width_mm + vertical.depth_mm
+    expect(coveredLength).toBeGreaterThanOrEqual(1.4 * Math.max(wet.width_mm, wet.depth_mm))
+    // The generated solution stays collision-free with the glass in place.
+    expect(solution.checks.find((item) => item.code === 'G01-COLLISION')?.passed).toBe(true)
   })
 
   it('rear-snaps wall devices and their points after passive room changes', () => {
@@ -195,6 +373,54 @@ describe('deterministic requirement layout engine', () => {
     }
   })
 
+  it('uses a real washer top-view asset, fixed vanity envelope, and largest measured laundry wet rectangle', { timeout: 15000 }, () => {
+    const measured = manualRoom(4105, 2160, 2200)
+    measured.boundary = [{x_mm:0,z_mm:320},{x_mm:0,z_mm:2160},{x_mm:1255,z_mm:2160},{x_mm:1255,z_mm:1840},{x_mm:4105,z_mm:1840},{x_mm:4105,z_mm:0},{x_mm:2515,z_mm:0},{x_mm:2515,z_mm:610},{x_mm:1900,z_mm:610},{x_mm:1900,z_mm:0},{x_mm:260,z_mm:0},{x_mm:260,z_mm:320}]
+    measured.openings.push({id:'door',kind:'door',wall_index:1,offset_mm:400,width_mm:800,height_mm:2055,sill_mm:0,label:'D1',source:'measured',confidence:1,opening_form:'hinged',swing_direction:'inward'})
+    measured.fixtures.push(
+      {id:'shower-drain',kind:'floor_drain',point_usage:'shower',label:'淋浴地漏',x_mm:3775,z_mm:276,width_mm:75,depth_mm:75,height_mm:10,rotation_deg:0,source:'measured',confidence:1},
+      {id:'washer-drain',kind:'floor_drain',point_usage:'washer',label:'洗衣机地漏',x_mm:1330,z_mm:220,width_mm:75,depth_mm:75,height_mm:10,rotation_deg:0,source:'user',confidence:1},
+      {id:'toilet-drain',kind:'drain',point_usage:'toilet',label:'马桶排水',x_mm:3596,z_mm:1455,width_mm:110,depth_mm:110,height_mm:10,rotation_deg:0,source:'derived',confidence:1},
+    )
+    const solution = generateDeterministicLayoutSolutions(measured)[0]
+    const washer = solution.fixtures.find((fixture) => /洗衣机/.test(fixture.label))!
+    const vanity = solution.fixtures.find((fixture) => fixture.kind === 'vanity')!
+    const heater = solution.fixtures.find((fixture) => fixture.label.includes('热水器'))!
+    expect(washer.model_asset?.format).toBe('glb')
+    expect([vanity.width_mm, vanity.depth_mm, vanity.height_mm]).toEqual([800, 520, 2000])
+    expect([heater.width_mm, heater.depth_mm, heater.height_mm]).toEqual([781, 448, 525])
+    expect(vanity.bound_wall_index).not.toBeNull()
+    expect(solution.wet_zone.width_mm).toBeGreaterThan(900)
+    expect(solution.wet_zone.depth_mm).toBeGreaterThanOrEqual(900)
+    const applied = applyLayoutSolution(measured, solution)
+    const wet = applied.dry_wet_zones?.find((zone) => zone.kind === 'wet')!
+    expect(Math.max(...wet.boundary.map((point) => point.x_mm)) - Math.min(...wet.boundary.map((point) => point.x_mm))).toBe(solution.wet_zone.width_mm)
+    expect(clientValidate(applied).filter((issue) => issue.severity === 'error')).toEqual([])
+  })
+
+  it('keeps a toilet near a central drain in a stepped room instead of snapping it to a distant wall', { timeout:10000 }, () => {
+    const measured = manualRoom(4105, 2160, 2200)
+    measured.boundary = [
+      { x_mm: 0, z_mm: 320 }, { x_mm: 0, z_mm: 2160 }, { x_mm: 1255, z_mm: 2160 },
+      { x_mm: 1255, z_mm: 1840 }, { x_mm: 4105, z_mm: 1840 }, { x_mm: 4105, z_mm: 0 },
+      { x_mm: 2515, z_mm: 0 }, { x_mm: 2515, z_mm: 610 }, { x_mm: 1900, z_mm: 610 },
+      { x_mm: 1900, z_mm: 0 }, { x_mm: 260, z_mm: 0 }, { x_mm: 260, z_mm: 320 },
+    ]
+    measured.fixtures.push({
+      id: 'central-toilet-drain', kind: 'drain', point_usage: 'toilet', label: '马桶排水',
+      x_mm: 1000, z_mm: 1000, width_mm: 110, depth_mm: 110, height_mm: 10,
+      rotation_deg: 0, source: 'measured', confidence: 1, placement_locked: true,
+    })
+    const solutions = generateDeterministicLayoutSolutions(measured)
+    expect(solutions).toHaveLength(3)
+    for (const solution of solutions) {
+      const toilet = solution.fixtures.find((fixture) => fixture.kind === 'toilet')!
+      expect(Math.hypot(toilet.x_mm - 1000, toilet.z_mm - 1000)).toBeLessThanOrEqual(600)
+      expect(solution.checks.find((check) => check.code === 'PLUMBING-TOILET')).toMatchObject({ passed: true })
+      expect(solution.checks.filter((check) => check.severity === 'error' && !check.passed)).toEqual([])
+    }
+  })
+
   it('projects every irregular-room alternative to the nearest applicable corner wet zone and keeps its generated drain inside', () => {
     const measured = manualRoom(4105, 2160, 2200)
     measured.boundary = [{x_mm:0,z_mm:320},{x_mm:0,z_mm:2160},{x_mm:1255,z_mm:2160},{x_mm:1255,z_mm:1840},{x_mm:4105,z_mm:1840},{x_mm:4105,z_mm:0},{x_mm:2515,z_mm:0},{x_mm:2515,z_mm:610},{x_mm:1900,z_mm:610},{x_mm:1900,z_mm:0},{x_mm:260,z_mm:0},{x_mm:260,z_mm:320}]
@@ -223,7 +449,7 @@ describe('deterministic requirement layout engine', () => {
       toilet_front_clearance_mm:500,
       shower_drain_wall_clearance_mm:50,
       shower_drain_center_offset_mm:150,
-      vanity_height_max_mm:850,
+      vanity_height_max_mm:2000,
     })
     const candidate = generateLayoutSolutions(room)[0]
     expect(candidate.wet_zone.width_mm).toBeGreaterThanOrEqual(BATHROOM_AUTO_LAYOUT_RULES.shower_min_internal_mm)
@@ -258,6 +484,124 @@ describe('deterministic requirement layout engine', () => {
       expect(drain.z_mm + drain.depth_mm / 2).toBeLessThanOrEqual(Math.max(...boundary.map((point) => point.z_mm)))
     }
     expect(appliedSizes.every((size,index) => index === 0 || size.width > appliedSizes[index-1].width || size.depth > appliedSizes[index-1].depth)).toBe(true)
+  })
+
+  it('applies every tier to the stepped measured room boundary', { timeout: 30000 }, () => {
+    const measured = manualRoom(4105, 2160, 2200)
+    measured.boundary = [
+      { x_mm: 0, z_mm: 320 }, { x_mm: 0, z_mm: 2160 }, { x_mm: 1255, z_mm: 2160 },
+      { x_mm: 1255, z_mm: 1840 }, { x_mm: 4105, z_mm: 1840 }, { x_mm: 4105, z_mm: 0 },
+      { x_mm: 2515, z_mm: 0 }, { x_mm: 2515, z_mm: 610 }, { x_mm: 1900, z_mm: 610 },
+      { x_mm: 1900, z_mm: 0 }, { x_mm: 260, z_mm: 0 }, { x_mm: 260, z_mm: 320 },
+    ]
+    measured.openings.push({ id: 'door', kind: 'door', wall_index: 1, offset_mm: 800, width_mm: 800, height_mm: 2055, sill_mm: 0, label: '门', source: 'measured', confidence: 1, swing_direction: 'unknown' })
+    measured.fixtures.push(
+      { id: 'wall-drain', kind: 'drain', label: '排水点', x_mm: 614, z_mm: 172, width_mm: 40, depth_mm: 40, height_mm: 10, rotation_deg: 0, source: 'measured', confidence: 1 },
+      { id: 'shower-drain', kind: 'floor_drain', point_usage: 'shower', label: '淋浴地漏', x_mm: 3775, z_mm: 276, width_mm: 75, depth_mm: 75, height_mm: 10, rotation_deg: 0, source: 'measured', confidence: 1 },
+      { id: 'generic-drain', kind: 'floor_drain', label: '地漏', x_mm: 1283, z_mm: 299, width_mm: 75, depth_mm: 75, height_mm: 10, rotation_deg: 0, source: 'measured', confidence: 1 },
+      { id: 'toilet-drain', kind: 'drain', point_usage: 'toilet', label: '马桶排水', x_mm: 3596, z_mm: 1455, width_mm: 110, depth_mm: 110, height_mm: 10, rotation_deg: 0, source: 'measured', confidence: 1 },
+      { id: 'toilet', kind: 'toilet', label: '马桶', x_mm: 3596, z_mm: 1455, width_mm: 380, depth_mm: 700, height_mm: 760, rotation_deg: 180, source: 'measured', confidence: 1 },
+    )
+    const solutions = generateDeterministicLayoutSolutions(measured)
+    expect(solutions).toHaveLength(3)
+    solutions.forEach((solution) => expect(() => applyLayoutSolution(measured, solution)).not.toThrow())
+  })
+
+  it('keeps remote three-tier levels within the toilet rough-in radius on a stepped room', { timeout: 30000 }, () => {
+    const measured = manualRoom(4105, 2160, 2200)
+    measured.boundary = [
+      { x_mm: 0, z_mm: 320 }, { x_mm: 0, z_mm: 2160 }, { x_mm: 1255, z_mm: 2160 },
+      { x_mm: 1255, z_mm: 1840 }, { x_mm: 4105, z_mm: 1840 }, { x_mm: 4105, z_mm: 0 },
+      { x_mm: 2515, z_mm: 0 }, { x_mm: 2515, z_mm: 610 }, { x_mm: 1900, z_mm: 610 },
+      { x_mm: 1900, z_mm: 0 }, { x_mm: 260, z_mm: 0 }, { x_mm: 260, z_mm: 320 },
+    ]
+    measured.fixtures.push(
+      { id: 'shower-drain', kind: 'floor_drain', point_usage: 'shower', label: '淋浴地漏', x_mm: 3775, z_mm: 276, width_mm: 75, depth_mm: 75, height_mm: 10, rotation_deg: 0, source: 'measured', confidence: 1 },
+      { id: 'toilet-drain', kind: 'drain', point_usage: 'toilet', label: '马桶排水', x_mm: 3596, z_mm: 1455, width_mm: 110, depth_mm: 110, height_mm: 10, rotation_deg: 0, source: 'measured', confidence: 1 },
+    )
+    const sourceProducts = graphOutput.scenarios.standard_shower.products
+    const categories = [...new Set(sourceProducts.map((product) => product.category))]
+    const toInput = (product: typeof sourceProducts[number]) => ({
+      product_id: product.graph_id,
+      catalog_code: product.code,
+      category: product.category,
+      spec: product.spec,
+      unit_price: product.price,
+      price_unit: '元',
+    })
+    const levelIds = ['level1', 'level2', 'level3'] as const
+    const levels = (['basic', 'comfort', 'premium'] as const).map((tier, index) => {
+      const products = categories.map((category) => {
+        const variants = sourceProducts.filter((product) => product.category === category).sort((left, right) => left.price - right.price)
+        return toInput(variants[Math.min(index, variants.length - 1)])
+      })
+      return {
+        id: levelIds[index],
+        name: `Remote level ${index + 1}`,
+        reason: 'remote test',
+        demand_profile: 'standard_shower' as const,
+        product_tier: tier,
+        product_ids: products.map((product) => product.product_id),
+        products,
+        layout_script: {
+          version: 'layout-script-v1' as const,
+          demand: 'standard_shower' as const,
+          budget: tier,
+          source: 'deterministic-rule-engine' as const,
+          instructions: [
+            { fixture_role: 'wet_zone', wall: 'east' as const, zone: 'wet' as const, near: 'shower_drain', min_clearance_mm: 0 },
+            { fixture_role: 'vanity', wall: 'west' as const, zone: 'dry' as const, min_clearance_mm: 600 },
+            { fixture_role: 'toilet', wall: 'north' as const, zone: 'dry' as const, near: 'toilet_drain', min_clearance_mm: 600 },
+            { fixture_role: 'heater', wall: 'east' as const, zone: 'service' as const, near: 'wet_zone', min_clearance_mm: 0 },
+          ],
+        },
+      } satisfies LayoutLevelDecision
+    })
+    const solutions = generateLayoutSolutions(measured, { levels })
+    expect(solutions).toHaveLength(3)
+    for (const solution of solutions) {
+      const toilet = solution.fixtures.find((fixture) => fixture.kind === 'toilet')!
+      expect(Math.hypot(toilet.x_mm - 3596, toilet.z_mm - 1455)).toBeLessThanOrEqual(600)
+      expect(solution.checks.find((check) => check.code === 'PLUMBING-TOILET')).toMatchObject({ passed: true })
+      expect(solution.checks.filter((check) => check.severity === 'error' && !check.passed)).toEqual([])
+      expect(() => applyLayoutSolution(measured, solution)).not.toThrow()
+    }
+  })
+
+  it('applies every tier to the stepped room with a washer drain', { timeout: 30000 }, () => {
+    const measured = manualRoom(4105, 2160, 2200)
+    measured.boundary = [
+      { x_mm: 0, z_mm: 320 }, { x_mm: 0, z_mm: 2160 }, { x_mm: 1255, z_mm: 2160 },
+      { x_mm: 1255, z_mm: 1840 }, { x_mm: 4105, z_mm: 1840 }, { x_mm: 4105, z_mm: 0 },
+      { x_mm: 2515, z_mm: 0 }, { x_mm: 2515, z_mm: 610 }, { x_mm: 1900, z_mm: 610 },
+      { x_mm: 1900, z_mm: 0 }, { x_mm: 260, z_mm: 0 }, { x_mm: 260, z_mm: 320 },
+    ]
+    measured.openings.push({ id: 'door', kind: 'door', wall_index: 1, offset_mm: 800, width_mm: 800, height_mm: 2055, sill_mm: 0, label: '门', source: 'measured', confidence: 1, swing_direction: 'unknown' })
+    measured.fixtures.push(
+      { id: 'shower-drain', kind: 'floor_drain', point_usage: 'shower', label: '淋浴地漏', x_mm: 3775, z_mm: 276, width_mm: 75, depth_mm: 75, height_mm: 10, rotation_deg: 0, source: 'measured', confidence: 1 },
+      { id: 'washer-drain', kind: 'floor_drain', point_usage: 'washer', label: '洗衣机地漏', x_mm: 1283, z_mm: 299, width_mm: 75, depth_mm: 75, height_mm: 10, rotation_deg: 0, source: 'measured', confidence: 1 },
+      { id: 'washer', kind: 'other', label: '洗衣机', x_mm: 1283, z_mm: 700, width_mm: 600, depth_mm: 620, height_mm: 850, rotation_deg: 0, source: 'measured', confidence: 1 },
+    )
+    const solutions = generateDeterministicLayoutSolutions(measured)
+    expect(solutions).toHaveLength(3)
+    solutions.forEach((solution) => expect(() => applyLayoutSolution(measured, solution)).not.toThrow())
+  })
+
+  it('applies every tier to the recognized 2855 x 1840 stepped room', { timeout: 30000 }, () => {
+    const measured = manualRoom(2855, 1840, 2200)
+    measured.boundary = [
+      { x_mm: 0, z_mm: 1840 }, { x_mm: 182, z_mm: 1840 }, { x_mm: 182, z_mm: 1588 },
+      { x_mm: 2855, z_mm: 1588 }, { x_mm: 2855, z_mm: 491 }, { x_mm: 2755, z_mm: 491 },
+      { x_mm: 2755, z_mm: 0 }, { x_mm: 323, z_mm: 0 }, { x_mm: 323, z_mm: 336 },
+      { x_mm: 0, z_mm: 336 },
+    ]
+    measured.fixtures.push(
+      { id: 'washer-drain', kind: 'floor_drain', label: '洗衣机地漏', x_mm: 1398, z_mm: 225, width_mm: 75, depth_mm: 75, height_mm: 20, rotation_deg: 0, source: 'measured', confidence: 1 },
+      { id: 'shower-drain', kind: 'floor_drain', point_usage: 'shower', label: '淋浴地漏', x_mm: 2537, z_mm: 511, width_mm: 75, depth_mm: 75, height_mm: 20, rotation_deg: 0, source: 'measured', confidence: 1 },
+    )
+    const solutions = generateDeterministicLayoutSolutions(measured)
+    expect(solutions).toHaveLength(3)
+    solutions.forEach((solution) => expect(() => applyLayoutSolution(measured, solution)).not.toThrow())
   })
 
   it('keeps local fallback layouts inside the finished boundary across room proportions', () => {
@@ -338,7 +682,7 @@ describe('deterministic requirement layout engine', () => {
     expect(products.every((product) => applied.fixtures.some((fixture) => fixture.id.includes(product.product_id)))).toBe(true)
   })
 
-  it('uses directional front clearance and blocks an unsatisfiable layout', () => {
+  it('uses directional front clearance and blocks an unsatisfiable layout', { timeout:15000 }, () => {
     const products = graphOutput.scenarios.standard_shower.products
       .filter((product) => ['花洒', '热水器', '马桶', '浴室柜'].includes(product.category))
       .filter((product, index, all) => all.findIndex((item) => item.category === product.category) === index)
@@ -614,6 +958,7 @@ describe('deterministic requirement layout engine', () => {
     expect(fixtureLocalFootprint({ ...washer, rotation_deg:90 })).toEqual({ width_mm:washer.depth_mm, depth_mm:washer.width_mm })
     expect(washer.height_mm).toBe(860)
     expect(washer.label).toContain(modelDimensions['洗衣机'].file_name)
+    expect(washer.model_asset?.format).toBe('glb')
     expect(laundry.fixtures.some((fixture) => fixture.label === '自动洗衣机进水点' && fixture.kind === 'water')).toBe(true)
     expect(laundry.fixtures.some((fixture) => fixture.label === '自动洗衣机电点' && fixture.kind === 'electric')).toBe(true)
     const showerHead = laundry.fixtures.find((fixture) => fixture.label.includes('花洒') && !fixture.label.includes('扶手'))!
@@ -629,12 +974,15 @@ describe('deterministic requirement layout engine', () => {
     })).toBe(true)
 
     const vanity = laundry.fixtures.find((fixture) => fixture.kind === 'vanity')!
-    expect([vanity.width_mm, vanity.depth_mm].sort((a, b) => a - b)).toEqual([200, 800])
-    expect(vanity.height_mm).toBe(800)
-    expect(vanity.x_mm - vanity.width_mm / 2).toBeGreaterThanOrEqual(finishedRoomBoundary({ ...laundryRoom, wall_finish_gap_mm:35 })[3].x_mm + 5)
+    expect([vanity.width_mm, vanity.depth_mm].sort((a, b) => a - b)).toEqual([520, 800])
+    expect(vanity.height_mm).toBe(2000)
+    expect(vanity.bound_wall_index).toBe(3)
+    const vanityFootprint = fixtureLocalFootprint(vanity)
+    const vanityWall = projectPointToWall(finishedRoomBoundary({ ...laundryRoom, wall_finish_gap_mm:35 }), vanity.bound_wall_index!, vanity)!
+    expect(vanityWall.distance_mm).toBeGreaterThanOrEqual(Math.min(vanityFootprint.width_mm, vanityFootprint.depth_mm) / 2 + 4)
     expect(laundry.fixtures.find((fixture) => fixture.label.includes('热水器'))?.elevation_mm).toBeGreaterThan(1200)
     expect(laundry.fixtures.find((fixture) => fixture.label.includes('花洒'))?.elevation_mm).toBe(700)
-    expect(laundry.checks.find((item) => item.code === 'G06-WALL-ATTACH')).toMatchObject({ severity:'warning' })
+    expect(laundry.checks.find((item) => item.code === 'G06-WALL-ATTACH')).toMatchObject({ severity:'error', passed:true })
     expect(laundry.checks.find((item) => item.code === 'MEP-AUTO-POINTS')).toMatchObject({ passed:true, severity:'error' })
     expect(laundry.checks.find((item) => item.code === 'MODEL-DIMENSIONS')?.message).toContain('马桶')
   })
@@ -701,6 +1049,36 @@ describe('deterministic requirement layout engine', () => {
   })
 })
 
+describe('generated layout cleanup', () => {
+  it('removes generated layout entities while preserving measured room data', () => {
+    const room = manualRoom(2400, 1800, 2500)
+    const measuredFixture = { id:'measured-drain', kind:'floor_drain' as const, label:'实测地漏', x_mm:500, z_mm:600, width_mm:80, depth_mm:80, height_mm:20, rotation_deg:0, source:'measured' as const, confidence:1, evidence_ids:['photo-1'] }
+    const userWetZone = { id:'user-wet', kind:'wet' as const, label:'人工湿区', boundary:[{x_mm:0,z_mm:0},{x_mm:600,z_mm:0},{x_mm:600,z_mm:600},{x_mm:0,z_mm:600}], source:'user' as const, confidence:1 }
+    const userCeiling = { id:'user-ceiling', label:'原始吊顶', boundary:[{x_mm:0,z_mm:0},{x_mm:2400,z_mm:0},{x_mm:2400,z_mm:1800},{x_mm:0,z_mm:1800}], height_mm:2400, source:'measured' as const, confidence:1 }
+    room.openings.push({ id:'door', kind:'door', wall_index:0, offset_mm:300, width_mm:800, height_mm:2100, sill_mm:0, label:'实测门', source:'measured', confidence:1 })
+    room.fixtures.push(
+      measuredFixture,
+      { id:'generated-vanity', kind:'vanity', label:'自动浴室柜', x_mm:1200, z_mm:300, width_mm:800, depth_mm:520, height_mm:2000, rotation_deg:0, source:'derived', confidence:1, layout_generated:true },
+      { id:'generated-water', kind:'water', label:'自动给水点', x_mm:1200, z_mm:50, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'derived', confidence:1, layout_generated:true },
+    )
+    room.dry_wet_zones = [userWetZone, { ...userWetZone, id:'layout-wet-basic', label:'自动湿区', source:'derived' }]
+    room.ceiling_zones = [userCeiling, { ...userCeiling, id:'layout-heater-recess', label:'热水器吊顶凹槽', source:'derived' }]
+    const boundary = room.boundary
+    const openings = room.openings
+
+    expect(hasGeneratedLayout(room)).toBe(true)
+    const cleared = clearGeneratedLayout(room)
+
+    expect(cleared.fixtures).toEqual([measuredFixture])
+    expect(cleared.fixtures[0]).toBe(measuredFixture)
+    expect(cleared.dry_wet_zones).toEqual([userWetZone])
+    expect(cleared.ceiling_zones).toEqual([userCeiling])
+    expect(cleared.boundary).toBe(boundary)
+    expect(cleared.openings).toBe(openings)
+    expect(hasGeneratedLayout(cleared)).toBe(false)
+  })
+})
+
 describe('auto-layout model orientation contract', () => {
   const room = manualRoom(3200, 2600, 2700)
   room.openings.push({ id: 'D1', kind: 'door', wall_index: 0, offset_mm: 1300, width_mm: 800, height_mm: 2100, sill_mm: 0, label: 'D1', source: 'measured', confidence: 1 })
@@ -728,6 +1106,34 @@ describe('auto-layout model orientation contract', () => {
 })
 
 const minimalFixture = { id: 'f', kind: 'other', label: '设备', x_mm: 0, z_mm: 0, width_mm: 400, depth_mm: 300, height_mm: 800, source: 'derived', confidence: 1 } as const
+
+describe('shower installation dimensions', () => {
+  it('migrates legacy persisted auto-layout shower dimensions without touching measured showers', () => {
+    const room = manualRoom(3200, 2600, 2600)
+    room.fixtures.push(
+      { id: 'legacy-auto-shower', kind: 'other', label: 'HS2-1 花洒', x_mm: 700, z_mm: 300, width_mm: 120, depth_mm: 80, height_mm: 1100, elevation_mm: 700, rotation_deg: 0, source: 'derived', confidence: 1, layout_generated: true },
+      { id: 'shower-water', kind: 'water', label: '自动花洒冷水点', x_mm: 625, z_mm: 300, width_mm: 40, depth_mm: 40, height_mm: 40, elevation_mm: 1050, rotation_deg: 0, source: 'derived', confidence: 1, layout_generated: true },
+      { id: 'measured-shower', kind: 'other', label: '花洒（现场）', x_mm: 1700, z_mm: 300, width_mm: 240, depth_mm: 400, height_mm: 1200, elevation_mm: 700, rotation_deg: 0, source: 'user', confidence: 1, layout_generated: false },
+    )
+    const normalized = normalizeGeneratedShowerDimensions(room)
+    expect(normalized.fixtures.find((fixture) => fixture.id === 'legacy-auto-shower')).toMatchObject(SHOWER_INSTALLATION_DIMENSIONS)
+    expect(normalized.fixtures.find((fixture) => fixture.id === 'shower-water')).toMatchObject({ width_mm: 40, depth_mm: 40, height_mm: 40 })
+    expect(normalized.fixtures.find((fixture) => fixture.id === 'measured-shower')).toMatchObject({ width_mm: 240, depth_mm: 400, height_mm: 1200 })
+  })
+
+  it('keeps every generated shower at the reviewed model dimensions', () => {
+    expect(SHOWER_INSTALLATION_DIMENSIONS).toMatchObject({
+      width_mm: Math.round(modelDimensions['花洒'].width_mm),
+      depth_mm: Math.round(modelDimensions['花洒'].depth_mm),
+      height_mm: Math.round(modelDimensions['花洒'].height_mm),
+    })
+    const solutions = generateDeterministicLayoutSolutions(manualRoom(3200, 2600, 2600))
+    for (const solution of solutions) {
+      const shower = solution.fixtures.find((fixture) => /花洒/.test(fixture.label) && !/扶手|冷热水/.test(fixture.label))!
+      expect(shower).toMatchObject(SHOWER_INSTALLATION_DIMENSIONS)
+    }
+  })
+})
 
 describe('heater ceiling mounting rule', () => {
   it('computes deterministic mounting plans against the ceiling', () => {

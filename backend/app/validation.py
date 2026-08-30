@@ -122,11 +122,15 @@ def validate_spec(spec: RoomSpec) -> tuple[list[ValidationIssue], bool, list[str
             if fixture.confidence < 0.6 and fixture.source != "user":
                 issues.append(ValidationIssue(id=f"confidence-{fixture.id}", severity="warning", code="low_confidence", message=f"{fixture.label} 为低置信度识别结果", target_id=fixture.id))
 
+    non_solid_kinds = {"floor_drain", "drain", "water", "electric", "pipe"}
     for index, left in enumerate(spec.fixtures):
-        if left.kind in {"floor_drain", "pipe"}:
+        if left.kind in non_solid_kinds:
             continue
         for right in spec.fixtures[index + 1 :]:
-            if right.kind in {"floor_drain", "pipe"}:
+            # Service points deliberately sit below, inside, or behind their
+            # appliance. They are installation evidence, not solid furniture
+            # bodies, and must not create occupancy warnings.
+            if right.kind in non_solid_kinds:
                 continue
             overlaps_x = abs(left.x_mm - right.x_mm) * 2 < left.width_mm + right.width_mm
             overlaps_z = abs(left.z_mm - right.z_mm) * 2 < left.depth_mm + right.depth_mm

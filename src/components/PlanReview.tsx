@@ -1,8 +1,9 @@
-import { CircleDot, DoorOpen, Droplet, Eye, EyeOff, Focus, Grid2X2, Move, Plug, Spline, Square, Trash2, Waves, ZoomIn, ZoomOut } from 'lucide-react'
+import { CircleDot, DoorOpen, Droplet, Eye, EyeOff, Focus, Grid2X2, Move, Plug, Spline, Square, Trash2, WashingMachine, Waves, ZoomIn, ZoomOut } from 'lucide-react'
 import { Canvas } from '@react-three/fiber'
 import { Suspense, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { dimensionChainParts, finishedRoomBoundary, fixtureBoundWallIndex, fixtureDefaults, fixturePointShape, nearestValidWetZoneBoundary, openingLine, roomBounds, roomCentroid, snapPointToNearestWall, wallLayerPolygons, wallLength } from '../spec'
 import { resolveFixtureDrag } from '../layoutEngine'
+import { builtInAssetAsRoomAsset, modelAssetForProduct } from '../modelLibrary'
 import { fixtureTopAppearance, planModelPosition, planTextureLayout, planTopCamera } from '../planAppearance'
 import { FixtureAssetBoundary, FixtureAssetModel } from './ModelCanvas'
 import type { Asset, FixtureKind, FixturePointUsage, FixtureSpec, OpeningSpec, PlanLineKind, Point2D, RoomSpec, Selection } from '../types'
@@ -50,7 +51,31 @@ function FixtureModelsTopLayer({ fixtures, selection, scale, offsetX, offsetZ, v
   const layerRef = useRef<SVGForeignObjectElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const camera = planTopCamera(canvasWidth, canvasHeight)
-  const modelFixtures = fixtures.filter((fixture) => !!fixture.model_asset)
+  const pointAsset = (fixture: FixtureSpec) => {
+    if (fixture.model_asset) return fixture.model_asset
+    // XYJ2-1 has verified dimensions but no SKU-bound asset in the static
+    // catalog. Use the reviewed washer model as a top-view visual fallback so
+    // the plan still shows the real appliance footprint instead of only a
+    // generic marker.
+    if (/洗衣机/.test(fixture.label)) {
+      const washer = modelAssetForProduct('洗衣机', undefined, 'premium')
+      return washer ? builtInAssetAsRoomAsset(washer) : undefined
+    }
+    const category = fixture.kind === 'floor_drain' || fixture.kind === 'drain'
+      ? '地漏'
+      : fixture.kind === 'water'
+        ? '水龙头'
+        : fixture.kind === 'electric'
+          ? '电气面板'
+          : null
+    const asset = category ? modelAssetForProduct(category) : undefined
+    return asset ? builtInAssetAsRoomAsset(asset) : undefined
+  }
+  // Utility points should use the reviewed library model in the plan even
+  // when the measurement import did not embed a model snapshot.
+  const modelFixtures = fixtures
+    .map((fixture) => ({ fixture, asset: pointAsset(fixture) }))
+    .filter((item): item is { fixture: FixtureSpec; asset: NonNullable<FixtureSpec['model_asset']> } => !!item.asset)
 
   useLayoutEffect(() => {
     const layer = layerRef.current
@@ -86,7 +111,7 @@ function FixtureModelsTopLayer({ fixtures, selection, scale, offsetX, offsetZ, v
       <Canvas orthographic dpr={[1, 2]} gl={{ alpha: true, antialias: true }} camera={camera} onCreated={({ camera: topCamera }) => topCamera.lookAt(canvasWidth / 2, 0, canvasHeight / 2)}>
         <ambientLight intensity={2.1} />
         <directionalLight position={[-3, 6, -4]} intensity={2.5} />
-        <Suspense fallback={null}>{modelFixtures.map((fixture) => <group key={fixture.id} position={planModelPosition(fixture.x_mm, fixture.z_mm, scale, offsetX, offsetZ)} scale={1000 * scale} rotation={[0, -fixture.rotation_deg * Math.PI / 180, 0]}><FixtureAssetBoundary fixture={fixture}><FixtureAssetModel fixture={fixture} selected={selection.type === 'fixture' && selection.id === fixture.id} /></FixtureAssetBoundary></group>)}</Suspense>
+        <Suspense fallback={null}>{modelFixtures.map(({ fixture, asset }) => <group key={fixture.id} position={planModelPosition(fixture.x_mm, fixture.z_mm, scale, offsetX, offsetZ)} scale={1000 * scale} rotation={[0, -fixture.rotation_deg * Math.PI / 180, 0]}><FixtureAssetBoundary fixture={{ ...fixture, model_asset: asset }}><FixtureAssetModel fixture={{ ...fixture, model_asset: asset }} selected={selection.type === 'fixture' && selection.id === fixture.id} /></FixtureAssetBoundary></group>)}</Suspense>
       </Canvas>
     </div>
   </foreignObject>
@@ -180,7 +205,8 @@ export function PlanReview({ spec, plan, selection, surfaceMaterials, onSelect, 
     const localX = (point.x - pan.x) / zoom
     const localZ = (point.y - pan.y) / zoom
     const xMm = mmX(localX), zMm = mmZ(localZ)
-    const snap = snapPointToNearestWall(roomBoundary, { x_mm: xMm, z_mm: zMm })
+    const washerDrain = addFixture.kind === 'floor_drain' && addFixture.pointUsage === 'washer'
+    const snap = washerDrain ? null : snapPointToNearestWall(roomBoundary, { x_mm: xMm, z_mm: zMm })
     onFixtureAdd(addFixture.kind, snap?.point.x_mm ?? xMm, snap?.point.z_mm ?? zMm, snap?.wall_index ?? null, addFixture.pointUsage)
     setAddFixture(null)
     return true
@@ -311,7 +337,8 @@ export function PlanReview({ spec, plan, selection, surfaceMaterials, onSelect, 
           <button className={`icon-button${addFixture?.kind === 'drain' && addFixture.pointUsage !== 'toilet' ? ' active-tool' : ''}`} title="添加排水点" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'drain' && value.pointUsage !== 'toilet' ? null : { kind: 'drain', pointUsage: 'general' }) }}><Droplet size={17} /></button>
           <button className={`icon-button${addFixture?.kind === 'drain' && addFixture.pointUsage === 'toilet' ? ' active-tool' : ''}`} title="添加马桶排水点并吸附马桶" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'drain' && value.pointUsage === 'toilet' ? null : { kind: 'drain', pointUsage: 'toilet' }) }}><CircleDot size={17} /></button>
           <button className={`icon-button${addFixture?.kind === 'water' ? ' active-tool' : ''}`} title="添加给水点" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'water' ? null : { kind: 'water', pointUsage: 'general' }) }}><Waves size={17} /></button>
-          <button className={`icon-button${addFixture?.kind === 'floor_drain' ? ' active-tool' : ''}`} title="添加淋浴地漏" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'floor_drain' ? null : { kind: 'floor_drain', pointUsage: 'shower' }) }}><Square size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'floor_drain' && addFixture.pointUsage === 'shower' ? ' active-tool' : ''}`} title="添加淋浴地漏" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'floor_drain' && value.pointUsage === 'shower' ? null : { kind: 'floor_drain', pointUsage: 'shower' }) }}><Square size={17} /></button>
+          <button className={`icon-button${addFixture?.kind === 'floor_drain' && addFixture.pointUsage === 'washer' ? ' active-tool' : ''}`} title="添加洗衣机地漏" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'floor_drain' && value.pointUsage === 'washer' ? null : { kind: 'floor_drain', pointUsage: 'washer' }) }}><WashingMachine size={17} /></button>
           <button className={`icon-button${addFixture?.kind === 'electric' ? ' active-tool' : ''}`} title="添加电点" onClick={() => { setAddOpening(false); setAddLine(null); setLineDraft({ id: null, points: [] }); setAddFixture((value) => value?.kind === 'electric' ? null : { kind: 'electric' }) }}><Plug size={17} /></button>
           <label className={`canvas-tool-select${addLine ? ' active-tool' : ''}`} title="选择线型后在图中逐点绘制">
             <Spline size={16} />

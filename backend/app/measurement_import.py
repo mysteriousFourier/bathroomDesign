@@ -145,6 +145,8 @@ def _point_kind(label: str) -> tuple[str, str | None] | None:
     value = re.sub(r"[\s_\-]+", " ", label.lower())
     if any(token in value for token in ("马桶排水", "toilet drain", "soil", "污水")):
         return "drain", "toilet"
+    if any(token in value for token in ("洗衣机地漏", "washer drain", "washing machine drain")):
+        return "floor_drain", "washer"
     if any(token in value for token in ("淋浴地漏", "shower drain")):
         return "floor_drain", "shower"
     if any(token in value for token in ("地漏", "floor drain", "floordrain")) or re.search(r"\bfd\b", value):
@@ -597,8 +599,9 @@ def _build_spec_from_drawing(
         x_mm, z_mm = apply(item.x, item.y)
         default_width, default_depth, default_height = FIXTURE_DEFAULTS[item.kind]
         evidence_id = f"import-point-{index + 1}"
+        label = "洗衣机地漏" if item.point_usage == "washer" else "淋浴地漏" if item.point_usage == "shower" else FIXTURE_LABELS[item.kind]
         fixtures.append(FixtureSpec(
-            id=f"{item.kind}-{index + 1}", kind=item.kind, label=FIXTURE_LABELS[item.kind],
+            id=f"{item.kind}-{index + 1}", kind=item.kind, label=label,
             x_mm=x_mm, z_mm=z_mm,
             width_mm=max(1, round((item.width or default_width / scale) * scale)),
             depth_mm=max(1, round((item.depth or default_depth / scale) * scale)),
@@ -740,7 +743,7 @@ def _contract_json_spec(payload: dict[str, Any], filename: str) -> RoomSpec:
         for item in payload.get("drainagePoints") or []:
             drain_type = item.get("type", "floor_drain")
             mapping = {
-                "floor_drain": ("floor_drain", "general", "地漏"), "shower_drain": ("floor_drain", "shower", "淋浴地漏"),
+                "floor_drain": ("floor_drain", "general", "地漏"), "shower_drain": ("floor_drain", "shower", "淋浴地漏"), "washer_drain": ("floor_drain", "washer", "洗衣机地漏"),
                 "toilet_drain": ("drain", "toilet", "马桶排水"), "sink_drain": ("drain", "basin", "台盆排水"),
                 "wall_drain": ("drain", "general", "排水点"), "bathtub_drain": ("drain", "general", "浴缸排水"),
             }

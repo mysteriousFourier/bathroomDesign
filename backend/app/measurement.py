@@ -209,12 +209,14 @@ def measurement_contract_export(measurement: MeasurementModel) -> dict:
                 "toilet": "toilet_drain",
                 "shower": "shower_drain",
                 "basin": "sink_drain",
+                "washer": "washer_drain",
             }.get(anchor.point_usage or "general", "wall_drain") if anchor.kind == "drain" else {
                 "toilet": "toilet_drain",
                 "shower": "shower_drain",
+                "washer": "washer_drain",
                 "floor_drain": "floor_drain",
                 "vanity": "sink_drain",
-            }.get(anchor.kind, "floor_drain")),
+            }.get(anchor.point_usage or anchor.kind, "floor_drain")),
             "diameter": max(anchor.width_mm, 1),
         }
         for anchor in measurement.anchors

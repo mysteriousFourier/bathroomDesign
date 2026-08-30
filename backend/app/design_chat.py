@@ -89,7 +89,10 @@ def _model_lookup(product,style_match):
     # rotation fix and renders builtin models with the raw (wrong) rotation.
     if asset is not None and not shared:
         asset={**asset,**builtin_orientation_override(asset.get("id"))}
-    return {"product_id":product["id"],"catalog_code":code,"category":category,"catalog_style":attrs.get("风格","通用"),"normalized_requested_style":style_match.get("catalog_style"),"spec":attrs.get("规格型号",""),"model_asset_id":asset.get("id") if asset else None,"model_asset_src":asset.get("src") if asset else None,"model_asset_format":asset.get("format") if asset else None,"model_asset_label":asset.get("label") if asset else None,"model_dimensions_mm":_corrected_model_dimensions(asset) if asset else None,"model_orientation_view":asset.get("orientation_view") if asset else None,"model_orientation_mapping":asset.get("orientation_mapping") if asset else None,"texture_src":asset.get("texture_src") if asset else None,"layout_fixture_kind":category,"binding_status":"bound" if asset else "awaiting_model_asset"}
+    model_dimensions = _corrected_model_dimensions(asset) if asset else None
+    if category == "花洒":
+        model_dimensions = {"width": 285, "depth": 485, "height": 1327}
+    return {"product_id":product["id"],"catalog_code":code,"category":category,"catalog_style":attrs.get("风格","通用"),"normalized_requested_style":style_match.get("catalog_style"),"spec":attrs.get("规格型号",""),"model_asset_id":asset.get("id") if asset else None,"model_asset_src":asset.get("src") if asset else None,"model_asset_format":asset.get("format") if asset else None,"model_asset_label":asset.get("label") if asset else None,"model_dimensions_mm":model_dimensions,"model_orientation_view":asset.get("orientation_view") if asset else None,"model_orientation_mapping":asset.get("orientation_mapping") if asset else None,"texture_src":asset.get("texture_src") if asset else None,"layout_fixture_kind":category,"binding_status":"bound" if asset else "awaiting_model_asset"}
 
 def material_quotes(products,surfaces):
     quotes=[]

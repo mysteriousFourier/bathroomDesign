@@ -8,6 +8,17 @@ export const wallBindingSnapDistanceMm = 100
 export const toiletDrainRoughInMm = 305
 export const SHOWER_DRAIN_WALL_CLEARANCE_MM = 50
 export const SHOWER_DRAIN_CENTER_OFFSET_MM = 150
+/** Complete cabinet + mirror assembly envelope used by the reviewed models. */
+export const bathroomVanityInstallationRules = Object.freeze({
+  width_mm: 800,
+  depth_mm: 520,
+  height_mm: 2000,
+  front_clearance_mm: 600,
+  // Cabinets may finish against a return wall, partition, or adjacent unit.
+  // Only the front is an operating zone; the sides need no use clearance.
+  side_clearance_mm: 0,
+  rear_wall_gap_mm: 5,
+})
 
 export const fixtureLabels: Record<FixtureKind, string> = {
   toilet: '马桶',
@@ -25,7 +36,7 @@ export const fixtureLabels: Record<FixtureKind, string> = {
 
 export const fixtureDefaults: Record<FixtureKind, Pick<FixtureSpec, 'width_mm' | 'depth_mm' | 'height_mm'>> = {
   toilet: { width_mm: 380, depth_mm: 700, height_mm: 760 },
-  vanity: { width_mm: 800, depth_mm: 520, height_mm: 850 },
+  vanity: { width_mm: bathroomVanityInstallationRules.width_mm, depth_mm: bathroomVanityInstallationRules.depth_mm, height_mm: bathroomVanityInstallationRules.height_mm },
   shower: { width_mm: 900, depth_mm: 900, height_mm: 2000 },
   floor_drain: { width_mm: 120, depth_mm: 120, height_mm: 10 },
   drain: { width_mm: 60, depth_mm: 60, height_mm: 10 },
@@ -49,6 +60,7 @@ export const fixturePointUsageLabels: Record<FixturePointUsage, string> = {
   shower: '花洒',
   basin: '台盆 / 水池',
   heater: '热水器',
+  washer: '洗衣机',
 }
 
 export function fixturePointUsage(fixture: FixtureSpec): FixturePointUsage | null {
@@ -57,6 +69,7 @@ export function fixturePointUsage(fixture: FixtureSpec): FixturePointUsage | nul
   if (/马桶|坐便/.test(fixture.label)) return 'toilet'
   if (/花洒|淋浴|湿区地漏/.test(fixture.label)) return 'shower'
   if (/台盆|面盆|洗手盆|水池|龙头/.test(fixture.label)) return 'basin'
+  if (/洗衣机/.test(fixture.label)) return 'washer'
   return 'general'
 }
 
@@ -617,6 +630,38 @@ export function fixtureCanBindWall(kind: FixtureKind) {
   return ['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(kind)
 }
 
+function fixturePlanPolygon(fixture: Pick<FixtureSpec, 'x_mm' | 'z_mm' | 'width_mm' | 'depth_mm' | 'rotation_deg'>) {
+  const footprint = fixtureLocalFootprint(fixture)
+  const angle = ((fixture.rotation_deg ?? 0) * Math.PI) / 180
+  const cos = Math.cos(angle), sin = Math.sin(angle)
+  return [[-footprint.width_mm / 2, -footprint.depth_mm / 2], [footprint.width_mm / 2, -footprint.depth_mm / 2], [footprint.width_mm / 2, footprint.depth_mm / 2], [-footprint.width_mm / 2, footprint.depth_mm / 2]].map(([x, z]) => ({
+    x_mm: fixture.x_mm + x * cos - z * sin,
+    z_mm: fixture.z_mm + x * sin + z * cos,
+  }))
+}
+
+function cabinetOperationClearance(fixture: FixtureSpec) {
+  const footprint = fixtureLocalFootprint(fixture)
+  const clearance = bathroomVanityInstallationRules.front_clearance_mm
+  const rotation = ((fixture.rotation_deg ?? 0) % 360 + 360) % 360
+  const front = rotation === 90 ? 'west' : rotation === 180 ? 'south' : rotation === 270 ? 'east' : 'north'
+  const x = fixture.x_mm + (front === 'east' ? footprint.width_mm / 2 + clearance / 2 : front === 'west' ? -footprint.width_mm / 2 - clearance / 2 : 0)
+  const z = fixture.z_mm + (front === 'north' ? footprint.depth_mm / 2 + clearance / 2 : front === 'south' ? -footprint.depth_mm / 2 - clearance / 2 : 0)
+  return [
+    { x_mm: x - (front === 'east' || front === 'west' ? clearance / 2 : footprint.width_mm / 2), z_mm: z - (front === 'north' || front === 'south' ? clearance / 2 : footprint.depth_mm / 2) },
+    { x_mm: x + (front === 'east' || front === 'west' ? clearance / 2 : footprint.width_mm / 2), z_mm: z - (front === 'north' || front === 'south' ? clearance / 2 : footprint.depth_mm / 2) },
+    { x_mm: x + (front === 'east' || front === 'west' ? clearance / 2 : footprint.width_mm / 2), z_mm: z + (front === 'north' || front === 'south' ? clearance / 2 : footprint.depth_mm / 2) },
+    { x_mm: x - (front === 'east' || front === 'west' ? clearance / 2 : footprint.width_mm / 2), z_mm: z + (front === 'north' || front === 'south' ? clearance / 2 : footprint.depth_mm / 2) },
+  ]
+}
+
+/** Floor drains are ground points. A washer drain may sit under the appliance
+ * and must never inherit a wall binding from the annotation cursor. */
+export function fixtureCanBindWallForFixture(fixture: Pick<FixtureSpec, 'kind' | 'point_usage' | 'label'>) {
+  return (fixtureCanBindWall(fixture.kind) || fixture.kind === 'vanity' || /浴室柜/.test(fixture.label))
+    && !((fixture.kind === 'floor_drain' || fixture.kind === 'drain') && fixturePointUsage(fixture as FixtureSpec) === 'washer')
+}
+
 export function projectPointToSegment(point: Point2D, start: Point2D, end: Point2D) {
   const dx = end.x_mm - start.x_mm
   const dz = end.z_mm - start.z_mm
@@ -643,6 +688,45 @@ export function projectPointToWall(points: Point2D[], wallIndex: number, point: 
   return projectPointToSegment(point, points[wallIndex], points[(wallIndex + 1) % points.length])
 }
 
+/**
+ * Resolve the centre of a wall-bound furniture item from its rear edge.
+ * Point evidence is centred on the wall, but a cabinet body must remain
+ * entirely inside the room with its back five millimetres off the finished
+ * face. Keeping this calculation in the geometry layer prevents the editor
+ * from creating a half-outside cabinet when a wall binding changes.
+ */
+export function fixtureCenterForWallBinding(spec: RoomSpec, wallIndex: number, fixture: FixtureSpec) {
+  if (wallIndex < 0 || wallIndex >= spec.boundary.length) return null
+  const boundary = finishedRoomBoundary(spec)
+  const start = boundary[wallIndex]
+  const end = boundary[(wallIndex + 1) % boundary.length]
+  if (!start || !end) return null
+  const length = Math.max(1, Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm))
+  const tangent = { x: (end.x_mm - start.x_mm) / length, z: (end.z_mm - start.z_mm) / length }
+  const inward = wallInwardNormal(boundary, wallIndex)
+  const isVanity = fixture.kind === 'vanity' || /浴室柜/.test(fixture.label)
+  const rotation = isVanity
+    ? ((Math.round(Math.atan2(-inward.x, inward.z) * 180 / Math.PI) % 360) + 360) % 360
+    : fixture.rotation_deg ?? 0
+  const oriented = fixtureLocalFootprint({ ...fixture, rotation_deg: rotation })
+  const halfNormal = Math.abs(inward.x) * oriented.width_mm / 2 + Math.abs(inward.z) * oriented.depth_mm / 2
+  const halfTangent = Math.abs(tangent.x) * oriented.width_mm / 2 + Math.abs(tangent.z) * oriented.depth_mm / 2
+  if (length < halfTangent * 2 + 2) return null
+  const projection = projectPointToWall(boundary, wallIndex, fixture)
+  const projectedAlong = projection
+    ? (projection.point.x_mm - start.x_mm) * tangent.x + (projection.point.z_mm - start.z_mm) * tangent.z
+    : length / 2
+  const along = Math.max(halfTangent + 1, Math.min(length - halfTangent - 1, projectedAlong))
+  return {
+    wall_index: wallIndex,
+    rotation_deg: rotation,
+    point: {
+      x_mm: Math.round(start.x_mm + tangent.x * along + inward.x * (halfNormal + (isVanity ? bathroomVanityInstallationRules.rear_wall_gap_mm : 0))),
+      z_mm: Math.round(start.z_mm + tangent.z * along + inward.z * (halfNormal + (isVanity ? bathroomVanityInstallationRules.rear_wall_gap_mm : 0))),
+    },
+  }
+}
+
 export function snapPointToNearestWall(points: Point2D[], point: Point2D, maxDistanceMm = wallBindingSnapDistanceMm) {
   const wallIndex = nearestWallIndex(points, point)
   if (wallIndex === null) return null
@@ -653,9 +737,33 @@ export function snapPointToNearestWall(points: Point2D[], point: Point2D, maxDis
 
 export function fixtureBoundWallIndex(spec: RoomSpec, fixture: FixtureSpec) {
   const wallIndex = fixture.bound_wall_index
-  if (wallIndex === undefined || wallIndex === null || !fixtureCanBindWall(fixture.kind)) return null
+  if (wallIndex === undefined || wallIndex === null || !fixtureCanBindWallForFixture(fixture)) return null
+  const isVanity = fixture.kind === 'vanity' || /浴室柜/.test(fixture.label)
+  // Solver-produced cabinets already passed the rear-edge placement search.
+  // Avoid repeating full polygon projection for every wet-zone candidate while
+  // preserving strict geometry checks for user/imported cabinet bindings.
+  if (isVanity && fixture.layout_generated === true && Number.isInteger(wallIndex) && wallIndex >= 0 && wallIndex < spec.boundary.length) return wallIndex
   const projection = projectPointToWall(finishedRoomBoundary(spec), wallIndex, fixture)
-  return projection && projection.distance_mm <= 1 ? wallIndex : null
+  if (!projection) return null
+  if (!isVanity) return projection.distance_mm <= 1 ? wallIndex : null
+  // Furniture binds by its rear edge. The centre of a cabinet deliberately
+  // remains one half-depth inside the room, so requiring the centre itself to
+  // sit on the wall incorrectly hides valid automatic placements.
+  const boundary = finishedRoomBoundary(spec)
+  const start = boundary[wallIndex]
+  const end = boundary[(wallIndex + 1) % boundary.length]
+  const length = Math.max(1, Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm))
+  const tangent = { x: (end.x_mm - start.x_mm) / length, z: (end.z_mm - start.z_mm) / length }
+  const inward = wallInwardNormal(boundary, wallIndex)
+  const local = fixtureLocalFootprint(fixture)
+  const normalHalf = Math.abs(inward.x) * local.width_mm / 2 + Math.abs(inward.z) * local.depth_mm / 2
+  const tangentHalf = Math.abs(tangent.x) * local.width_mm / 2 + Math.abs(tangent.z) * local.depth_mm / 2
+  const dx = fixture.x_mm - projection.point.x_mm
+  const dz = fixture.z_mm - projection.point.z_mm
+  const tangentOffset = Math.abs(dx * tangent.x + dz * tangent.z)
+  const inwardDistance = dx * inward.x + dz * inward.z
+  const rearGap = inwardDistance - normalHalf
+  return inwardDistance >= -1 && tangentOffset <= tangentHalf + wallBindingSnapDistanceMm && rearGap >= -wallBindingSnapDistanceMm && rearGap <= wallBindingSnapDistanceMm ? wallIndex : null
 }
 
 /**
@@ -670,7 +778,7 @@ function fixtureBoundWallForFinish(spec: RoomSpec, fixture: FixtureSpec) {
   const profiles = spec.wall_finish_profiles?.map((profile) => ({ ...profile, gap_mm: 0 }))
   const baseline = finishedRoomBoundary({ ...spec, wall_finish_gap_mm: 0, wall_finish_profiles: profiles })
   const wallIndex = fixture.bound_wall_index
-  if (wallIndex === undefined || wallIndex === null || !fixtureCanBindWall(fixture.kind)) return null
+  if (wallIndex === undefined || wallIndex === null || !fixtureCanBindWallForFixture(fixture)) return null
   const projection = projectPointToWall(baseline, wallIndex, fixture)
   return projection && projection.distance_mm <= wallBindingSnapDistanceMm ? wallIndex : null
 }
@@ -689,7 +797,17 @@ export function toiletRotationForWall(points: Point2D[], wallIndex: number) {
 
 export function toiletPlacementFromDrain(spec: RoomSpec, drain: FixtureSpec) {
   const roomBoundary = finishedRoomBoundary(spec)
-  const wallIndex = drain.bound_wall_index ?? nearestWallIndex(roomBoundary, drain)
+  const explicitWall = drain.bound_wall_index
+  const hasExplicitWall = typeof explicitWall === 'number' && Number.isInteger(explicitWall) && explicitWall >= 0 && explicitWall < roomBoundary.length
+  const explicitProjection = !hasExplicitWall
+    ? null
+    : projectPointToWall(roomBoundary, explicitWall as number, drain)
+  // Imported point markers can carry a stale wall index after the boundary is
+  // edited. Only trust an explicit binding when the point is still close to
+  // that finished wall; otherwise resolve the nearest current wall segment.
+  const wallIndex = explicitProjection && explicitProjection.distance_mm <= wallBindingSnapDistanceMm
+    ? explicitWall as number
+    : nearestWallIndex(roomBoundary, drain)
   const defaults = fixtureDefaults.toilet
   if (wallIndex === null) return {
     x_mm: drain.x_mm,
@@ -816,34 +934,168 @@ function mergeZoneCells(rows: ZoneRect[][]) {
 
 export function generateDryWetZones(spec: RoomSpec): DryWetZone[] {
   const roomBoundary = finishedRoomBoundary(spec)
-  const bounds = roomBounds(roomBoundary)
   const showerDrain = spec.fixtures.find((fixture) => fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'shower')
   if (!showerDrain) return []
-  const x = fittedRange(showerDrain.x_mm - 320, showerDrain.x_mm + 320, bounds.minX, bounds.maxX, 900)
-  const z = fittedRange(showerDrain.z_mm - 320, showerDrain.z_mm + 320, bounds.minZ, bounds.maxZ, 900)
-  const wetRects: ZoneRect[] = [{ kind: 'wet', minX: Math.round(x.minimum), minZ: Math.round(z.minimum), maxX: Math.round(x.maximum), maxZ: Math.round(z.maximum) }]
-  const xStops = [...new Set([...roomBoundary.map((point) => point.x_mm), ...wetRects.flatMap((rectangle) => [rectangle.minX, rectangle.maxX])])].sort((left, right) => left - right)
-  const zStops = [...new Set([...roomBoundary.map((point) => point.z_mm), ...wetRects.flatMap((rectangle) => [rectangle.minZ, rectangle.maxZ])])].sort((left, right) => left - right)
-  const rows: ZoneRect[][] = []
-  for (let zIndex = 0; zIndex < zStops.length - 1; zIndex += 1) {
-    const row: ZoneRect[] = []
-    let current: ZoneRect | null = null
-    for (let xIndex = 0; xIndex < xStops.length - 1; xIndex += 1) {
-      const minX = xStops[xIndex], maxX = xStops[xIndex + 1], minZ = zStops[zIndex], maxZ = zStops[zIndex + 1]
-      const middle = { x_mm: (minX + maxX) / 2, z_mm: (minZ + maxZ) / 2 }
-      if (!pointInPolygon(roomBoundary, middle)) { if (current) row.push(current); current = null; continue }
-      const kind: DryWetZone['kind'] = wetRects.some((rectangle) => middle.x_mm >= rectangle.minX && middle.x_mm <= rectangle.maxX && middle.z_mm >= rectangle.minZ && middle.z_mm <= rectangle.maxZ) ? 'wet' : 'dry'
-      const active = current as ZoneRect | null
-      if (active && active.kind === kind && active.maxX === minX) active.maxX = maxX
-      else { if (current) row.push(current); current = { kind, minX, minZ, maxX, maxZ } }
-    }
-    if (current) row.push(current)
-    rows.push(row)
+  const bounds = roomBounds(roomBoundary)
+  const minimumSize = 900
+  const drainHalfWidth = Math.max(1, showerDrain.width_mm / 2)
+  const drainHalfDepth = Math.max(1, showerDrain.depth_mm / 2)
+  // For an orthogonal room the sides of a maximum axis-aligned rectangle can
+  // be moved until they meet a room vertex (or the measured drain envelope).
+  // Enumerating those finite coordinates is deterministic and handles stepped
+  // rooms without turning the wet area into a concave pseudo-rectangle.
+  const xStops = [...new Set([
+    bounds.minX, bounds.maxX, showerDrain.x_mm,
+    bounds.minX + 300, bounds.maxX - 300,
+    showerDrain.x_mm - minimumSize / 2, showerDrain.x_mm + minimumSize / 2,
+    showerDrain.x_mm - minimumSize, showerDrain.x_mm + minimumSize,
+    ...roomBoundary.map((point) => point.x_mm),
+  ])].sort((left, right) => left - right)
+  const zStops = [...new Set([
+    bounds.minZ, bounds.maxZ, showerDrain.z_mm,
+    bounds.minZ + 300, bounds.maxZ - 300,
+    showerDrain.z_mm - minimumSize / 2, showerDrain.z_mm + minimumSize / 2,
+    showerDrain.z_mm - minimumSize, showerDrain.z_mm + minimumSize,
+    ...roomBoundary.map((point) => point.z_mm),
+  ])].sort((left, right) => left - right)
+  // A maximum rectangle may terminate at a fixed dry fixture (most often the
+  // toilet) rather than at a room vertex. Include those footprint edges so a
+  // valid 900 mm rectangle is still found when the larger candidate is blocked.
+  const fixedEdges = spec.fixtures
+    .filter((fixture) => fixture.kind === 'toilet' || fixture.kind === 'column' || fixture.kind === 'radiator')
+    .flatMap((fixture) => {
+      const footprint = fixtureLocalFootprint(fixture)
+      return { x: [fixture.x_mm - footprint.width_mm / 2, fixture.x_mm + footprint.width_mm / 2], z: [fixture.z_mm - footprint.depth_mm / 2, fixture.z_mm + footprint.depth_mm / 2] }
+    })
+  const serviceEdges = spec.fixtures
+    .filter((fixture) => ['floor_drain', 'drain', 'water'].includes(fixture.kind) && fixturePointUsage(fixture) !== 'shower' && (fixture.kind !== 'water' || (fixture.elevation_mm ?? 0) <= 300))
+    .flatMap((fixture) => ({
+      x: [fixture.x_mm - fixture.width_mm / 2, fixture.x_mm + fixture.width_mm / 2],
+      z: [fixture.z_mm - fixture.depth_mm / 2, fixture.z_mm + fixture.depth_mm / 2],
+    }))
+  const candidateXStops = [...new Set([...xStops, ...fixedEdges.flatMap((edge) => edge.x), ...serviceEdges.flatMap((edge) => edge.x)])].sort((left, right) => left - right)
+  const candidateZStops = [...new Set([...zStops, ...fixedEdges.flatMap((edge) => edge.z), ...serviceEdges.flatMap((edge) => edge.z)])].sort((left, right) => left - right)
+  const candidateBoundary = (minX: number, minZ: number, maxX: number, maxZ: number): Point2D[] => [
+    { x_mm: minX, z_mm: minZ }, { x_mm: maxX, z_mm: minZ },
+    { x_mm: maxX, z_mm: maxZ }, { x_mm: minX, z_mm: maxZ },
+  ]
+  // Keep at least one edge on a real finished wall, while rejecting a
+  // rectangle that simply aliases the entire room. Divider edges then remain
+  // meaningful construction boundaries for glass/curb detailing.
+  const edgeOnRoomWall = (start: Point2D, end: Point2D) => {
+    const length = Math.max(1, Math.hypot(end.x_mm - start.x_mm, end.z_mm - start.z_mm))
+    const samples = Math.max(2, Math.ceil(length / 50))
+    return Array.from({ length: samples + 1 }, (_, index) => ({
+      x_mm: start.x_mm + (end.x_mm - start.x_mm) * index / samples,
+      z_mm: start.z_mm + (end.z_mm - start.z_mm) * index / samples,
+    })).every((point) => pointOnPolygonBoundary(roomBoundary, point))
   }
-  const rectangles = mergeZoneCells(rows).filter((rectangle) => rectangle.kind === 'wet' && (rectangle.maxX - rectangle.minX) * (rectangle.maxZ - rectangle.minZ) >= 10_000)
-  const rectangle = rectangles.find((candidate) => showerDrain.x_mm >= candidate.minX && showerDrain.x_mm <= candidate.maxX && showerDrain.z_mm >= candidate.minZ && showerDrain.z_mm <= candidate.maxZ)
-    ?? rectangles.sort((left, right) => (right.maxX - right.minX) * (right.maxZ - right.minZ) - (left.maxX - left.minX) * (left.maxZ - left.minZ))[0]
-  return rectangle ? [rectZone('wet-auto-1', 'wet', '湿区', rectangle.minX, rectangle.minZ, rectangle.maxX, rectangle.maxZ)] : []
+  const wallEdgeCount = (boundary: Point2D[]) => boundary.reduce((count, start, index) => count + (edgeOnRoomWall(start, boundary[(index + 1) % boundary.length]) ? 1 : 0), 0)
+  // Measured non-shower points are hard evidence for dry/service locations.
+  // A candidate may touch a wall point, but must never contain its footprint;
+  // otherwise the maximum-rectangle search silently absorbs the laundry or
+  // basin area into the shower zone. Drain points are floor anchors even when
+  // their imported elevation is missing; elevated water points only reserve
+  // the floor when they are close enough to it to represent a service stub.
+  const dryServicePoints = spec.fixtures.filter((fixture) => (
+    ['floor_drain', 'drain', 'water'].includes(fixture.kind)
+    // The measured shower floor drain anchors the wet zone; other point
+    // evidence reserves dry/service space. Interior shower plumbing points
+    // are part of the same wet installation and are therefore ignored here.
+    && fixturePointUsage(fixture) !== 'shower'
+    && (fixture.kind !== 'water' || (fixture.elevation_mm ?? 0) <= 300)
+  ))
+  const boundaryShowerPoints = spec.fixtures.filter((fixture) => (
+    ['drain', 'water'].includes(fixture.kind)
+    && fixturePointUsage(fixture) === 'shower'
+    && pointOnPolygonBoundary(roomBoundary, { x_mm: fixture.x_mm, z_mm: fixture.z_mm })
+  ))
+  const containsDryServicePoint = (boundary: Point2D[]) => {
+    const minX = Math.min(...boundary.map((point) => point.x_mm)); const maxX = Math.max(...boundary.map((point) => point.x_mm))
+    const minZ = Math.min(...boundary.map((point) => point.z_mm)); const maxZ = Math.max(...boundary.map((point) => point.z_mm))
+    return dryServicePoints.some((fixture) => {
+      const overlapsX = fixture.x_mm + fixture.width_mm / 2 > minX && fixture.x_mm - fixture.width_mm / 2 < maxX
+      const overlapsZ = fixture.z_mm + fixture.depth_mm / 2 > minZ && fixture.z_mm - fixture.depth_mm / 2 < maxZ
+      // A measured washer floor drain reserves its appliance bay along the
+      // wall even when the point's Z coordinate is outside the shower slab.
+      // Toilet/basin drains, by contrast, reserve only their actual footprint
+      // so a distant service point does not erase a valid stepped-room bay.
+      if (fixture.kind === 'floor_drain' && fixturePointUsage(fixture) === 'washer') return overlapsX
+      return overlapsX && overlapsZ
+    })
+  }
+  const crossesBoundaryServicePoint = (boundary: Point2D[]) => {
+    if (roomBoundary.length !== 4) return false
+    const roomMinX = Math.min(...roomBoundary.map((point) => point.x_mm)); const roomMaxX = Math.max(...roomBoundary.map((point) => point.x_mm))
+    const roomMinZ = Math.min(...roomBoundary.map((point) => point.z_mm)); const roomMaxZ = Math.max(...roomBoundary.map((point) => point.z_mm))
+    const minX = Math.min(...boundary.map((point) => point.x_mm)); const maxX = Math.max(...boundary.map((point) => point.x_mm))
+    const minZ = Math.min(...boundary.map((point) => point.z_mm)); const maxZ = Math.max(...boundary.map((point) => point.z_mm))
+    return dryServicePoints.some((fixture) => {
+      const point = { x_mm: fixture.x_mm, z_mm: fixture.z_mm }
+      if (!pointOnPolygonBoundary(roomBoundary, point)) return false
+      const halfWidth = Math.max(1, fixture.width_mm / 2); const halfDepth = Math.max(1, fixture.depth_mm / 2)
+      if (Math.abs(point.z_mm - roomMinZ) <= 1 && minZ > roomMinZ + 1) return point.x_mm > minX - halfWidth && point.x_mm < maxX + halfWidth
+      if (Math.abs(point.z_mm - roomMaxZ) <= 1 && maxZ < roomMaxZ - 1) return point.x_mm > minX - halfWidth && point.x_mm < maxX + halfWidth
+      if (Math.abs(point.x_mm - roomMinX) <= 1 && minX > roomMinX + 1) return point.z_mm > minZ - halfDepth && point.z_mm < maxZ + halfDepth
+      if (Math.abs(point.x_mm - roomMaxX) <= 1 && maxX < roomMaxX - 1) return point.z_mm > minZ - halfDepth && point.z_mm < maxZ + halfDepth
+      return false
+    })
+  }
+  const boundaryServiceEdgeLimit = (boundary: Point2D[]) => {
+    if (roomBoundary.length !== 4) return true
+    const roomMinX = Math.min(...roomBoundary.map((point) => point.x_mm)); const roomMaxX = Math.max(...roomBoundary.map((point) => point.x_mm))
+    const roomMinZ = Math.min(...roomBoundary.map((point) => point.z_mm)); const roomMaxZ = Math.max(...roomBoundary.map((point) => point.z_mm))
+    const minX = Math.min(...boundary.map((point) => point.x_mm)); const maxX = Math.max(...boundary.map((point) => point.x_mm))
+    const minZ = Math.min(...boundary.map((point) => point.z_mm)); const maxZ = Math.max(...boundary.map((point) => point.z_mm))
+    return [...dryServicePoints, ...boundaryShowerPoints].every((fixture) => {
+      const onHorizontalEdge = (Math.abs(fixture.z_mm - roomMinZ) <= 1 || Math.abs(fixture.z_mm - roomMaxZ) <= 1) && fixture.x_mm >= minX - 1 && fixture.x_mm <= maxX + 1
+      const onVerticalEdge = (Math.abs(fixture.x_mm - roomMinX) <= 1 || Math.abs(fixture.x_mm - roomMaxX) <= 1) && fixture.z_mm >= minZ - 1 && fixture.z_mm <= maxZ + 1
+      if (onHorizontalEdge) return Math.min(fixture.x_mm - minX, maxX - fixture.x_mm) <= 500
+      if (onVerticalEdge) return Math.min(fixture.z_mm - minZ, maxZ - fixture.z_mm) <= 500
+      return true
+    })
+  }
+  const touchesBoundaryShowerPoint = (boundary: Point2D[]) => {
+    const minX = Math.min(...boundary.map((point) => point.x_mm)); const maxX = Math.max(...boundary.map((point) => point.x_mm))
+    const minZ = Math.min(...boundary.map((point) => point.z_mm)); const maxZ = Math.max(...boundary.map((point) => point.z_mm))
+    return boundaryShowerPoints.some((fixture) => {
+      const onVertical = (Math.abs(fixture.x_mm - minX) <= 1 || Math.abs(fixture.x_mm - maxX) <= 1) && fixture.z_mm >= minZ - 1 && fixture.z_mm <= maxZ + 1
+      const onHorizontal = (Math.abs(fixture.z_mm - minZ) <= 1 || Math.abs(fixture.z_mm - maxZ) <= 1) && fixture.x_mm >= minX - 1 && fixture.x_mm <= maxX + 1
+      return onVertical || onHorizontal
+    })
+  }
+  const validCandidate = (boundary: Point2D[]) => {
+    const width = boundary[1].x_mm - boundary[0].x_mm
+    const depth = boundary[2].z_mm - boundary[1].z_mm
+    if (width < minimumSize || depth < minimumSize) return false
+    const roomWidth = bounds.maxX - bounds.minX; const roomDepth = bounds.maxZ - bounds.minZ
+    if (width >= roomWidth - 1 && depth >= roomDepth - 1) return false
+    const wallEdges = wallEdgeCount(boundary)
+    if (wallEdges < 1 || wallEdges === 4) return false
+    if (showerDrain.x_mm - drainHalfWidth < boundary[0].x_mm - 1 || showerDrain.x_mm + drainHalfWidth > boundary[1].x_mm + 1) return false
+    if (showerDrain.z_mm - drainHalfDepth < boundary[0].z_mm - 1 || showerDrain.z_mm + drainHalfDepth > boundary[2].z_mm + 1) return false
+    // Use the canonical validator with an empty zone list so door motion and
+    // measured toilet reservations remain hard constraints for this new zone.
+    if (containsDryServicePoint(boundary)) return false
+    if (roomBoundary.length === 4 && (crossesBoundaryServicePoint(boundary) || touchesBoundaryShowerPoint(boundary) || !boundaryServiceEdgeLimit(boundary))) return false
+    return wetZoneBoundaryValid({ ...spec, dry_wet_zones: [] }, 'wet-auto-1', boundary)
+  }
+  let best: { boundary: Point2D[]; area: number; centreDistance: number } | null = null
+  for (const minX of candidateXStops) for (const maxX of candidateXStops) {
+    if (maxX <= minX || showerDrain.x_mm - drainHalfWidth < minX - 1 || showerDrain.x_mm + drainHalfWidth > maxX + 1) continue
+    for (const minZ of candidateZStops) for (const maxZ of candidateZStops) {
+      if (maxZ <= minZ || showerDrain.z_mm - drainHalfDepth < minZ - 1 || showerDrain.z_mm + drainHalfDepth > maxZ + 1) continue
+      const boundary = candidateBoundary(minX, minZ, maxX, maxZ)
+      if (!validCandidate(boundary)) continue
+      const area = (maxX - minX) * (maxZ - minZ)
+      const centreDistance = Math.hypot((minX + maxX) / 2 - showerDrain.x_mm, (minZ + maxZ) / 2 - showerDrain.z_mm)
+      if (!best || area > best.area || (area === best.area && centreDistance < best.centreDistance)) best = { boundary, area, centreDistance }
+    }
+  }
+  return best ? [rectZone('wet-auto-1', 'wet', '湿区', ...[
+    Math.min(...best.boundary.map((point) => point.x_mm)), Math.min(...best.boundary.map((point) => point.z_mm)),
+    Math.max(...best.boundary.map((point) => point.x_mm)), Math.max(...best.boundary.map((point) => point.z_mm)),
+  ])] : []
 }
 
 export function generateWallFinishProfiles(spec: RoomSpec): WallFinishProfile[] {
@@ -1226,7 +1478,11 @@ export function applyWetZoneBoundaryChange(spec: RoomSpec, zoneId: string, bound
     || (fixture.layout_generated && /花洒/.test(fixture.label) && !/扶手/.test(fixture.label)),
   )
   const drain = generatedShowerItems.find((fixture) => fixture.kind === 'floor_drain')
-  if (drain) {
+  // A measured or explicitly pinned shower drain is an installation anchor.
+  // Only the generated drain may be repositioned when the editable wet-zone
+  // rectangle changes; moving measured evidence silently breaks fixed-point
+  // layout and makes the drain drift away from the drawing.
+  if (drain?.layout_generated) {
     const minX = Math.min(...boundary.map((point) => point.x_mm)); const maxX = Math.max(...boundary.map((point) => point.x_mm))
     const minZ = Math.min(...boundary.map((point) => point.z_mm)); const maxZ = Math.max(...boundary.map((point) => point.z_mm))
     // Core placement rule: keep a serviceable 50 mm wall margin and avoid the
@@ -1286,10 +1542,35 @@ export function clientValidate(spec: RoomSpec): ValidationIssue[] {
   }
   for (const fixture of spec.fixtures) {
     if (fixture.confidence < 0.6 && fixture.source !== 'user') issues.push({ id: `confidence-${fixture.id}`, severity: 'warning', code: 'low_confidence', message: `${fixture.label} 为低置信度识别结果`, target_id: fixture.id })
+    const isBathroomCabinet = fixture.kind === 'vanity' || (!['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(fixture.kind) && /浴室柜/.test(fixture.label))
+    if (isBathroomCabinet) {
+      const expected = bathroomVanityInstallationRules
+      if (fixture.width_mm !== expected.width_mm || fixture.depth_mm !== expected.depth_mm || fixture.height_mm !== expected.height_mm) {
+        issues.push({ id: `cabinet-envelope-${fixture.id}`, severity: 'error', code: 'cabinet_fixed_envelope', message: `${fixture.label} 必须使用固定安装包络 ${expected.width_mm}×${expected.depth_mm}×${expected.height_mm}mm`, target_id: fixture.id })
+      }
+      const wallIndex = fixture.bound_wall_index
+      if (wallIndex === undefined || wallIndex === null || wallIndex < 0 || wallIndex >= spec.boundary.length || fixtureBoundWallIndex(spec, fixture) === null) {
+        issues.push({ id: `cabinet-wall-${fixture.id}`, severity: 'error', code: 'cabinet_wall_attachment', message: `${fixture.label} 必须后沿靠墙安装`, target_id: fixture.id })
+      }
+      const operation = cabinetOperationClearance(fixture)
+      const roomBoundary = finishedRoomBoundary(spec)
+      const operationInside = operation.every((point) => pointOnPolygonBoundary(roomBoundary, point) || pointInPolygon(roomBoundary, point))
+      const operationBlocked = spec.fixtures.some((other) => other !== fixture
+        && !['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(other.kind)
+        && other.kind !== 'shower'
+        && (other.elevation_mm ?? 0) <= 50
+        && polygonsOverlap(operation, fixturePlanPolygon(other)))
+      if (!operationInside || operationBlocked) {
+        issues.push({ id: `cabinet-clearance-${fixture.id}`, severity: 'error', code: 'cabinet_operation_clearance', message: `${fixture.label} 前方必须保留至少 ${expected.front_clearance_mm}mm 操作空间`, target_id: fixture.id })
+      }
+    }
     if (fixture.bound_wall_index !== undefined && fixture.bound_wall_index !== null) {
-      if (!fixtureCanBindWall(fixture.kind)) issues.push({ id: `fixture-bind-kind-${fixture.id}`, severity: 'warning', code: 'fixture_bind_kind', message: `${fixture.label} 不属于可绑定墙段的点位`, target_id: fixture.id })
+      // Generated furniture keeps a wall index as its installation host, but
+      // it is not a wall service point. Only flag this as an invalid binding
+      // when the user/import supplied the binding on a non-point fixture.
+      if (!fixtureCanBindWallForFixture(fixture) && !fixture.layout_generated) issues.push({ id: `fixture-bind-kind-${fixture.id}`, severity: 'warning', code: 'fixture_bind_kind', message: `${fixture.label} 不属于可绑定墙段的点位`, target_id: fixture.id })
       if (fixture.bound_wall_index < 0 || fixture.bound_wall_index >= spec.boundary.length) issues.push({ id: `fixture-bind-wall-${fixture.id}`, severity: 'error', code: 'fixture_wall_binding', message: `${fixture.label} 绑定墙段无效`, target_id: fixture.id })
-      else if (fixtureCanBindWall(fixture.kind) && fixtureBoundWallIndex(spec, fixture) === null) issues.push({ id: `fixture-bind-snap-${fixture.id}`, severity: 'warning', code: 'fixture_wall_not_snapped', message: `${fixture.label} 未落在 W${fixture.bound_wall_index + 1} 上，按未绑定处理`, target_id: fixture.id })
+      else if (fixtureCanBindWallForFixture(fixture) && fixtureBoundWallIndex(spec, fixture) === null) issues.push({ id: `fixture-bind-snap-${fixture.id}`, severity: 'warning', code: 'fixture_wall_not_snapped', message: `${fixture.label} 未落在 W${fixture.bound_wall_index + 1} 上，按未绑定处理`, target_id: fixture.id })
     }
   }
   spec.fixtures.forEach((left, index) => {

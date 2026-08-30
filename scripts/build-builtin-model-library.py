@@ -48,7 +48,8 @@ DEFAULT_DIMENSIONS_MM: dict[str, dict[str, float]] = {
     "浴室柜": {"width": 800, "depth": 520, "height": 2000},
     "洗衣机": {"width": 600, "depth": 620, "height": 850},
     "热水器": {"width": 720, "depth": 180, "height": 430},
-    "花洒": {"width": 120, "depth": 80, "height": 1100},
+    # Reviewed shower installation envelope; do not rebuild the smaller proxy.
+    "花洒": {"width": 285, "depth": 485, "height": 1327},
 }
 
 

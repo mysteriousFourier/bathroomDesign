@@ -44,7 +44,8 @@ CATEGORY_DIMENSIONS: dict[str, dict[str, float]] = {
     "洗衣机": {"width": 600, "depth": 620, "height": 850},
     "水龙头": {"width": 80, "depth": 160, "height": 160},
     "热水器": {"width": 720, "depth": 180, "height": 430},
-    "花洒": {"width": 120, "depth": 80, "height": 1100},
+    # Reviewed shower installation envelope; do not use the smaller proxy.
+    "花洒": {"width": 285, "depth": 485, "height": 1327},
 }
 
 POINT_CATALOG_BINDINGS: dict[str, tuple[list[str], str]] = {

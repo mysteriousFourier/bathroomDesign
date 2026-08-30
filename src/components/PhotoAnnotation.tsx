@@ -2,7 +2,8 @@ import { BoxSelect, Check, DoorOpen, Eye, EyeOff, Grid2X2, MousePointer2, PenLin
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { drawableEvidence, observationId, reviewEvidence } from '../evidence'
 import { reconcileBoundaryEdges, solveBoundaryEdges } from '../geometry'
-import { cloneSpec, dimensionChainParts, finishedRoomBoundary, fixtureCanBindWall, fixturePointShape, fixturePointUsage, imagePointToRoom, nextOpeningLabel, openingHostLength, polylineSegmentLength, rebindOpeningsToImageBoundary, resizePolylineSegment, roomPointToImage, setOpeningOnWall, snapPointToNearestWall, wallLength, wallRunParts } from '../spec'
+import { resolveFixtureDrag } from '../layoutEngine'
+import { cloneSpec, dimensionChainParts, fixtureCanBindWall, fixturePointShape, imagePointToRoom, nextOpeningLabel, openingHostLength, polylineSegmentLength, rebindOpeningsToImageBoundary, resizePolylineSegment, roomPointToImage, setOpeningOnWall, wallLength, wallRunParts } from '../spec'
 import type { Asset, BoundaryEdge, FixtureSpec, ImageBoundaryPoint, OpeningSpec, PlanLineKind, Point2D, RoomSpec } from '../types'
 
 const canvasWidth = 1000
@@ -508,10 +509,9 @@ export function PhotoAnnotation({ spec, plan, activeEvidenceId, onChange, onEvid
     const draft = cloneSpec(spec)
     const fixture = draft.fixtures.find((item) => item.id === fixtureId)
     if (!fixture) return
-    const snap = snapPointToNearestWall(finishedRoomBoundary(draft), position)
-    fixture.x_mm = snap?.point.x_mm ?? position.x_mm
-    fixture.z_mm = snap?.point.z_mm ?? position.z_mm
-    fixture.bound_wall_index = snap?.wall_index ?? null
+    const resolved = resolveFixtureDrag(draft, fixtureId, position)
+    if (!resolved) return
+    Object.assign(fixture, resolved)
     fixture.source = 'user'
     fixture.confidence = 1
     fixture.layout_generated = false

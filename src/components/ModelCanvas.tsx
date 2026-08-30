@@ -8,6 +8,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { resolvedModelOrientation } from '../modelOrientation'
 import { uniformModelScale } from '../modelScale'
+import { dimensionsFor } from '../modelDimensions'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import { finishedRoomBoundary, hiddenWallIndexesForCutaway, roomBounds, roomCentroid, sliceWallQuadByDistance, wallFinishGap, wallLayerQuads, wallLength } from '../spec'
 import { physicalTextureTransform, physicalWorldTextureTransform } from '../surfaceTexture'
@@ -184,9 +185,21 @@ function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: Fixtur
     const center = new Vector3()
     box.getSize(size)
     box.getCenter(center)
-    // The outer fixture group applies rotation exactly once. Keep the model's
-    // native proportions and use one scale only for unit/envelope fitting.
-    const target = new Vector3(fixture.width_mm / 1000, fixture.height_mm / 1000, fixture.depth_mm / 1000)
+    // The outer fixture group applies rotation exactly once. Most fixtures use
+    // their installation envelope as the fitting target. A heater is a fixed
+    // manufactured appliance, however: its legacy 720x180x430 envelope is a
+    // thin placement proxy and would uniformly shrink the real model. Use the
+    // verified heater bounds so its proportions and apparent size are stable
+    // across all auto-layout tiers.
+    const heater = /热水器/.test(fixture.label)
+    const shower = /花洒/.test(fixture.label) && !/扶手/.test(fixture.label)
+    const heaterDimensions = dimensionsFor('热水器', { width_mm: 781, depth_mm: 448, height_mm: 525 })
+    const showerDimensions = dimensionsFor('花洒', { width_mm: 285, depth_mm: 485, height_mm: 1327 })
+    const target = heater
+      ? new Vector3(heaterDimensions.width_mm / 1000, heaterDimensions.height_mm / 1000, heaterDimensions.depth_mm / 1000)
+      : shower
+        ? new Vector3(showerDimensions.width_mm / 1000, showerDimensions.height_mm / 1000, showerDimensions.depth_mm / 1000)
+      : new Vector3(fixture.width_mm / 1000, fixture.height_mm / 1000, fixture.depth_mm / 1000)
     const scale = uniformModelScale(size, target)
     return {
       scene,
@@ -313,9 +326,9 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
 
 function Pipe({ item }:{ item:PipeSegment }) {
   const dx=(item.to.x_mm-item.from.x_mm)/1000, dy=(item.to.y_mm-item.from.y_mm)/1000, dz=(item.to.z_mm-item.from.z_mm)/1000
-  return <mesh position={[(item.from.x_mm+item.to.x_mm)/2000,(item.from.y_mm+item.to.y_mm)/2000,(item.from.z_mm+item.to.z_mm)/2000]}>
+  return <mesh renderOrder={20} position={[(item.from.x_mm+item.to.x_mm)/2000,(item.from.y_mm+item.to.y_mm)/2000,(item.from.z_mm+item.to.z_mm)/2000]}>
     <boxGeometry args={[Math.max(Math.abs(dx),.026),Math.max(Math.abs(dy),.026),Math.max(Math.abs(dz),.026)]}/>
-    <meshStandardMaterial color={item.temperature==='hot'?'#dc3f36':'#1976d2'} roughness={.35}/><Edges color={item.temperature==='hot'?'#8e1f19':'#0c4380'}/>
+    <meshStandardMaterial color={item.temperature==='hot'?'#dc3f36':'#1976d2'} roughness={.35} depthTest={false} depthWrite={false}/><Edges color={item.temperature==='hot'?'#8e1f19':'#0c4380'}/>
   </mesh>
 }
 

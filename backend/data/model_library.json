@@ -1081,9 +1081,9 @@
       "sha256": "01fb2b39ae3cd2ef81c93dd87d8b7d86eb6f43d1e7ba56c48a2c43b8b241e178",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 120.0,
-        "depth": 80.0,
-        "height": 1100.0
+        "width": 285.0,
+        "depth": 485.0,
+        "height": 1327.0
       },
       "dimension_status": "review",
       "price_tier": "basic",
@@ -1108,9 +1108,9 @@
       "sha256": "96c272b2ea8973253a4ed17c60cd3998266be6ab18f87c314aa24a600cc3cb60",
       "file_count": 3,
       "dimensions_mm": {
-        "width": 120.0,
-        "depth": 80.0,
-        "height": 1100.0
+        "width": 285.0,
+        "depth": 485.0,
+        "height": 1327.0
       },
       "dimension_status": "review",
       "price_tier": "basic",
@@ -1136,9 +1136,9 @@
       "sha256": "749a3a669e5271f175d9286d19d4de719f6310f995ce682279fb3b72dc655140",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 120.0,
-        "depth": 80.0,
-        "height": 1100.0
+        "width": 285.0,
+        "depth": 485.0,
+        "height": 1327.0
       },
       "dimension_status": "review",
       "price_tier": "comfort",
@@ -1163,9 +1163,9 @@
       "sha256": "a7c7b11e7537d561f7ef2b4f63521932de327f4fdc184b079def96e43f750662",
       "file_count": 1,
       "dimensions_mm": {
-        "width": 120.0,
-        "depth": 80.0,
-        "height": 1100.0
+        "width": 285.0,
+        "depth": 485.0,
+        "height": 1327.0
       },
       "dimension_status": "review",
       "price_tier": "premium",

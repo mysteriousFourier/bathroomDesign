@@ -96,3 +96,18 @@ def test_fixture_collision_is_reported() -> None:
     issues, sufficient, _ = validate_spec(spec)
     assert sufficient is True
     assert any(issue.code == "fixture_collision" for issue in issues)
+
+
+def test_service_points_inside_appliances_are_not_fixture_collisions() -> None:
+    spec = RoomSpec(
+        boundary=rectangle(),
+        height_mm=2600,
+        fixtures=[
+            FixtureSpec(id="sink", kind="vanity", label="浴室柜", x_mm=1000, z_mm=900, width_mm=800, depth_mm=520, height_mm=2000),
+            FixtureSpec(id="sink-drain", kind="drain", label="洗面盆排水", x_mm=1000, z_mm=900, width_mm=100, depth_mm=100, height_mm=20),
+            FixtureSpec(id="sink-water", kind="water", label="洗面盆给水", x_mm=1000, z_mm=900, width_mm=40, depth_mm=40, height_mm=40),
+        ],
+    )
+    issues, sufficient, _ = validate_spec(spec)
+    assert sufficient is True
+    assert not any(issue.code == "fixture_collision" for issue in issues)

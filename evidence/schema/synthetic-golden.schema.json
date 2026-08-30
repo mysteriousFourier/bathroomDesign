@@ -78,7 +78,7 @@
           },
           "targetDrainageType": {
             "type": "string",
-            "enum": ["floor_drain", "wall_drain", "toilet_drain", "sink_drain", "shower_drain", "bathtub_drain"]
+            "enum": ["floor_drain", "wall_drain", "toilet_drain", "sink_drain", "shower_drain", "washer_drain", "bathtub_drain"]
           },
           "footprintInsideRoom": {
             "type": "boolean",

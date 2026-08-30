@@ -1,8 +1,8 @@
-import { BoxSelect, CheckCircle2, ChevronDown, ChevronUp, FileWarning, LoaderCircle, Ruler, ShieldAlert, Wand2 } from 'lucide-react'
+import { BoxSelect, CheckCircle2, ChevronDown, ChevronUp, FileWarning, LoaderCircle, Ruler, ShieldAlert, Trash2, Wand2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { LayoutSolution } from '../layoutEngine'
-import { roomBounds, structuralInnerBoundary, wallPanelCutList, WALL_PANEL_STANDARD_WIDTH_MM } from '../spec'
-import type { RoomSpec } from '../types'
+import { fixturePointUsage, fixturePointUsageLabels, roomBounds, structuralInnerBoundary, wallPanelCutList, WALL_PANEL_STANDARD_WIDTH_MM } from '../spec'
+import type { FixtureSpec, RoomSpec } from '../types'
 
 function formatFootprint(spec: RoomSpec) {
   const bounds = roomBounds(structuralInnerBoundary(spec))
@@ -11,6 +11,16 @@ function formatFootprint(spec: RoomSpec) {
 
 function hardErrorCount(solution: LayoutSolution) {
   return solution.checks.filter((check) => !check.passed && check.severity === 'error').length
+}
+
+function isLockablePoint(fixture: FixtureSpec) {
+  return ['floor_drain', 'drain', 'water', 'electric'].includes(fixture.kind)
+    || fixture.kind === 'toilet'
+}
+
+function pointLabel(fixture: FixtureSpec) {
+  const usage = fixturePointUsage(fixture)
+  return usage && fixture.kind !== 'toilet' ? `${fixture.label} · ${fixturePointUsageLabels[usage]}` : fixture.label
 }
 
 /** Sub-level menu under the wall panels: per-piece cut widths after laying out 600 mm boards. */
@@ -55,14 +65,17 @@ function LayoutPlan({ spec, solution }: { spec: RoomSpec; solution: LayoutSoluti
   </svg>
 }
 
-export function SolutionList({ spec, solutions, selectedSolution, onSelectSolution, onOpenModel, onStartAutoLayout, onFocusSolution, layoutRunning, layoutError }: {
+export function SolutionList({ spec, solutions, selectedSolution, onSelectSolution, onOpenModel, onStartAutoLayout, onClearLayout, canClearLayout, onFocusSolution, onPointLocksChange, layoutRunning, layoutError }: {
   spec: RoomSpec
   solutions: LayoutSolution[]
   selectedSolution: LayoutSolution | null
   onSelectSolution: (solution: LayoutSolution) => void
   onOpenModel: () => void
   onStartAutoLayout: () => Promise<void>
+  onClearLayout: () => void
+  canClearLayout: boolean
   onFocusSolution?: (solution: LayoutSolution) => void
+  onPointLocksChange?: (fixtureIds: string[]) => void
   layoutRunning?: boolean
   layoutError?: string | null
 }) {
@@ -72,6 +85,10 @@ export function SolutionList({ spec, solutions, selectedSolution, onSelectSoluti
   const running = layoutRunning ?? false
   const error = layoutError ?? localError
   const errorCount = spec.issues.filter((issue) => issue.severity === 'error').length
+  const lockablePoints = spec.fixtures.filter(isLockablePoint)
+  const isLocked = (fixture: FixtureSpec) => fixture.placement_locked === true
+  const allPointsLocked = lockablePoints.length > 0 && lockablePoints.every(isLocked)
+  const selectedPointIds = lockablePoints.filter(isLocked).map((fixture) => fixture.id)
   useEffect(() => {
     if (!solutions.length) {
       setFocusedId(null)
@@ -93,15 +110,37 @@ export function SolutionList({ spec, solutions, selectedSolution, onSelectSoluti
     }
   }
 
-  if (errorCount) return <section className="solution-list no-solution"><div className="solution-title"><span>大模型自动布局</span><strong>三维暂不可用</strong></div><p><FileWarning size={15} />请先修正量房阻断错误。</p></section>
+  if (errorCount) return <section className="solution-list no-solution auto-layout">
+    <div className="layout-header">
+      <div className="solution-title"><span>大模型自动布局</span><strong>三维暂不可用</strong></div>
+      {canClearLayout && <button className="button danger-text compact" onClick={onClearLayout}><Trash2 size={14} />清理布局</button>}
+    </div>
+    <p><FileWarning size={15} />请先修正量房阻断错误。</p>
+  </section>
   return <section className="solution-list auto-layout" aria-label="大模型自动布局">
     <div className="layout-header">
       <div className="solution-title"><span>大模型自动布局</span><strong>{formatFootprint(spec)}{solutions.length ? ` · ${solutions.length} 档` : ''}</strong></div>
       <div className="layout-entry-actions">
+        {lockablePoints.length > 0 && <div className="point-lock-control">
+          <label className="checkbox-field compact"><input type="checkbox" checked={allPointsLocked} onChange={(event) => {
+            const next = event.target.checked ? lockablePoints.map((fixture) => fixture.id) : []
+            onPointLocksChange?.(next)
+          }} /><span>固定点位自动布局</span></label>
+          <details className="point-lock-menu">
+            <summary>选择固定点位 ({selectedPointIds.length}/{lockablePoints.length})</summary>
+            <div className="point-lock-options">{lockablePoints.map((fixture) => <label key={fixture.id} className="checkbox-field compact"><input type="checkbox" checked={isLocked(fixture)} onChange={(event) => {
+              const next = new Set(selectedPointIds)
+              if (event.target.checked) next.add(fixture.id)
+              else next.delete(fixture.id)
+              onPointLocksChange?.([...next])
+            }} /><span>{pointLabel(fixture)}</span></label>)}</div>
+          </details>
+        </div>}
         <button className="button primary" disabled={running} onClick={() => void start()}>
           {running ? <LoaderCircle className="spin" size={14} /> : <Wand2 size={14} />}{running ? '正在调用大模型' : '开始自动布局'}
         </button>
-        {solutions.length === 3 && <button className="button layout-toggle" aria-expanded={expanded} aria-controls="auto-layout-details" onClick={() => setExpanded((value) => !value)}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}{expanded ? '收起三个方案' : '展开三个方案'}</button>}
+        {canClearLayout && <button className="button danger-text compact" disabled={running} onClick={onClearLayout}><Trash2 size={14} />清理布局</button>}
+        {solutions.length > 0 && <button className="button layout-toggle" aria-expanded={expanded} aria-controls="auto-layout-details" onClick={() => setExpanded((value) => !value)}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}{expanded ? '收起布局方案' : `展开布局方案 (${solutions.length})`}</button>}
       </div>
     </div>
     {!solution && !error && <span className="layout-method">点击后调用 CHAT_MODEL 生成产品选择与布局脚本；未调用模型前不生成布局结果。</span>}

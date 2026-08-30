@@ -108,6 +108,16 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def prevent_stale_frontend_entry(request, call_next):
+    response = await call_next(request)
+    content_type = response.headers.get("content-type", "")
+    if request.url.path == "/" or content_type.startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 def project_or_404(project_id: str) -> ProjectResponse:
     try:
         return db.get_project(project_id)

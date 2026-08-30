@@ -1,5 +1,5 @@
 import type { FixtureSpec, Point2D, RoomSpec } from './types'
-import { finishedRoomBoundary, roomBounds, wallInwardNormal } from './spec'
+import { finishedRoomBoundary, roomBounds, wallFinishGap, wallFinishThickness, wallInwardNormal } from './spec'
 
 export type PipeTemperature = 'cold' | 'hot'
 export type PipePoint = Point2D & { y_mm: number }
@@ -29,7 +29,7 @@ const MANIFOLD_PORT_SPACING_MM = 45
 const MANIFOLD_DEPTH_MM = 90
 const MANIFOLD_BRANCH_LEAD_MM = 80
 const PIPE_LANE_SPACING_MM = 65
-const isHot = (fixture: FixtureSpec) => /热水|热角阀|hot/i.test(`${fixture.label} ${fixture.id}`) && !/冷水|进水|cold|inlet/i.test(`${fixture.label} ${fixture.id}`)
+const isHot = (fixture: FixtureSpec) => /热水|热角阀|hot/i.test(`${fixture.label} ${fixture.id}`) && !/冷水|cold/i.test(`${fixture.label} ${fixture.id}`)
 const isHeaterOutlet = (fixture: FixtureSpec) => fixture.kind === 'water' && /热水器.*(?:热水|出水)|heater.*(?:hot|outlet)/i.test(`${fixture.label} ${fixture.id}`)
 const length = (a: PipePoint, b: PipePoint) => Math.abs(a.x_mm - b.x_mm) + Math.abs(a.y_mm - b.y_mm) + Math.abs(a.z_mm - b.z_mm)
 const segment = (id: string, temperature: PipeTemperature, from: PipePoint, to: PipePoint, fixture_id?: string): PipeSegment | null => {
@@ -87,12 +87,31 @@ function isServicePoint(fixture: FixtureSpec) {
 /** A device that owns the terminal; the terminal may connect at its edge. */
 function servesTarget(obstacle: FixtureSpec, target: FixtureSpec) {
   if (obstacle.id === target.id) return true
-  const { halfX, halfZ } = obstacleHalfExtents(obstacle, 0)
+  // Wall terminals are recorded on the finished wall face while the owning
+  // appliance centre sits behind that face. Include the pipe clearance when
+  // matching a terminal to its host, otherwise a valid vertical drop is
+  // mistaken for a collision with the very appliance it serves.
+  const { halfX, halfZ } = obstacleHalfExtents(obstacle, LIGHT_CLEARANCE_MM + PIPE_MM / 2)
   const insideFootprint = Math.abs(target.x_mm - obstacle.x_mm) <= halfX && Math.abs(target.z_mm - obstacle.z_mm) <= halfZ
   return insideFootprint
 }
 
-function physicalTerminalPoint(target: FixtureSpec, obstacles: FixtureSpec[]) {
+function wallCavityPoint(spec: RoomSpec, target: FixtureSpec) {
+  const wallIndex = target.bound_wall_index
+  if (wallIndex === undefined || wallIndex === null || wallIndex < 0 || wallIndex >= spec.boundary.length) return null
+  const inward = wallInwardNormal(finishedRoomBoundary(spec), wallIndex)
+  const offset = wallFinishThickness(spec, wallIndex) + wallFinishGap(spec, wallIndex) / 2
+  return {
+    x_mm: Math.round(target.x_mm - inward.x * offset),
+    z_mm: Math.round(target.z_mm - inward.z * offset),
+  }
+}
+
+function physicalTerminalPoint(spec: RoomSpec, target: FixtureSpec, obstacles: FixtureSpec[]) {
+  // Markers stay on the finished face. The vertical pipe centre belongs behind
+  // that face, halfway through the panel-to-structure service cavity.
+  const cavity = wallCavityPoint(spec, target)
+  if (cavity) return cavity
   const host = obstacles.find((obstacle) => !isServicePoint(obstacle) && servesTarget(obstacle, target))
   if (!host) return { x_mm: target.x_mm, z_mm: target.z_mm }
   const { halfX, halfZ } = obstacleHalfExtents(host, 0)
@@ -106,38 +125,24 @@ function physicalTerminalPoint(target: FixtureSpec, obstacles: FixtureSpec[]) {
     : { x_mm: target.x_mm, z_mm: Math.round(host.z_mm + (dz >= 0 ? halfZ + PIPE_MM / 2 : -halfZ - PIPE_MM / 2)) }
 }
 
-function clearHorizontalSegment(from: PipePoint, to: PipePoint, obstacles: FixtureSpec[], target: FixtureSpec, terminal: { x_mm: number; z_mm: number }) {
-  return obstacles.every((obstacle) => (servesTarget(obstacle, target) && to.x_mm === terminal.x_mm && to.z_mm === terminal.z_mm) || !crossesObstacle(from, to, obstacle))
-}
-
 /** Keep a vertical drop outside solid appliances, then make the final edge connection. */
-function dropPath(id: string, temperature: PipeTemperature, above: PipePoint, target: FixtureSpec, obstacles: FixtureSpec[]) {
-  const terminal = physicalTerminalPoint(target, obstacles)
+function dropPath(spec: RoomSpec, id: string, temperature: PipeTemperature, above: PipePoint, target: FixtureSpec, obstacles: FixtureSpec[]) {
+  const terminal = physicalTerminalPoint(spec, target, obstacles)
   const connectionAbove = { x_mm: terminal.x_mm, z_mm: terminal.z_mm, y_mm: above.y_mm }
   const targetPoint = { ...terminal, y_mm: Math.max(0, target.elevation_mm ?? 0) }
   const direct = segment(`${id}-drop`, temperature, connectionAbove, targetPoint, target.id)
-  if (!direct || !obstacles.some((obstacle) => !isServicePoint(obstacle) && crossesObstacle(connectionAbove, targetPoint, obstacle))) return { above: connectionAbove, segments: direct ? [direct] : [] }
-
-  const candidates = obstacles.flatMap((obstacle) => {
-    const { halfX, halfZ } = obstacleHalfExtents(obstacle, LIGHT_CLEARANCE_MM + PIPE_MM / 2 + PIPE_MM)
-    return [
-      // crossesObstacle uses inclusive bounds, so land one full pipe radius
-      // beyond the clearance envelope instead of exactly on its edge.
-      { x_mm: Math.round(obstacle.x_mm - halfX - PIPE_MM), z_mm: terminal.z_mm },
-      { x_mm: Math.round(obstacle.x_mm + halfX + PIPE_MM), z_mm: terminal.z_mm },
-      { x_mm: terminal.x_mm, z_mm: Math.round(obstacle.z_mm - halfZ - PIPE_MM) },
-      { x_mm: terminal.x_mm, z_mm: Math.round(obstacle.z_mm + halfZ + PIPE_MM) },
-    ]
-  })
-  const selected = candidates
-    .map((point) => ({ above: { ...point, y_mm: above.y_mm }, landing: { ...point, y_mm: targetPoint.y_mm } }))
-    .filter((candidate) => !obstacles.some((obstacle) => !isServicePoint(obstacle) && crossesObstacle(candidate.above, candidate.landing, obstacle)))
-    .filter((candidate) => clearHorizontalSegment(candidate.landing, targetPoint, obstacles, target, terminal))
-    .sort((left, right) => Math.abs(left.above.x_mm - above.x_mm) + Math.abs(left.above.z_mm - above.z_mm) - Math.abs(right.above.x_mm - above.x_mm) - Math.abs(right.above.z_mm - above.z_mm))[0]
-  if (!selected) return { above, segments: [] }
-  const drop = segment(`${id}-drop`, temperature, selected.above, selected.landing, target.id)
-  const terminalSegment = segment(`${id}-terminal`, temperature, selected.landing, targetPoint, target.id)
-  return { above: selected.above, segments: [drop, terminalSegment].filter((item): item is PipeSegment => !!item) }
+  // The wall connection is a strict vertical drop. The owning appliance is
+  // exempt at the terminal edge, but another piece of furniture may not be
+  // bypassed by adding a horizontal segment at appliance height (that would
+  // put a pipe through the furniture in the rendered model).
+  const blocked = obstacles.some((obstacle) => !isServicePoint(obstacle)
+    && !servesTarget(obstacle, target)
+    && crossesObstacle(connectionAbove, targetPoint, obstacle))
+  const facePoint = { x_mm: target.x_mm, z_mm: target.z_mm, y_mm: targetPoint.y_mm }
+  const penetration = segment(`${id}-penetration`, temperature, targetPoint, facePoint, target.id)
+  return !direct || blocked
+    ? { above: connectionAbove, segments: [] }
+    : { above: connectionAbove, segments: [direct, penetration].filter((item): item is PipeSegment => !!item) }
 }
 
 function safeSourceLayerPoint(source: PipePoint, layer: PipePoint, sourceFixture: FixtureSpec, obstacles: FixtureSpec[]) {
@@ -158,11 +163,14 @@ function safeSourceLayerPoint(source: PipePoint, layer: PipePoint, sourceFixture
 }
 
 function sourceRisePath(id: string, temperature: PipeTemperature, source: PipePoint, layer: PipePoint, sourceFixture: FixtureSpec, obstacles: FixtureSpec[]) {
-  const direct = segment(id, temperature, source, layer, sourceFixture.id)
-  const selected = safeSourceLayerPoint(source, layer, sourceFixture, obstacles)
-  if (!selected) return []
-  if (selected.x_mm === layer.x_mm && selected.z_mm === layer.z_mm) return direct ? [direct] : []
-  return [segment(`${id}-out`, temperature, source, { x_mm: selected.x_mm, z_mm: selected.z_mm, y_mm: source.y_mm }, sourceFixture.id), segment(`${id}-rise`, temperature, { x_mm: selected.x_mm, z_mm: selected.z_mm, y_mm: source.y_mm }, selected, sourceFixture.id)].filter((item): item is PipeSegment => !!item)
+  const riseStart = { x_mm: layer.x_mm, z_mm: layer.z_mm, y_mm: source.y_mm }
+  const horizontal = segment(`${id}-out`, temperature, source, riseStart, sourceFixture.id)
+  const direct = segment(id, temperature, riseStart, layer, sourceFixture.id)
+  // Both legs are inside the wall assembly (penetration plus cavity riser), so
+  // room-side furniture footprints do not block them. Collision checks resume
+  // once the route reaches the ceiling distribution plane.
+  if (!direct) return []
+  return [horizontal, direct].filter((item): item is PipeSegment => !!item)
 }
 
 function segmentsFromPoints(id: string, temperature: PipeTemperature, points: PipePoint[], fixtureId?: string) {
@@ -197,12 +205,16 @@ function pipeConflict(points: PipePoint[], routed: PipeSegment[]) {
   }).length, 0)
 }
 
-function orthogonalRoute(id: string, temperature: PipeTemperature, from: PipePoint, to: PipePoint, obstacles: FixtureSpec[], fixtureId?: string, routed: PipeSegment[] = []) {
+function orthogonalRoute(id: string, temperature: PipeTemperature, from: PipePoint, to: PipePoint, obstacles: FixtureSpec[], fixtureId?: string, routed: PipeSegment[] = [], targetFixture?: FixtureSpec, sourceFixtureId?: string) {
+  // Service points are deliberately omitted from `obstacles`; carry the
+  // target through explicitly so its owning appliance can be exempted at the
+  // final approach without allowing any unrelated furniture intersection.
+  const target = targetFixture ?? (fixtureId ? obstacles.find((item) => item.id === fixtureId) : undefined)
   const lShapes = [
     [from, { x_mm: to.x_mm, z_mm: from.z_mm, y_mm: from.y_mm }, to] as PipePoint[],
     [from, { x_mm: from.x_mm, z_mm: to.z_mm, y_mm: from.y_mm }, to] as PipePoint[],
   ]
-  const clearRoute = (points: PipePoint[]) => points.slice(1).every((point, index) => obstacles.every((obstacle) => !crossesObstacle(points[index], point, obstacle)))
+  const clearRoute = (points: PipePoint[]) => points.slice(1).every((point, index) => obstacles.every((obstacle) => obstacle.id === sourceFixtureId || (target && servesTarget(obstacle, target)) || !crossesObstacle(points[index], point, obstacle)))
   const zRails: number[] = []
   const xRails: number[] = []
   const collectZ = (value: number) => { if (Number.isFinite(value)) zRails.push(Math.round(value)) }
@@ -296,17 +308,18 @@ function ceilingManifoldCandidates(spec: RoomSpec, targets: FixtureSpec[]) {
   return [...unique.values()]
 }
 
-function evaluateManifold(id: string, temperature: PipeTemperature, source: PipePoint, targets: FixtureSpec[], candidates: Point2D[], obstacles: FixtureSpec[]) {
+function evaluateManifold(spec: RoomSpec, id: string, temperature: PipeTemperature, source: PipePoint, targets: FixtureSpec[], candidates: Point2D[], obstacles: FixtureSpec[], sourceFixtureId?: string) {
   if (!targets.length || !candidates.length) return null
   const evaluated = candidates.map((point) => {
     const manifold = { ...point, y_mm: source.y_mm }
     const manifoldWidth = targets.length <= 6 ? 320 : 420
     const inlet = { ...manifold, x_mm: manifold.x_mm + (source.x_mm <= manifold.x_mm ? -manifoldWidth / 2 : manifoldWidth / 2) }
-    const trunk = orthogonalRoute(`${id}-trunk`, temperature, source, inlet, obstacles)
+    const trunk = orthogonalRoute(`${id}-trunk`, temperature, source, inlet, obstacles, undefined, [], undefined, sourceFixtureId)
     const trunkLength = trunk.reduce((sum, item) => sum + item.length_mm, 0)
     const segments = [...trunk]
     const routedBranches: PipeSegment[] = []
     const branchLengths: number[] = []
+    let invalid = !trunk.length && (source.x_mm !== inlet.x_mm || source.z_mm !== inlet.z_mm)
     const outletSide = targets.reduce((sum, target) => sum + target.z_mm - manifold.z_mm, 0) >= 0 ? 1 : -1
     targets.forEach((target, index) => {
       const above = { x_mm: target.x_mm, z_mm: target.z_mm, y_mm: source.y_mm }
@@ -320,21 +333,31 @@ function evaluateManifold(id: string, temperature: PipeTemperature, source: Pipe
       // device carrying that outlet) is exempt so drops can land on it.
       const branchObstacles = obstacles
       const departure = segment(`${id}-branch-${index}-port`, temperature, port, lead, target.id)
-      const approach = dropPath(`${id}-${index}`, temperature, above, target, branchObstacles)
-      const branch = orthogonalRoute(`${id}-branch-${index}`, temperature, lead, approach.above, branchObstacles, target.id, routedBranches)
+      const approach = dropPath(spec, `${id}-${index}`, temperature, above, target, branchObstacles)
+      if (!approach.segments.length) {
+        invalid = true
+        return
+      }
+      const branch = orthogonalRoute(`${id}-branch-${index}`, temperature, lead, approach.above, branchObstacles, target.id, routedBranches, target)
+      if (!branch.length && (lead.x_mm !== approach.above.x_mm || lead.z_mm !== approach.above.z_mm)) {
+        invalid = true
+        return
+      }
       if (departure) branch.unshift(departure)
       branch.push(...approach.segments)
       segments.push(...branch)
       routedBranches.push(...branch.filter((item) => item.from.y_mm === item.to.y_mm))
       branchLengths.push(trunkLength + branch.reduce((sum, item) => sum + item.length_mm, 0))
     })
+    if (invalid || !branchLengths.length) return null
     const imbalance_mm = Math.max(...branchLengths) - Math.min(...branchLengths)
     const total_mm = segments.reduce((sum, item) => sum + item.length_mm, 0)
-    // Balanced source-to-device distances come FIRST: a wide imbalance weight
-    // keeps the manifold from trading away evenness for a shorter total run.
-    return { manifold, segments, total_mm, imbalance_mm, objective: imbalance_mm * 1000 + total_mm }
+    return { manifold, segments, total_mm, imbalance_mm }
   })
-  return evaluated.sort((left, right) => left.objective - right.objective || left.total_mm - right.total_mm)[0]
+  const valid = evaluated.filter((item): item is NonNullable<typeof item> => !!item)
+  // Lexicographic objective: minimize source-to-device length spread first,
+  // then minimize the total pipe length among equally balanced layouts.
+  return valid.sort((left, right) => left.imbalance_mm - right.imbalance_mm || left.total_mm - right.total_mm)[0] ?? null
 }
 
 /**
@@ -349,14 +372,17 @@ export function routePlumbing(spec: RoomSpec): PlumbingRoute | null {
   const targets = spec.fixtures.filter((item) => item.kind === 'water')
   if (!targets.length) return null
   const roomHeight = spec.height_mm ?? 2600
-  const coldLayerY = Math.max(2100, roomHeight - 60)
-  const hotLayerY = Math.max(2000, coldLayerY - PIPE_LAYER_GAP_MM)
+  const heaterBody = spec.fixtures.find((item) => item.kind !== 'water' && /热水器|heater/i.test(`${item.label} ${item.id}`))
+  const heaterTop = heaterBody ? (heaterBody.elevation_mm ?? 0) + heaterBody.height_mm : roomHeight
+  // Horizontal distribution belongs above the finished ceiling. In low rooms
+  // the heater may occupy a ceiling recess, so both rails also clear its top.
+  const hotLayerY = Math.max(roomHeight + 60, heaterTop + PIPE_MM / 2 + 25)
+  const coldLayerY = hotLayerY + PIPE_LAYER_GAP_MM
   const penetration = doorPenetration(spec, coldLayerY)
   const { supplyOrigin, inlet, inside } = penetration
   const coldTargets = targets.filter((item) => !isHot(item) && !isHeaterOutlet(item))
   const hotTargets = targets.filter((item) => isHot(item) && !isHeaterOutlet(item))
   const heaterOutlet = targets.find(isHeaterOutlet)
-  const heaterBody = spec.fixtures.find((item) => item.kind !== 'water' && /热水器|heater/i.test(`${item.label} ${item.id}`))
   const hotSourceFixture = heaterOutlet ?? heaterBody
   const warnings: string[] = []
   if (hotTargets.length && !hotSourceFixture) warnings.push('存在热水点位但没有热水器出水角阀，热水管暂不生成')
@@ -365,17 +391,30 @@ export function routePlumbing(spec: RoomSpec): PlumbingRoute | null {
   // points rather than devices, and the ceiling manifold fixture itself is
   // the route's destination, so neither may block the network.
   const obstacles = spec.fixtures.filter((item) => !isServicePoint(item) && !(item.kind === 'pipe' && item.mounting_surface === 'ceiling'))
+  // Once above the finished ceiling, floor and wall-mounted furniture are
+  // below the pipe volume. Keep only other ceiling hardware as route blockers.
+  const ceilingObstacles = obstacles.filter((item) => item.mounting_surface === 'ceiling')
   const candidates = ceilingManifoldCandidates(spec, [...coldTargets, ...hotTargets].length ? [...coldTargets, ...hotTargets] : targets)
   const fallback = { x_mm: Math.round((roomBounds(finishedRoomBoundary(spec)).minX + roomBounds(finishedRoomBoundary(spec)).maxX) / 2), z_mm: Math.round((roomBounds(finishedRoomBoundary(spec)).minZ + roomBounds(finishedRoomBoundary(spec)).maxZ) / 2) }
   const available = candidates.length ? candidates : [fallback]
   const coldSource = inside
-  const coldSelected = evaluateManifold('cold', 'cold', coldSource, coldTargets, available, obstacles)
+  const coldSelected = evaluateManifold(spec, 'cold', 'cold', coldSource, coldTargets, available, obstacles)
+  if (coldTargets.length && !coldSelected) warnings.push('冷水吊顶分水器无法在家具碰撞约束下完成布管')
   const coldManifold = coldSelected?.manifold ?? { ...fallback, y_mm: coldLayerY }
   const hotSource = hotSourceFixture ? { x_mm: hotSourceFixture.x_mm, z_mm: hotSourceFixture.z_mm, y_mm: hotLayerY } : null
   const hotSolidFixture = heaterBody ?? hotSourceFixture
-  const hotNetworkSource = hotSource && hotSolidFixture ? safeSourceLayerPoint(hotSource, hotSource, hotSolidFixture, obstacles) : null
+  // The hot riser must stay on the heater outlet's projected x/z. Any
+  // horizontal movement belongs to the ceiling route after the riser, never
+  // to the wall-height portion of the installation.
+  const hotTerminal = hotSourceFixture ? physicalTerminalPoint(spec, hotSourceFixture, obstacles) : null
+  const hotNetworkSource = hotTerminal && hotSource
+    ? (heaterOutlet
+      ? { ...hotTerminal, y_mm: hotLayerY }
+      : safeSourceLayerPoint({ ...hotTerminal, y_mm: hotLayerY }, { ...hotTerminal, y_mm: hotLayerY }, hotSolidFixture!, obstacles))
+    : null
   const hotSelected = hotNetworkSource && hotTargets.length > 1
-    ? evaluateManifold('hot', 'hot', hotNetworkSource, hotTargets, [{ x_mm: coldManifold.x_mm, z_mm: coldManifold.z_mm }], obstacles)
+    ? (evaluateManifold(spec, 'hot', 'hot', hotNetworkSource, hotTargets, [{ x_mm: coldManifold.x_mm, z_mm: coldManifold.z_mm }], obstacles, hotSolidFixture?.id)
+      ?? evaluateManifold(spec, 'hot', 'hot', hotNetworkSource, hotTargets, [{ x_mm: coldManifold.x_mm, z_mm: coldManifold.z_mm }], ceilingObstacles, hotSolidFixture?.id))
     : null
   const segments: PipeSegment[] = [
     segment('cold-door-penetration-outside', 'cold', supplyOrigin, inlet),
@@ -386,15 +425,22 @@ export function routePlumbing(spec: RoomSpec): PlumbingRoute | null {
     // Start at the physical edge connection, never at the appliance centre.
     // The centre coordinate identifies the host heater, but a pipe beginning
     // there would visibly tunnel through its body before rising.
-    const sourceTerminal = physicalTerminalPoint(hotSourceFixture, obstacles)
-    const sourceAtFixture = { ...sourceTerminal, y_mm: Math.max(0, hotSourceFixture.elevation_mm ?? 0) }
-    segments.push(...sourceRisePath('hot-source-rise', 'hot', sourceAtFixture, hotSource, hotSolidFixture ?? hotSourceFixture, obstacles))
+    const sourceAtFixture = { x_mm: hotSourceFixture.x_mm, z_mm: hotSourceFixture.z_mm, y_mm: Math.max(0, hotSourceFixture.elevation_mm ?? 0) }
+    segments.push(...sourceRisePath('hot-source-rise', 'hot', sourceAtFixture, hotNetworkSource, hotSolidFixture ?? hotSourceFixture, obstacles))
+    if (!segments.some((item) => item.id === 'hot-source-rise')) warnings.push('热水器出水口无法沿墙安全上翻至吊顶')
     if (hotSelected) segments.push(...hotSelected.segments)
     else hotTargets.forEach((target, index) => {
       const above = { x_mm: target.x_mm, z_mm: target.z_mm, y_mm: hotLayerY }
       const branchObstacles = obstacles
-      const approach = dropPath(`hot-${index}`, 'hot', above, target, branchObstacles)
-      const branch = orthogonalRoute(`hot-run-${index}`, 'hot', hotNetworkSource, approach.above, branchObstacles, target.id)
+      const approach = dropPath(spec, `hot-${index}`, 'hot', above, target, branchObstacles)
+      const routedBranch = orthogonalRoute(`hot-run-${index}`, 'hot', hotNetworkSource, approach.above, branchObstacles, target.id, [], target, hotSolidFixture?.id)
+      const branch = routedBranch.length || (hotNetworkSource.x_mm === approach.above.x_mm && hotNetworkSource.z_mm === approach.above.z_mm)
+        ? routedBranch
+        : orthogonalRoute(`hot-run-${index}-ceiling`, 'hot', hotNetworkSource, approach.above, ceilingObstacles, target.id, [], target, hotSolidFixture?.id)
+      if (!approach.segments.length || (!branch.length && (hotNetworkSource.x_mm !== approach.above.x_mm || hotNetworkSource.z_mm !== approach.above.z_mm))) {
+        warnings.push(`热水点位 ${target.label} 无法生成无碰撞吊顶支路`)
+        return
+      }
       branch.push(...approach.segments)
       segments.push(...branch)
     })
@@ -409,6 +455,6 @@ export function routePlumbing(spec: RoomSpec): PlumbingRoute | null {
   const total_mm = uniqueSegments.reduce((sum, item) => sum + item.length_mm, 0)
   const imbalance_mm = Math.max(coldSelected?.imbalance_mm ?? 0, hotSelected?.imbalance_mm ?? 0)
   const requiredPorts = Math.max(coldTargets.length, hotTargets.length > 1 ? hotTargets.length : 0)
-  const manifold_ports: 6 | 8 | null = requiredPorts ? (requiredPorts <= 6 ? 6 : 8) : null
+  const manifold_ports: 6 | 8 | null = coldSelected && requiredPorts ? (requiredPorts <= 6 ? 6 : 8) : null
   return { supply_origin: supplyOrigin, inlet, cold_manifold: coldManifold, hot_manifold: hotSelected?.manifold ?? null, manifold: coldManifold, manifold_wall_index: null, manifold_ports, segments: uniqueSegments, total_mm, imbalance_mm, warnings }
 }

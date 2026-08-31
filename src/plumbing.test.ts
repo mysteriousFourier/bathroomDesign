@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { manualRoom } from './spec'
 import { routePlumbing } from './plumbing'
+import type { FixtureSpec } from './types'
 
 describe('routePlumbing',()=>{
   it('creates red/blue orthogonal ceiling routes from the door and heater outlet',()=>{
@@ -93,6 +94,23 @@ describe('routePlumbing',()=>{
     expect(route.manifold_ports).toBe(8)
   })
 
+  it('balances horizontal paths without allowing fixture elevations to move the manifold',()=>{
+    const spec=manualRoom(4000,2000,2400)
+    spec.openings.push({id:'door',kind:'door',wall_index:0,offset_mm:1600,width_mm:800,height_mm:2050,sill_mm:0,label:'D1',source:'measured',confidence:1})
+    spec.fixtures.push(
+      {id:'cold-low',kind:'water',label:'低位冷水',x_mm:600,z_mm:1000,width_mm:40,depth_mm:40,height_mm:40,elevation_mm:100,rotation_deg:0,source:'user',confidence:1},
+      {id:'cold-high',kind:'water',label:'高位冷水',x_mm:3400,z_mm:1000,width_mm:40,depth_mm:40,height_mm:40,elevation_mm:2000,rotation_deg:0,source:'user',confidence:1},
+    )
+    const route=routePlumbing(spec)!
+    expect(route.fixture_paths).toHaveLength(2)
+    expect(route.balanced).toBe(true)
+    expect(route.imbalance_ratio).toBeLessThanOrEqual(0.1)
+    const lengths=route.fixture_paths.map(item=>item.length_mm)
+    expect((Math.max(...lengths)-Math.min(...lengths))/Math.min(...lengths)).toBeLessThanOrEqual(0.1)
+    const physicalLengths=route.fixture_paths.map(item=>item.physical_length_mm)
+    expect(Math.max(...physicalLengths)-Math.min(...physicalLengths)).toBeGreaterThan(1000)
+  })
+
   it('routes ceiling pipes around device footprints while walls stay passable',()=>{
     const spec=manualRoom(3200,2400,2600)
     spec.openings.push({id:'door',kind:'door',wall_index:0,offset_mm:400,width_mm:800,height_mm:2100,sill_mm:0,label:'入户门',source:'user',confidence:1})
@@ -139,7 +157,42 @@ describe('routePlumbing',()=>{
     const route = routePlumbing(spec)!
     expect(route.segments.some((item) => item.fixture_id === 'cabinet-cold' && item.from.x_mm === item.to.x_mm && item.from.z_mm === item.to.z_mm)).toBe(true)
   })
+
+  it('retries outside the preferred center band when ceiling hardware blocks a complete shared network', () => {
+    const spec = manualRoom(2135, 2150, 2400)
+    spec.boundary = [
+      { x_mm:0, z_mm:0 }, { x_mm:1790, z_mm:0 }, { x_mm:1790, z_mm:920 },
+      { x_mm:2135, z_mm:920 }, { x_mm:2135, z_mm:2150 }, { x_mm:0, z_mm:2150 },
+    ]
+    spec.openings.push({ id:'door', kind:'door', wall_index:5, offset_mm:1205, width_mm:745, height_mm:2100, sill_mm:0, label:'D1', source:'user', confidence:1 })
+    spec.fixtures.push(
+      plumbingFixture('vanity', 'vanity', '浴室柜', 1600, 1850, 800, 520, 2000, { rotation_deg:180, bound_wall_index:4 }),
+      plumbingFixture('toilet', 'toilet', '马桶', 1000, 1755, 380, 680, 760, { rotation_deg:180, bound_wall_index:4 }),
+      plumbingFixture('shower-head', 'other', '花洒', 1508, 811, 285, 485, 1327, { elevation_mm:700, rotation_deg:90, bound_wall_index:1 }),
+      plumbingFixture('heater', 'other', '热水器', 670, 1886, 781, 448, 525, { elevation_mm:1850, rotation_deg:180, bound_wall_index:4 }),
+      plumbingFixture('ceiling-light', 'other', '浴霸', 1068, 1075, 600, 600, 120, { elevation_mm:2280, mounting_surface:'ceiling' }),
+      plumbingFixture('washer', 'other', '洗衣机', 1332, 412, 608, 653, 860, { bound_wall_index:0 }),
+      plumbingFixture('shower-cold', 'water', '花洒冷水点', 1755, 736, 40, 40, 10, { elevation_mm:1050, rotation_deg:90, bound_wall_index:1 }),
+      plumbingFixture('shower-hot', 'water', '花洒热水点', 1755, 886, 40, 40, 10, { elevation_mm:1050, rotation_deg:90, bound_wall_index:1 }),
+      plumbingFixture('toilet-water', 'water', '马桶进水阀', 800, 2115, 40, 40, 10, { elevation_mm:200, rotation_deg:180, bound_wall_index:4 }),
+      plumbingFixture('heater-cold', 'water', '热水器冷水进水角阀', 745, 2115, 40, 40, 10, { elevation_mm:1850, rotation_deg:180, bound_wall_index:4 }),
+      plumbingFixture('heater-hot', 'water', '热水器热水出水角阀', 595, 2115, 40, 40, 10, { elevation_mm:1850, rotation_deg:180, bound_wall_index:4 }),
+      plumbingFixture('vanity-hot', 'water', '浴室柜热水进水点', 1525, 2115, 40, 40, 10, { elevation_mm:500, rotation_deg:180, bound_wall_index:4 }),
+      plumbingFixture('vanity-cold', 'water', '浴室柜冷水进水点', 1675, 2115, 40, 40, 10, { elevation_mm:500, rotation_deg:180, bound_wall_index:4 }),
+      plumbingFixture('washer-water', 'water', '洗衣机进水点', 1212, 35, 40, 40, 10, { elevation_mm:1050, bound_wall_index:0 }),
+    )
+    const route = routePlumbing(spec)!
+    const expected = ['shower-cold', 'shower-hot', 'toilet-water', 'heater-cold', 'vanity-hot', 'vanity-cold', 'washer-water']
+    expect(route.fixture_paths.map((item) => item.fixture_id).sort()).toEqual(expected.sort())
+    expect(route.segments.filter((item) => item.id.endsWith('-drop')).map((item) => item.fixture_id).sort()).toEqual(expected.sort())
+    expect(route.warnings).not.toContain('冷水吊顶分水器无法在家具碰撞约束下完成布管')
+    expect(route.cold_manifold.x_mm).toBeGreaterThan(1750)
+  })
 })
+
+function plumbingFixture(id: string, kind: FixtureSpec['kind'], label: string, x_mm: number, z_mm: number, width_mm: number, depth_mm: number, height_mm: number, extra: Partial<FixtureSpec> = {}): FixtureSpec {
+  return { id, kind, label, x_mm, z_mm, width_mm, depth_mm, height_mm, elevation_mm:0, rotation_deg:0, source:'derived', confidence:1, ...extra }
+}
 
 function cabinetFixture(spec: ReturnType<typeof manualRoom>) {
   return spec.fixtures.find((fixture) => fixture.id === 'cabinet')!

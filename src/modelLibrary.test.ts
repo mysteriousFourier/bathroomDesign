@@ -40,4 +40,12 @@ describe('demand assistant surface application', () => {
       format: 'fbx',
     })
   })
+
+  it('replaces the upright RSQ1-2 export with the reviewed horizontal rose-gold heater', () => {
+    expect(modelAssetForProduct('热水器', 'RSQ1-2')).toMatchObject({
+      format: 'glb',
+      catalog_codes: ['RSQ2-2'],
+      dimensions_mm: { width: 720, depth: 180, height: 430 },
+    })
+  })
 })

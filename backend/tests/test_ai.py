@@ -1,11 +1,12 @@
 import json
 import os
 import time
+from io import BytesIO
+from pathlib import Path
 
 import pytest
 import httpx
 import numpy as np
-from pathlib import Path
 from PIL import Image, ImageDraw
 
 from backend.app import ai
@@ -50,6 +51,25 @@ def test_portrait_measurement_sheet_defaults_to_readable_clockwise_rotation(tmp_
 
     assert ai._preferred_plan_rotation(portrait) == 90
     assert ai._preferred_plan_rotation(landscape) == 0
+
+
+def test_evidence_crop_uses_full_rotated_upload_coordinates(tmp_path) -> None:
+    source = tmp_path / "bordered-plan.png"
+    image = Image.new("RGB", (200, 120), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((40, 20, 159, 99), outline="black", width=2)
+    draw.rectangle((170, 45, 189, 64), fill="red")
+    image.save(source)
+
+    content = ai.evidence_crop_png(
+        source,
+        270,
+        ImageBBox(x_min=375, y_min=50, x_max=542, y_max=150),
+    )
+    crop = Image.open(BytesIO(content)).convert("RGB")
+    pixels = np.asarray(crop)
+
+    assert ((pixels[:, :, 0] > 200) & (pixels[:, :, 1] < 80) & (pixels[:, :, 2] < 80)).any()
 
 
 def test_portrait_rotation_ignores_ambiguous_refined_caches(tmp_path, monkeypatch) -> None:
@@ -587,6 +607,56 @@ def test_template_dimension_chain_uses_adjacent_wall_not_drawing_scale() -> None
     assert edges[0].length_mm is None
     assert estimated_boundary == []
     assert estimated_edges == []
+
+
+def test_template_door_wall_chain_keeps_segment_over_one_meter_in_sum() -> None:
+    shape = ShapeTraceResult(corners=[
+        ShapeCorner(x=152, y=176), ShapeCorner(x=152, y=913),
+        ShapeCorner(x=546, y=913), ShapeCorner(x=546, y=176),
+    ], closed=True)
+
+    def token(token_id: str, value: int, y_min: int, y_max: int, view_id: str = "direct-left-segment") -> dict:
+        return {
+            "id": token_id,
+            "raw_text": str(value),
+            "bbox": {"x_min": 110, "y_min": y_min, "x_max": 150, "y_max": y_max},
+            "orientation": "vertical",
+            "template_visual": True,
+            "view_id": view_id,
+            "semantic_role": "wall_segment",
+            "related_to": "dimension_chain:left",
+            "confidence": 0.9,
+        }
+
+    edges = ai._template_adjacent_dimension_edge_chain(shape, {"tokens": [
+        token("TOTAL", 2155, 452, 486, "direct-left-overall"),
+        token("S1", 205, 214, 240),
+        token("S2", 745, 345, 372),
+        token("S3", 1205, 630, 656),
+    ]})
+
+    assert edges[0].length_mm == 2155
+    assert edges[0].evidence_ids == ["S1", "S2", "S3"]
+
+
+def test_closed_local_dimension_chain_replaces_incomplete_model_chain() -> None:
+    primary = [
+        BoundaryEdge(direction="down", length_mm=950, evidence_ids=["S1", "S2"]),
+        BoundaryEdge(direction="right", length_mm=2135),
+        BoundaryEdge(direction="up", length_mm=2155),
+        BoundaryEdge(direction="left", length_mm=2135),
+    ]
+    fallback = [
+        BoundaryEdge(direction="down", length_mm=2155, evidence_ids=["S1", "S2", "S3"]),
+        BoundaryEdge(direction="right", length_mm=2135),
+        BoundaryEdge(direction="up", length_mm=2155),
+        BoundaryEdge(direction="left", length_mm=2135),
+    ]
+
+    merged = ai._merge_segment_edge_chains(primary, fallback)
+
+    assert [edge.length_mm for edge in merged] == [2155, 2135, 2155, 2135]
+    assert merged[0].evidence_ids == ["S1", "S2", "S3"]
 
 
 def test_template_dimension_evidence_on_wrong_wall_is_rejected_by_location() -> None:
@@ -1733,6 +1803,31 @@ def test_shape_trace_determines_ordered_edge_directions() -> None:
     assert ai._shape_directions(shape) == ["right", "down", "left", "up"]
 
 
+def test_image_shape_order_is_aligned_to_metric_edge_chain() -> None:
+    shape = ShapeTraceResult(
+        closed=True,
+        corners=[ShapeCorner(x=x, y=y) for x, y in [
+            (533, 181), (229, 181), (229, 853),
+            (592, 853), (592, 528), (533, 528),
+        ]],
+    )
+    edges = [
+        BoundaryEdge(direction=direction, length_mm=length)
+        for direction, length in [
+            ("right", 1790), ("down", 925), ("right", 345),
+            ("down", 1230), ("left", 2135), ("up", 2155),
+        ]
+    ]
+
+    aligned = ai._align_shape_to_edge_chain(shape, edges)
+
+    assert ai._shape_directions(aligned) == [edge.direction for edge in edges]
+    assert [(point.x, point.y) for point in aligned.corners] == [
+        (229, 181), (533, 181), (533, 528),
+        (592, 528), (592, 853), (229, 853),
+    ]
+
+
 def test_non_rectangular_shape_is_never_scaled_from_pixel_proportions() -> None:
     shape = ShapeTraceResult(
         closed=True,
@@ -1783,7 +1878,7 @@ def test_raster_topology_candidates_keep_non_rectangular_turns(tmp_path) -> None
     assert all(ai._shape_directions(ShapeTraceResult(corners=item.corners, closed=True)) for item in candidates)
 
 
-def test_raster_topology_candidates_isolate_blue_outline_on_printed_form(tmp_path) -> None:
+def test_fast_raster_topology_coordinates_match_untrimmed_printed_form(tmp_path) -> None:
     image = Image.new("RGB", (1200, 800), (226, 218, 207))
     draw = ImageDraw.Draw(image)
     printed = (115, 108, 101)
@@ -1818,7 +1913,7 @@ def test_raster_topology_candidates_isolate_blue_outline_on_printed_form(tmp_pat
     assert (
         min(corner.y for corner in colored.corners),
         max(corner.y for corner in colored.corners),
-    ) == pytest.approx((254, 762), abs=12)
+    ) == pytest.approx((294, 775), abs=12)
 
 
 def test_applied_opening_row_does_not_require_duplicate_review() -> None:
@@ -2660,6 +2755,76 @@ def test_local_topology_selector_accepts_six_corners_without_metric_scaling() ->
     selected = ai._validated_local_topology_candidate([candidate])
     assert selected is not None and selected.id == "C6"
     assert len(selected.corners) == 6
+
+
+def test_local_topology_selector_removes_near_rectangular_grid_notches() -> None:
+    noisy = TopologyCandidate(
+        id="C-noisy",
+        pixel_support=0.849,
+        corners=[ShapeCorner(x=x, y=y) for x, y in [
+            (152, 178), (152, 909), (358, 909), (358, 636),
+            (340, 636), (340, 696), (334, 696), (334, 627),
+            (362, 627), (362, 915), (545, 915), (545, 178),
+        ]],
+    )
+    rectangle = TopologyCandidate(
+        id="C-rect",
+        pixel_support=0.841,
+        corners=[ShapeCorner(x=x, y=y) for x, y in [
+            (152, 176), (152, 913), (546, 913), (546, 176),
+        ]],
+    )
+
+    selected = ai._validated_local_topology_candidate([noisy, rectangle])
+
+    assert selected is not None and selected.id == "C-rect"
+
+
+def test_local_topology_selector_preserves_material_l_shaped_return() -> None:
+    l_shape = TopologyCandidate(
+        id="C-L",
+        pixel_support=0.88,
+        corners=[ShapeCorner(x=x, y=y) for x, y in [
+            (533, 181), (229, 181), (229, 853),
+            (592, 853), (592, 528), (533, 528),
+        ]],
+    )
+    outer_rectangle = TopologyCandidate(
+        id="C-outer",
+        pixel_support=0.856,
+        corners=[ShapeCorner(x=x, y=y) for x, y in [
+            (708, 101), (142, 101), (142, 977), (708, 977),
+        ]],
+    )
+
+    selected = ai._validated_local_topology_candidate([l_shape, outer_rectangle])
+
+    assert selected is not None and selected.id == "C-L"
+
+
+@pytest.mark.asyncio
+async def test_fast_analysis_detects_current_portrait_text_direction(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "sideways.jpg"
+    Image.new("RGB", (1080, 1920), "white").save(source)
+    detected: list[int] = []
+
+    async def detect(*_args, **_kwargs) -> int:
+        return 270
+
+    def raster(_path, rotation, **_kwargs):
+        detected.append(rotation)
+        raise RuntimeError("stop after rotation selection")
+
+    monkeypatch.setattr(ai, "_detect_plan_rotation", detect)
+    monkeypatch.setattr(ai, "_raster_topology_candidates", raster)
+    monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
+    monkeypatch.setattr(settings, "openai_api_key", "key")
+    monkeypatch.setattr(settings, "read_model", "vision-test")
+
+    with pytest.raises(RuntimeError, match="stop after rotation selection"):
+        await ai.analyze_floorplan_fast(source)
+
+    assert detected == [270]
 
 
 def test_metric_chain_rejects_self_intersection_and_preserves_empty_evidence() -> None:

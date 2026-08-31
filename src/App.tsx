@@ -169,6 +169,14 @@ const visibleSpec = (value: Project | null) => {
   return wetZonesOnly(normalized)
 }
 
+const savedRotationForLatestPlan = (project: Project | null, spec: RoomSpec | null) => {
+  const latestPlanId = project?.assets.filter((asset) => asset.role === 'floorplan').at(-1)?.id
+  if (!latestPlanId || !spec?.plan_annotation) return null
+  const referencesLatestPlan = spec.observations.some((item) => item.asset_id === latestPlanId)
+    || project?.measurement?.source_asset_ids.includes(latestPlanId)
+  return referencesLatestPlan ? spec.plan_annotation.rotation_degrees : null
+}
+
 const imagePointToRoom = (spec: RoomSpec, x: number, y: number) => {
   const imageBoundary = spec.plan_annotation?.boundary ?? []
   const roomBoundary = spec.boundary
@@ -261,6 +269,7 @@ export default function App() {
     setProject(next)
     const nextSpec = visibleSpec(next)
     setSpec(nextSpec)
+    setPlanRotation(savedRotationForLatestPlan(next, nextSpec))
     setMode(nextSpec?.plan_annotation && !nextSpec.plan_annotation.confirmed ? 'annotation' : 'review')
     setHistory([]); setFuture([]); setDirty(false); setSelection({ type: 'room' })
     setFocusEvidenceId(null); setActiveEvidenceId(null)
@@ -274,6 +283,7 @@ export default function App() {
       const first = projectList[0] ?? null
       const firstSpec = visibleSpec(first)
       setProject(first); setSpec(firstSpec); setMode(firstSpec?.plan_annotation && !firstSpec.plan_annotation.confirmed ? 'annotation' : 'review')
+      setPlanRotation(savedRotationForLatestPlan(first, firstSpec))
     }).catch((error: Error) => showMessage('error', `无法连接后端：${error.message}`)).finally(() => setBusy(null))
   }, [showMessage])
 
@@ -291,7 +301,9 @@ export default function App() {
           timer = window.setTimeout(() => void poll(), 3000)
           return
         }
-        setSpec(visibleSpec(refreshed))
+        const refreshedSpec = visibleSpec(refreshed)
+        setSpec(refreshedSpec)
+        setPlanRotation(savedRotationForLatestPlan(refreshed, refreshedSpec))
         setHistory([]); setFuture([]); setDirty(false)
         setFocusEvidenceId(null); setActiveEvidenceId(null)
         if (refreshed.spec) {
@@ -335,7 +347,7 @@ export default function App() {
       const nextSpec = visibleSpec(next)
       setProject(next); setSpec(nextSpec); setHistory([]); setFuture([]); setDirty(false); setMode(nextSpec?.plan_annotation && !nextSpec.plan_annotation.confirmed ? 'annotation' : 'review'); setSelection({ type: 'room' })
       setFocusEvidenceId(null); setActiveEvidenceId(null)
-      setPlanRotation(null)
+      setPlanRotation(savedRotationForLatestPlan(next, nextSpec))
       setActiveLayout(null); setLayoutSolutions([]); setDesignQuote(null)
     } catch (error) { showMessage('error', (error as Error).message) }
     finally { setBusy(null) }
@@ -391,6 +403,7 @@ export default function App() {
     syncOpeningBindings(next)
     const visible = wetZonesOnly(next)
     setHistory(spec ? [cloneSpec(spec)] : []); setFuture([]); setSpec(visible); setDirty(true); setMode(visible.plan_annotation?.confirmed ? 'review' : 'annotation'); setSelection({ type: 'room' })
+    setPlanRotation(visible.plan_annotation?.rotation_degrees ?? null)
     setFocusEvidenceId(null); setActiveEvidenceId(null)
   }
 
@@ -400,7 +413,8 @@ export default function App() {
     const requestPlanId = project.assets.filter((asset) => asset.role === 'floorplan').at(-1)?.id
     setBusy('plan')
     try {
-      const result = await studioApi.analyzePlan(requestProjectId, planRotation)
+      const requestedRotation = planRotation ?? savedRotationForLatestPlan(project, specRef.current)
+      const result = await studioApi.analyzePlan(requestProjectId, requestedRotation)
       const active = projectRef.current
       const activePlanId = active?.assets.filter((asset) => asset.role === 'floorplan').at(-1)?.id
       if (active?.id !== requestProjectId || activePlanId !== requestPlanId) return

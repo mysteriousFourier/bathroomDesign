@@ -635,6 +635,26 @@ describe('deterministic requirement layout engine', () => {
     const candidates = generateDeterministicLayoutSolutions(compact, { style:'素雅' })
     expect(candidates).toHaveLength(3)
     expect(candidates.every((solution) => solution.checks.every((check) => check.passed || check.severity !== 'error'))).toBe(true)
+    expect(candidates.every((solution) => solution.fixtures.some((fixture) => fixture.kind === 'vanity' && !!fixture.model_asset))).toBe(true)
+  })
+
+  it('keeps the bathroom cabinet model in the current stepped-room project', () => {
+    const current = manualRoom(2135, 2150, 2400)
+    current.boundary = [
+      { x_mm:0, z_mm:0 }, { x_mm:1790, z_mm:0 }, { x_mm:1790, z_mm:920 },
+      { x_mm:2135, z_mm:920 }, { x_mm:2135, z_mm:2150 }, { x_mm:0, z_mm:2150 },
+    ]
+    current.openings.push({ id:'opening-d1', kind:'door', wall_index:5, offset_mm:1205, width_mm:745, height_mm:2100, sill_mm:0, label:'D1', source:'user', confidence:1, opening_form:'hinged', swing_direction:'right' })
+    current.fixtures.push(
+      { id:'point-1', kind:'floor_drain', point_usage:'washer', label:'洗衣机地漏', x_mm:1332, z_mm:166, width_mm:75, depth_mm:75, height_mm:10, rotation_deg:0, source:'user', confidence:1 },
+      { id:'point-2', kind:'floor_drain', label:'地漏', x_mm:1840, z_mm:1850, width_mm:75, depth_mm:75, height_mm:10, rotation_deg:0, source:'user', confidence:1 },
+      { id:'point-3', kind:'drain', point_usage:'toilet', label:'马桶排水孔', x_mm:610, z_mm:1760, width_mm:40, depth_mm:40, height_mm:10, rotation_deg:0, source:'user', confidence:1 },
+    )
+    const candidates = generateDeterministicLayoutSolutions(current)
+    expect(candidates).toHaveLength(3)
+    expect(candidates.every((solution) => solution.fixtures.some((fixture) => fixture.kind === 'vanity' && !!fixture.model_asset))).toBe(true)
+    expect(candidates.every((solution) => solution.fixtures.some((fixture) => /热水器/.test(fixture.label) && fixture.bound_wall_index !== null))).toBe(true)
+    expect(candidates.every((solution) => solution.checks.find((check) => check.code === 'G06-WALL-ATTACH')?.passed)).toBe(true)
   })
 
   it('prefers a wet-zone corner with two finished-wall contacts when plumbing is not fixed', () => {
@@ -672,13 +692,16 @@ describe('deterministic requirement layout engine', () => {
       .filter((product, index, all) => all.findIndex((item) => item.category === product.category) === index)
       .map((product) => ({ product_id:product.graph_id, catalog_code:product.code, category:product.category, spec:product.spec, unit_price:product.price, price_unit:'件', ...(product.code === 'MT1' ? { model_lookup:{ product_id:product.graph_id, catalog_code:product.code, category:product.category, catalog_style:'通用', normalized_requested_style:'素雅', spec:product.spec, model_asset_id:'snapshot-mt1', model_asset_src:'/model-library/test-mt1.glb', model_asset_format:'glb' as const, model_asset_label:'MT1 backend snapshot', model_dimensions_mm:{ width:431, depth:711, height:777 }, layout_fixture_kind:'马桶', binding_status:'bound' as const } } : {}) }))
     const instruction = (fixture_role:string, wall:'north'|'south'|'east'|'west', zone:'dry'|'wet'|'service', near='') => ({ fixture_role, wall, zone, near, min_clearance_mm:fixture_role === 'wet_zone' || fixture_role === 'heater' ? 0 : 600 })
-    const levels = (['basic','comfort','premium'] as const).map((tier, index) => ({ id:`level${index+1}` as const, name:`真实产品方案 ${index+1}`, reason:'真实产品驱动', demand_profile:'standard_shower' as const, product_tier:tier, product_ids:products.map((product) => product.product_id), products, layout_script:{ version:'layout-script-v1' as const, demand:'standard_shower' as const, budget:tier, instructions:[instruction('wet_zone','east','wet','shower_drain'),instruction('vanity','west','dry'),instruction('toilet','north','dry','toilet_drain'),instruction('heater','east','service','wet_zone')], source:'deterministic-rule-engine' as const } })) as LayoutLevelDecision[]
+    const levels = (['comfort','comfort','comfort'] as const).map((tier, index) => ({ id:`level${index+1}` as const, name:`真实产品方案 ${index+1}`, reason:'真实产品驱动', demand_profile:'standard_shower' as const, product_tier:tier, product_ids:products.map((product) => product.product_id), products, layout_script:{ version:'layout-script-v1' as const, demand:'standard_shower' as const, budget:tier, instructions:[instruction('wet_zone','east','wet','shower_drain'),instruction('vanity','west','dry'),instruction('toilet','north','dry','toilet_drain'),instruction('heater','east','service','wet_zone')], source:'deterministic-rule-engine' as const } })) as LayoutLevelDecision[]
     const generated = generateLayoutSolutions(room, { style:'素雅', levels })
     const [solution] = generated
     expect(generated.every((candidate) => candidate.solver_trace.alternating_rounds === 3 && candidate.solver_trace.plumbing_candidates === 3)).toBe(true)
     expect(generated.every((candidate) => Number(candidate.solver_trace.selected_pipe_mm) > 0)).toBe(true)
     expect(generated.every((candidate) => candidate.checks.some((check) => check.code === 'PLUMBING-ALTERNATING'))).toBe(true)
     expect(new Set(generated.map((candidate) => { const vanity=candidate.fixtures.find((fixture)=>fixture.kind==='vanity')!;return `${vanity.x_mm},${vanity.z_mm},${vanity.rotation_deg}` })).size).toBe(3)
+    expect(new Set(generated.map((candidate) => candidate.material_lines.find((line) => line.category === '墙板')?.code)).size).toBe(3)
+    expect(new Set(generated.map((candidate) => candidate.material_lines.find((line) => line.category === '地砖')?.code)).size).toBe(3)
+    expect(generated.flatMap((candidate) => candidate.material_lines.filter((line) => line.category === '墙板' || line.category === '地砖')).every((line) => line.code.endsWith('-SY'))).toBe(true)
     expect(solution.selected_product_ids).toEqual(products.map((product) => product.product_id))
     expect(solution.product_lines.map((line) => line.code)).toEqual(products.map((product) => product.catalog_code))
     expect(products.every((product) => solution.fixtures.some((fixture) => fixture.label.startsWith(`${product.catalog_code} `)))).toBe(true)
@@ -746,12 +769,19 @@ describe('deterministic requirement layout engine', () => {
 
   it('quotes equipment and fixed-board surface materials for every tier', () => {
     for (const solution of solutions) {
-      expect(solution.material_lines.map((line) => line.category).sort()).toEqual(['吊顶', '地砖', '墙板'])
+      expect(solution.material_lines.map((line) => line.category).sort()).toEqual(['冷热水管', '吊顶', '地砖', '墙板', '给水管固定费'])
       expect(solution.material_lines.every((line) => line.quantity > 0 && line.subtotal > 0)).toBe(true)
       expect(solution.surface_materials.wall?.dimensions_mm).toEqual({ width: 600, depth: 10, height: 3000 })
       expect(solution.surface_materials.floor?.dimensions_mm).toEqual({ width: 3000, depth: 1200, height: 10 })
       expect(solution.material_lines.find((line) => line.category === '墙板')?.model_asset_id).toBe(solution.surface_materials.wall?.id)
       expect(solution.material_lines.find((line) => line.category === '地砖')?.model_asset_id).toBe(solution.surface_materials.floor?.id)
+      const plumbing = routePlumbing({ ...room, fixtures: solution.fixtures })!
+      const pipeLine = solution.material_lines.find((line) => line.code === 'WATER-PIPE')!
+      const fixedLine = solution.material_lines.find((line) => line.code === 'WATER-PIPE-FIXED')!
+      expect(pipeLine.quantity).toBeCloseTo(plumbing.total_mm / 1000, 3)
+      expect(pipeLine.price).toBe(20)
+      expect(pipeLine.subtotal).toBeCloseTo(plumbing.total_mm / 1000 * 20, 2)
+      expect(fixedLine.subtotal).toBe(80)
       expect(solution.total_price).toBeCloseTo(solution.equipment_price + solution.material_price, 2)
     }
   })

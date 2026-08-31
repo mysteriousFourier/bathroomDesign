@@ -131,6 +131,51 @@ def ai_http_error(error: Exception) -> HTTPException:
     return HTTPException(status_code=502, detail=str(error))
 
 
+def _annotation_bounds(spec: RoomSpec) -> tuple[float, float, float, float] | None:
+    points = spec.plan_annotation.boundary if spec.plan_annotation else []
+    if len(points) < 3:
+        return None
+    return (
+        min(point.x for point in points),
+        min(point.y for point in points),
+        max(point.x for point in points),
+        max(point.y for point in points),
+    )
+
+
+def _bounds_iou(first: tuple[float, float, float, float], second: tuple[float, float, float, float]) -> float:
+    left = max(first[0], second[0])
+    top = max(first[1], second[1])
+    right = min(first[2], second[2])
+    bottom = min(first[3], second[3])
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
+    union = first_area + second_area - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def _reanalysis_regression_reason(previous: RoomSpec, candidate: RoomSpec) -> str | None:
+    if previous.plan_annotation and candidate.plan_annotation:
+        if previous.plan_annotation.rotation_degrees != candidate.plan_annotation.rotation_degrees:
+            return "图片旋转角发生变化"
+        previous_bounds = _annotation_bounds(previous)
+        candidate_bounds = _annotation_bounds(candidate)
+        previous_edges = sum(edge.length_mm is not None for edge in previous.plan_annotation.edge_chain)
+        candidate_edges = sum(edge.length_mm is not None for edge in candidate.plan_annotation.edge_chain)
+        if previous_edges >= 3 and candidate_edges < max(3, previous_edges // 2):
+            return "已识别墙段尺寸大量丢失"
+        if previous_edges >= 3 and previous_bounds and candidate_bounds and _bounds_iou(previous_bounds, candidate_bounds) < 0.45:
+            return "新轮廓与已保存房型明显错位"
+    if len(previous.boundary) >= 3 and len(candidate.boundary) < 3:
+        return "闭合建模轮廓丢失"
+    previous_evidence = sum(item.bbox is not None for item in previous.observations)
+    candidate_evidence = sum(item.bbox is not None for item in candidate.observations)
+    if previous_evidence >= 3 and candidate_evidence < max(1, previous_evidence // 3):
+        return "原图尺寸标注大量丢失"
+    return None
+
+
 @app.get("/api/health")
 def health() -> dict:
     visual_model = settings.read_model
@@ -489,7 +534,7 @@ def evidence_crop(
         content = evidence_crop_png(db.asset_path(row), rotation_degrees, bbox)
     except (KeyError, ValueError, OSError) as error:
         raise HTTPException(status_code=404, detail="证据裁片不存在") from error
-    return Response(content=content, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+    return Response(content=content, media_type="image/png", headers={"Cache-Control": "private, no-store"})
 
 
 @app.post("/api/projects/{project_id}/analyze-plan", response_model=AnalysisResponse)
@@ -498,13 +543,33 @@ async def analyze_plan_endpoint(project_id: str, rotation_degrees: int | None = 
     plans = [asset for asset in project.assets if asset.role == "floorplan"]
     if not plans:
         raise HTTPException(status_code=422, detail="请先上传平面图")
-    row = db.get_asset_row(plans[-1].id)
+    latest_plan_id = plans[-1].id
+    row = db.get_asset_row(latest_plan_id)
+    previous_spec = (
+        project.spec
+        if project.spec is not None and any(item.asset_id == latest_plan_id for item in project.spec.observations)
+        else None
+    )
     previous_status = project.status
     try:
         if rotation_degrees not in (None, 0, 90, 180, 270):
             raise HTTPException(status_code=422, detail="rotation_degrees 只能是 0、90、180 或 270")
+        if (
+            rotation_degrees is None
+            and project.spec is not None
+            and project.spec.plan_annotation is not None
+            and previous_spec is not None
+        ):
+            # Regeneration for the same image must keep the orientation that
+            # the user reviewed. Evidence linkage prevents an old plan's angle
+            # from leaking onto a newly uploaded floorplan.
+            rotation_degrees = project.spec.plan_annotation.rotation_degrees
         db.set_status(project_id, "analysis_running")
-        spec = await analyze_floorplan(db.asset_path(row), asset_id=plans[-1].id, rotation_degrees=rotation_degrees)
+        spec = await analyze_floorplan(db.asset_path(row), asset_id=latest_plan_id, rotation_degrees=rotation_degrees)
+        if previous_spec is not None:
+            regression = _reanalysis_regression_reason(previous_spec, spec)
+            if regression:
+                raise AIResponseError(f"本次重新识别结果质量低于已保存结果（{regression}），已保留原标注，请稍后重试")
     except AIConfigurationError as error:
         raise ai_http_error(error) from error
     except AIResponseError as error:

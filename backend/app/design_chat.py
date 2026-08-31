@@ -3,7 +3,7 @@ from functools import lru_cache
 from itertools import product
 from pathlib import Path
 from .config import settings
-from .knowledge_graph import _partition_requested, equipment_rules
+from .knowledge_graph import _audience_negated, _audience_requested, _partition_requested, equipment_rules
 from .provider import serialized_post
 from .model_assets import builtin_orientation_override, list_shared_model_assets
 
@@ -82,8 +82,12 @@ def _model_lookup(product,style_match):
     attrs=product["attributes"]
     code=attrs.get("材料编号","");category=attrs.get("材料名称","")
     categories=("适老浴室柜","浴室柜") if category=="适老浴室柜" else (category,)
-    shared=next((item for item in list_shared_model_assets() if item.binding_status=="bound" and code in item.catalog_codes),None)
-    asset=shared.model_dump(mode="json") if shared else next((item for item in _model_library_assets() if item.get("category") in categories and code in item.get("catalog_codes",[])),None)
+    # RSQ1-2's source FBX is an upright appliance, not the catalogued
+    # horizontal 60 L body. The reviewed RSQ2-2 model has the same rose-gold
+    # exterior, so bind that geometry while retaining RSQ1-2 pricing/spec data.
+    model_code="RSQ2-2" if category=="热水器" and code=="RSQ1-2" else code
+    shared=next((item for item in list_shared_model_assets() if item.binding_status=="bound" and model_code in item.catalog_codes),None)
+    asset=shared.model_dump(mode="json") if shared else next((item for item in _model_library_assets() if item.get("category") in categories and model_code in item.get("catalog_codes",[])),None)
     # The static library JSON never carries orientation data; builtin assets
     # keep their reviewed corrections in builtin-orientation-overrides.json.
     # Without this merge the auto-modeling snapshot loses the library's
@@ -307,7 +311,7 @@ REQUIREMENT_CAPTURE_PROMPT="""首先调用 capture_design_requirements，不要�
 
 def requirement_state(messages):
     text=" ".join(x["content"] for x in messages if x["role"]=="user")
-    audience=[x for x in ("老人","父母","儿童","轮椅","成人") if x in text]
+    audience=[x for x in ("老人","父母","儿童","轮椅","成人") if _audience_requested(text,x)]
     functions=[x for x in ("洗澡","淋浴","坐便","洗漱","洗衣","收纳","扶手","坐浴") if x in text]
     if _partition_requested(text):
         functions.append("淋浴隔断")
@@ -338,7 +342,8 @@ def requirement_state_from_model(arguments,messages):
     audience_values=arguments.get("audience") if isinstance(arguments.get("audience"),list) else []
     function_values=arguments.get("functions") if isinstance(arguments.get("functions"),list) else []
     style_values=arguments.get("style_terms") if isinstance(arguments.get("style_terms"),list) else []
-    audience=list(dict.fromkeys(str(value) for value in audience_values if str(value) in allowed_audience))
+    text=" ".join(x["content"] for x in messages if x["role"]=="user")
+    audience=list(dict.fromkeys(str(value) for value in audience_values if str(value) in allowed_audience and not _audience_negated(text,str(value))))
     functions=list(dict.fromkeys(str(value) for value in function_values if str(value) in allowed_functions))
     if arguments.get("delegated_standard_functions"):
         functions=list(dict.fromkeys([*functions,"淋浴","坐便","洗漱"]))

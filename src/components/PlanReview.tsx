@@ -108,7 +108,7 @@ function FixtureModelsTopLayer({ fixtures, selection, scale, offsetX, offsetZ, v
 
   return <foreignObject ref={layerRef} className="fixture-model-top" x="0" y="0" width={canvasWidth} height={canvasHeight} style={{ width: canvasWidth, height: canvasHeight }} pointerEvents="none">
     <div ref={viewportRef} className="fixture-model-viewport" style={{ width: canvasWidth, height: canvasHeight }}>
-      <Canvas orthographic dpr={[1, 2]} gl={{ alpha: true, antialias: true }} camera={camera} onCreated={({ camera: topCamera }) => topCamera.lookAt(canvasWidth / 2, 0, canvasHeight / 2)}>
+      <Canvas orthographic frameloop="demand" dpr={[1, 2]} gl={{ alpha: true, antialias: true }} camera={camera} onCreated={({ camera: topCamera }) => topCamera.lookAt(canvasWidth / 2, 0, canvasHeight / 2)}>
         <ambientLight intensity={2.1} />
         <directionalLight position={[-3, 6, -4]} intensity={2.5} />
         <Suspense fallback={null}>{modelFixtures.map(({ fixture, asset }) => <group key={fixture.id} position={planModelPosition(fixture.x_mm, fixture.z_mm, scale, offsetX, offsetZ)} scale={1000 * scale} rotation={[0, -fixture.rotation_deg * Math.PI / 180, 0]}><FixtureAssetBoundary fixture={{ ...fixture, model_asset: asset }}><FixtureAssetModel fixture={{ ...fixture, model_asset: asset }} selected={selection.type === 'fixture' && selection.id === fixture.id} /></FixtureAssetBoundary></group>)}</Suspense>

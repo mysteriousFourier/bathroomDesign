@@ -110,6 +110,12 @@ export function modelAssetForProduct(category: string, code?: string, tier?: Bui
   const candidates = records.filter((asset) => asset.asset_type === 'fixture' && categories.includes(asset.category))
   if (!candidates.length) return undefined
   if (category === '洗衣机' && code === 'XYJ2-1') return undefined
+  // The RSQ1-2 export is an upright 331x628x778 scene, not the catalogued
+  // horizontal 60 L appliance. RSQ2-2 is the reviewed horizontal rose-gold
+  // exterior shared by this finish, so use it until the bad source is replaced.
+  if (category === '热水器' && code === 'RSQ1-2') {
+    return candidates.find((asset) => asset.catalog_codes.includes('RSQ2-2'))
+  }
   return candidates.find((asset) => code && asset.catalog_codes.includes(code))
     ?? candidates.find((asset) => tier && asset.price_tier === tier)
     ?? candidates[0]
@@ -117,6 +123,9 @@ export function modelAssetForProduct(category: string, code?: string, tier?: Bui
 
 export function exactModelAssetForProduct(category: string, code: string) {
   const categories = category === '适老浴室柜' ? ['适老浴室柜', '浴室柜'] : [category]
+  if (category === '热水器' && code === 'RSQ1-2') {
+    return records.find((asset) => asset.asset_type === 'fixture' && asset.category === category && asset.catalog_codes.includes('RSQ2-2'))
+  }
   return records.find((asset) => asset.asset_type === 'fixture' && categories.includes(asset.category) && asset.catalog_codes.includes(code))
 }
 

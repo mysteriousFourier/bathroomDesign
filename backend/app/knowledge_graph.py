@@ -7,7 +7,7 @@ from xml.etree import ElementTree as ET
 RULES={"洗澡":["花洒","热水器"],"沐浴":["花洒","热水器"],"淋浴":["花洒","热水器"],"上厕所":["马桶"],"坐便":["马桶"],"洗衣":["洗衣机"],"洗衣服":["洗衣机"],"洗漱":["浴室柜"],"洗脸":["浴室柜"],"收纳":["浴室柜"]}
 
 _ACCESSIBILITY_TERMS=("适老","老人","轮椅","扶手","坐浴")
-_NEGATION_TERMS=("不需要","无需","不用","不要","没有","无","不是","非","不考虑","不含","排除","拒绝","取消")
+_NEGATION_TERMS=("不需要","无需","不用","不要","没有","无","不是","非","不考虑","不含","排除","拒绝","取消","不存在","未有")
 _PUNCTUATION="，。；,;、\n"
 
 def _has_positive_term(text:str,term:str)->bool:
@@ -25,6 +25,28 @@ def _has_positive_term(text:str,term:str)->bool:
 
 def _accessibility_requested(text:str)->bool:
     return any(_has_positive_term(text,term) for term in _ACCESSIBILITY_TERMS)
+
+def _audience_requested(text:str,term:str)->bool:
+    """Match an explicitly mentioned audience unless the audience is negated."""
+    start=0
+    while (index:=text.find(term,start))>=0:
+        clause_start=max((text.rfind(mark,0,index) for mark in _PUNCTUATION),default=-1)+1
+        prefix=text[clause_start:index]
+        if not any(prefix.rstrip().endswith(negation) for negation in _NEGATION_TERMS):
+            return True
+        start=index+len(term)
+    return False
+
+def _audience_negated(text:str,term:str)->bool:
+    """Return whether an audience mention is explicitly negated in the user's text."""
+    start=0
+    while (index:=text.find(term,start))>=0:
+        clause_start=max((text.rfind(mark,0,index) for mark in _PUNCTUATION),default=-1)+1
+        prefix=text[clause_start:index]
+        if any(prefix.rstrip().endswith(negation) for negation in _NEGATION_TERMS):
+            return True
+        start=index+len(term)
+    return False
 
 def _partition_requested(text:str)->bool:
     return _has_positive_term(text,"淋浴隔断")

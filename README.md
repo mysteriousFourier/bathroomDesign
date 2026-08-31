@@ -122,19 +122,24 @@ npm run build
 
 ## 发布包
 
-`v1.0.1` 发布包包含完整源码、已构建前端和内置产品模型，不包含 `.env`、API
-密钥、运行数据库或本机缓存。接收方解压后按
+`v1.0.1` 主程序包包含完整源码和已构建前端，不包含 `.env`、API 密钥、运行数据库、
+本机缓存或体积较大的内置产品模型。模型资源作为独立分包提供，主程序包和每个模型
+分包均小于 200MiB。接收方解压主程序后，将全部 `bathroom-model-assets-v*.zip`
+放在主程序目录旁边，双击 `install-model-assets.bat` 即可安装并校验模型资源；安装脚本
+也兼容已经解压到同级 `bathroom-model-assets-v*` 目录的模型分包。随后按
 [`docs/DEPLOYMENT_AND_TESTING.md`](docs/DEPLOYMENT_AND_TESTING.md) 完成校验、配置和测试；
 版本内容及已知限制见 [`RELEASE_NOTES.md`](RELEASE_NOTES.md)。
 
-维护者可在干净的提交上生成同规格 ZIP 和 SHA-256 文件：
+维护者可在干净的提交上生成主程序 ZIP、模型分包和各自的 SHA-256 文件：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-release.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-release.ps1 -WithoutModelAssets
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-model-assets.ps1
 ```
 
-产物写入 `release/`，该目录由 `.gitignore` 排除，不提交到 Git。发布前应先执行测试
-与构建；打包脚本也会重新构建前端，并拒绝从有未提交改动的工作区生成正式包。
+产物写入 `release/`，该目录由 `.gitignore` 排除，不提交到 Git。模型打包器按完整模型
+目录装箱，默认将每个分包的未压缩载荷限制为 180MiB，并在生成后硬性检查 ZIP 小于
+200MiB。发布前应先执行测试与构建；打包脚本会拒绝从有未提交改动的工作区生成正式包。
 
 ## Docker
 

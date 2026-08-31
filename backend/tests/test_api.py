@@ -11,7 +11,7 @@ from backend.app.config import PROJECT_ROOT, settings
 from backend.app import main as main_module
 from backend.app.ai import AIResponseError
 from backend.app.main import app
-from backend.app.models import PlanAnnotation, Point2D, RoomSpec, ShapeCorner
+from backend.app.models import BoundaryEdge, ImageBBox, Observation, PlanAnnotation, Point2D, RoomSpec, ShapeCorner
 
 
 def configure_temp_database(tmp_path) -> None:
@@ -411,6 +411,130 @@ async def test_new_floorplan_and_site_photo_both_preserve_old_geometry(tmp_path)
         assert retained["spec"] is not None
         assert retained["measurement"] is not None
         assert retained["status"] == "review"
+
+
+@pytest.mark.asyncio
+async def test_reanalysis_reuses_rotation_only_for_same_floorplan(tmp_path, monkeypatch) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    requested_rotations: list[int | None] = []
+
+    async def capture_rotation(*_args, **kwargs):
+        requested_rotations.append(kwargs.get("rotation_degrees"))
+        return RoomSpec(
+            boundary=[
+                Point2D(x_mm=0, z_mm=0), Point2D(x_mm=1800, z_mm=0),
+                Point2D(x_mm=1800, z_mm=2400), Point2D(x_mm=0, z_mm=2400),
+            ],
+            height_mm=2600,
+        )
+
+    monkeypatch.setattr(main_module, "analyze_floorplan", capture_rotation)
+    image_data = BytesIO()
+    Image.new("RGB", (200, 320), "white").save(image_data, "JPEG")
+    payload = image_data.getvalue()
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "旋转继承"})).json()["id"]
+        first_asset = (await client.post(
+            f"/api/projects/{project_id}/assets",
+            data={"role": "floorplan"},
+            files={"file": ("first.jpg", payload, "image/jpeg")},
+        )).json()
+        saved_spec = RoomSpec(
+            boundary=[
+                Point2D(x_mm=0, z_mm=0), Point2D(x_mm=1800, z_mm=0),
+                Point2D(x_mm=1800, z_mm=2400), Point2D(x_mm=0, z_mm=2400),
+            ],
+            height_mm=2600,
+            plan_annotation=PlanAnnotation(rotation_degrees=270, boundary=[], confirmed=False),
+            observations=[Observation(
+                field="ocr:E1", value="1800", asset_id=first_asset["id"], rotation_degrees=270,
+            )],
+        )
+        await client.put(f"/api/projects/{project_id}/spec", json=saved_spec.model_dump(mode="json"))
+
+        same_plan = await client.post(f"/api/projects/{project_id}/analyze-plan")
+        explicit_angle = await client.post(f"/api/projects/{project_id}/analyze-plan?rotation_degrees=90")
+        await client.post(
+            f"/api/projects/{project_id}/assets",
+            data={"role": "floorplan"},
+            files={"file": ("second.jpg", payload, "image/jpeg")},
+        )
+        new_plan = await client.post(f"/api/projects/{project_id}/analyze-plan")
+
+    assert same_plan.status_code == 200
+    assert explicit_angle.status_code == 200
+    assert new_plan.status_code == 200
+    assert requested_rotations == [270, 90, None]
+
+
+@pytest.mark.asyncio
+async def test_reanalysis_rejects_a_regressed_misaligned_draft(tmp_path, monkeypatch) -> None:
+    configure_temp_database(tmp_path)
+    db.initialize()
+    image_data = BytesIO()
+    Image.new("RGB", (200, 320), "white").save(image_data, "JPEG")
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        project_id = (await client.post("/api/projects", json={"name": "拒绝错位回退"})).json()["id"]
+        asset = (await client.post(
+            f"/api/projects/{project_id}/assets",
+            data={"role": "floorplan"},
+            files={"file": ("plan.jpg", image_data.getvalue(), "image/jpeg")},
+        )).json()
+        edges = [
+            BoundaryEdge(direction=direction, length_mm=length, role="wall", confidence=0.9)
+            for direction, length in (("right", 1800), ("down", 2400), ("left", 1800), ("up", 2400))
+        ]
+        saved_spec = RoomSpec(
+            boundary=[
+                Point2D(x_mm=0, z_mm=0), Point2D(x_mm=1800, z_mm=0),
+                Point2D(x_mm=1800, z_mm=2400), Point2D(x_mm=0, z_mm=2400),
+            ],
+            height_mm=2600,
+            plan_annotation=PlanAnnotation(
+                rotation_degrees=270,
+                boundary=[
+                    ShapeCorner(x=250, y=200), ShapeCorner(x=750, y=200),
+                    ShapeCorner(x=750, y=800), ShapeCorner(x=250, y=800),
+                ],
+                edge_chain=edges,
+                confirmed=False,
+            ),
+            observations=[Observation(
+                field="ocr:E1", value="1800", asset_id=asset["id"], rotation_degrees=270,
+                bbox=ImageBBox(x_min=300, y_min=100, x_max=400, y_max=150),
+            )],
+        )
+        await client.put(f"/api/projects/{project_id}/spec", json=saved_spec.model_dump(mode="json"))
+
+        async def misaligned_analysis(*_args, **_kwargs):
+            return RoomSpec(
+                boundary=saved_spec.boundary,
+                height_mm=2600,
+                plan_annotation=PlanAnnotation(
+                    rotation_degrees=270,
+                    boundary=[
+                        ShapeCorner(x=20, y=20), ShapeCorner(x=980, y=20),
+                        ShapeCorner(x=980, y=980), ShapeCorner(x=20, y=980),
+                    ],
+                    edge_chain=edges,
+                    confirmed=False,
+                ),
+                observations=[Observation(
+                    field="ocr:E2", value="1800", asset_id=asset["id"], rotation_degrees=270,
+                    bbox=ImageBBox(x_min=300, y_min=100, x_max=400, y_max=150),
+                )],
+            )
+
+        monkeypatch.setattr(main_module, "analyze_floorplan", misaligned_analysis)
+        response = await client.post(f"/api/projects/{project_id}/analyze-plan")
+        persisted = (await client.get(f"/api/projects/{project_id}")).json()
+
+    assert response.status_code == 502
+    assert "新轮廓与已保存房型明显错位" in response.json()["detail"]
+    assert persisted["spec"]["plan_annotation"]["boundary"][0] == {"x": 250, "y": 200, "role": "wall_corner", "confidence": 0.5}
 
 
 @pytest.mark.asyncio

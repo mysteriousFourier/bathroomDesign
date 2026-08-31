@@ -30,6 +30,10 @@ if ($GitStatus.Count -gt 0) {
 }
 
 if (-not $SkipBuild) {
+    $ExistingDist = Join-Path $ProjectRoot "dist"
+    if (Test-Path -LiteralPath $ExistingDist) {
+        Remove-Item -LiteralPath $ExistingDist -Recurse -Force
+    }
     & npm run build
     if ($LASTEXITCODE -ne 0) {
         throw "Frontend build failed."
@@ -81,7 +85,23 @@ try {
         Copy-Item -LiteralPath $Source -Destination $Destination
     }
 
-    Copy-Item -LiteralPath (Join-Path $ProjectRoot "dist") -Destination $BundleRoot -Recurse
+    $DistSource = Join-Path $ProjectRoot "dist"
+    if ($WithoutModelAssets) {
+        $PackagedDistRoot = Join-Path $BundleRoot "dist"
+        $ExcludedDistModelPrefix = [System.IO.Path]::GetFullPath((Join-Path $DistSource "model-library\models")) + [System.IO.Path]::DirectorySeparatorChar
+        New-Item -ItemType Directory -Path $PackagedDistRoot -Force | Out-Null
+        foreach ($DistFile in Get-ChildItem -LiteralPath $DistSource -File -Recurse) {
+            if ($DistFile.FullName.StartsWith($ExcludedDistModelPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+            $RelativeDistPath = $DistFile.FullName.Substring($DistSource.Length).TrimStart([char[]]@('\', '/'))
+            $DistDestination = Join-Path $PackagedDistRoot $RelativeDistPath
+            New-Item -ItemType Directory -Path (Split-Path -Parent $DistDestination) -Force | Out-Null
+            Copy-Item -LiteralPath $DistFile.FullName -Destination $DistDestination
+        }
+    } else {
+        Copy-Item -LiteralPath $DistSource -Destination $BundleRoot -Recurse
+    }
     if (-not $WithoutModelAssets) {
         $PackagedModelDirectory = Join-Path $BundleRoot "public\model-library\models"
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PackagedModelDirectory) | Out-Null

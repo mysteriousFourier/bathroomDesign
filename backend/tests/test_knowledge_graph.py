@@ -41,6 +41,23 @@ def test_standard_user_can_require_shower_partition_without_accessible_profile()
     assert "淋浴隔断" in result["必须设备"]
     assert result["不能有的设备"] == []
 
+def test_negated_elderly_audience_keeps_standard_partition_rules():
+    text="无老人，要淋浴隔断，喜欢素雅，预算2万元"
+    state=requirement_state([{"role":"user","content":text}])
+    assert state["collected"]["使用人群"] == []
+    rules=equipment_rules(text)
+    assert rules["必须设备"] == ["花洒", "热水器", "淋浴隔断"]
+    assert "淋浴椅" not in rules["必须设备"]
+    assert "花洒扶手" not in rules["必须设备"]
+
+def test_model_cannot_turn_negated_elderly_audience_into_accessible_rules():
+    messages=[{"role":"user","content":"无老人，要淋浴隔断，喜欢素雅，预算2万元"}]
+    state=requirement_state_from_model({"audience":["老人"],"functions":["淋浴","淋浴隔断"],"catalog_style":"素雅","style_terms":[],"budget_text":"2万元","delegated_standard_functions":False},messages)
+    assert state["collected"]["使用人群"] == []
+    rules=equipment_rules(" ".join((messages[0]["content"],*state["collected"]["使用人群"],*state["collected"]["功能需求"])))
+    assert "淋浴隔断" in rules["必须设备"]
+    assert "淋浴椅" not in rules["必须设备"]
+
 def test_partition_candidate_is_not_filtered_for_standard_requirements():
     product={"id":"partition","attributes":{"材料编号":"GD1-1","材料名称":"淋浴隔断","风格":"素雅","单价":"800"}}
     result=furniture_quotes([product],{"catalog_style":"素雅"})

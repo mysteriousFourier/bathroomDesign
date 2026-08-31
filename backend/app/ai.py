@@ -961,9 +961,12 @@ def _raster_topology_candidates(
     fast: bool = False,
 ) -> list[TopologyCandidate]:
     if fast:
+        # PhotoAnnotation renders the complete uploaded image after rotation.
+        # Keep candidate coordinates in that same frame: trimming here used to
+        # shift and scale an otherwise correct outline when it was overlaid in
+        # the browser.
         image = _oriented_image(path, rotation_degrees, trim_document=False)
         image.thumbnail((1000, 1000), Image.Resampling.LANCZOS)
-        image = _trim_document(image)
     else:
         image = _oriented_image(path, rotation_degrees, trim_document=True)
         image.thumbnail((1400, 1400), Image.Resampling.LANCZOS)
@@ -1187,7 +1190,10 @@ def _evidence_has_handwriting(image: Image.Image, evidence: VisualEvidence) -> b
 
 def evidence_crop_png(path: Path, rotation_degrees: int, bbox: ImageBBox) -> bytes:
     """Render a readable source crop for the browser correction queue."""
-    image = _oriented_image(path, rotation_degrees, trim_document=True).convert("RGB")
+    # Persisted evidence boxes use the complete rotated upload's 0..1000
+    # coordinate frame, which is also what PhotoAnnotation displays. Cropping
+    # an auto-trimmed document here shifts and scales an otherwise correct box.
+    image = _oriented_image(path, rotation_degrees, trim_document=False).convert("RGB")
     width, height = image.size
     left = round(width * bbox.x_min / 1000)
     top = round(height * bbox.y_min / 1000)
@@ -2387,6 +2393,40 @@ def _template_token_bbox_can_bind_wall(token: dict) -> bool:
     return width <= 170 and height <= 170
 
 
+def _matching_total_dimension_subchain(tokens: list[dict]) -> list[dict]:
+    """Find measured segments whose sum is another total on the same wall."""
+    unique: list[tuple[dict, int]] = []
+    seen: set[tuple[int, int, int]] = set()
+    for token in tokens:
+        value = _template_token_value(token)
+        center = _bbox_center(token)
+        if value is None or center is None:
+            continue
+        signature = (value, round(center[0] / 5), round(center[1] / 5))
+        if signature in seen:
+            continue
+        seen.add(signature)
+        unique.append((token, value))
+    best: tuple[tuple[int, int, float], list[dict]] | None = None
+    for total_index, (_, total_value) in enumerate(unique):
+        if total_value < 1000:
+            continue
+        segments = [item for index, item in enumerate(unique) if index != total_index and item[1] < total_value]
+        for size in range(2, min(6, len(segments)) + 1):
+            for group in itertools.combinations(segments, size):
+                error = abs(sum(value for _, value in group) - total_value)
+                tolerance = max(10, round(total_value * 0.006))
+                if error > tolerance:
+                    continue
+                centers = [_bbox_center(token) or (0, 0) for token, _ in group]
+                spread = max(max(point[0] for point in centers) - min(point[0] for point in centers),
+                             max(point[1] for point in centers) - min(point[1] for point in centers))
+                score = (error, -size, -spread)
+                if best is None or score < best[0]:
+                    best = (score, [token for token, _ in group])
+    return best[1] if best else []
+
+
 def _template_adjacent_dimension_edge_chain(
     shape: ShapeTraceResult,
     ocr_assist: dict,
@@ -2403,11 +2443,22 @@ def _template_adjacent_dimension_edge_chain(
         and _bbox_center(token) is not None
         and _template_token_bbox_can_bind_wall(token)
     ]
+    total_tokens = [
+        token for token in ocr_assist.get("tokens") or []
+        if token.get("template_visual")
+        and str(token.get("semantic_role") or "") == "wall_segment"
+        and len(_ocr_numbers(str(token.get("raw_text", "")))) == 1
+        and _ocr_numbers(str(token.get("raw_text", "")))[0] >= 1000
+        and any(marker in str(token.get("view_id") or "") for marker in ("-total", "-overall"))
+        and _bbox_center(token) is not None
+    ]
     by_wall: dict[int, list[dict]] = {index: [] for index in range(len(directions))}
-    for token in tokens:
+    totals_by_wall: dict[int, list[dict]] = {index: [] for index in range(len(directions))}
+
+    def nearest_wall(token: dict) -> int | None:
         candidates = [index for index in range(len(directions)) if _template_token_is_near_wall(token, shape, index)]
         if not candidates:
-            continue
+            return None
         cx, cy = _bbox_center(token) or (0, 0)
 
         def distance(index: int) -> float:
@@ -2417,7 +2468,16 @@ def _template_adjacent_dimension_edge_chain(
                 return abs(cy - (start.y + end.y) / 2)
             return abs(cx - (start.x + end.x) / 2)
 
-        by_wall[min(candidates, key=distance)].append(token)
+        return min(candidates, key=distance)
+
+    for token in tokens:
+        wall_index = nearest_wall(token)
+        if wall_index is not None:
+            by_wall[wall_index].append(token)
+    for token in total_tokens:
+        wall_index = nearest_wall(token)
+        if wall_index is not None:
+            totals_by_wall[wall_index].append(token)
 
     edges: list[BoundaryEdge] = []
     for wall_index, direction in enumerate(directions):
@@ -2432,18 +2492,22 @@ def _template_adjacent_dimension_edge_chain(
             evidence_ids = [str(wall_tokens[0].get("id", ""))]
             confidence = float(wall_tokens[0].get("confidence", 0.7) or 0.7)
         elif any(value >= 1000 for value in values):
-            short_groups: dict[str, list[dict]] = {}
-            for token in wall_tokens:
-                value = _ocr_numbers(str(token.get("raw_text", "")))[0]
-                if value < 1000:
-                    short_groups.setdefault(str(token.get("view_id") or ""), []).append(token)
-            additive_group = next(
-                (
-                    group for view_id, group in short_groups.items()
-                    if len(group) >= 2 and view_id and "-total" not in view_id
-                ),
-                None,
-            )
+            additive_group = _matching_total_dimension_subchain([
+                *wall_tokens, *totals_by_wall.get(wall_index, []),
+            ])
+            if not additive_group:
+                short_groups: dict[str, list[dict]] = {}
+                for token in wall_tokens:
+                    value = _ocr_numbers(str(token.get("raw_text", "")))[0]
+                    if value < 1000:
+                        short_groups.setdefault(str(token.get("view_id") or ""), []).append(token)
+                additive_group = next(
+                    (
+                        group for view_id, group in short_groups.items()
+                        if len(group) >= 2 and view_id and "-total" not in view_id
+                    ),
+                    None,
+                )
             if additive_group:
                 axis = 0 if direction in {"right", "left"} else 1
                 ordered = sorted(
@@ -2710,6 +2774,12 @@ def _apply_template_axis_total_constraints(
 def _merge_segment_edge_chains(primary: list[BoundaryEdge], fallback: list[BoundaryEdge]) -> list[BoundaryEdge]:
     if len(primary) != len(fallback):
         return fallback if len(fallback) > len(primary) else primary or fallback
+    primary_closed = bool(_edge_chain_to_boundary(primary))
+    fallback_closed = bool(_edge_chain_to_boundary(fallback))
+    if fallback_closed and not primary_closed:
+        return fallback
+    if primary_closed and not fallback_closed:
+        return primary
     return [
         edge if edge.length_mm is not None else fallback[index]
         for index, edge in enumerate(primary)
@@ -4778,7 +4848,8 @@ def _local_point_markers(
 ) -> list[VisualEvidence]:
     if shape is None or len(shape.corners) < 3:
         return []
-    source = _oriented_image(path, rotation, trim_document=True).convert("RGB")
+    # The returned bboxes are persisted and drawn over the untrimmed upload.
+    source = _oriented_image(path, rotation, trim_document=False).convert("RGB")
     left = round(source.width * PLAN_SYMBOL_REGION.x_min / 1000)
     top = round(source.height * PLAN_SYMBOL_REGION.y_min / 1000)
     right = round(source.width * PLAN_SYMBOL_REGION.x_max / 1000)
@@ -6726,7 +6797,9 @@ async def _recognize_plan_single_pass(
     model = settings.read_model
     if not model:
         raise AIConfigurationError("尚未配置 READ_MODEL")
-    oriented = _oriented_image(path, rotation, trim_document=True).convert("RGB")
+    # Bboxes from this request are persisted and rendered over the complete
+    # rotated upload, so the model must see that exact coordinate frame.
+    oriented = _oriented_image(path, rotation, trim_document=False).convert("RGB")
     dimension_response = await _request_content(
         client,
         endpoint,
@@ -7030,7 +7103,7 @@ async def _detect_point_markers(
                     {"role": "system", "content": POINT_MARKER_PROMPT},
                     {"role": "user", "content": [
                         {"type": "text", "text": "识别草图内部所有真实点位符号。"},
-                        {"type": "image_url", "image_url": {"url": image_data_url(path, rotation, trim_document=True), "detail": "high"}},
+                        {"type": "image_url", "image_url": {"url": image_data_url(path, rotation, trim_document=False), "detail": "high"}},
                     ]},
                 ],
                 model,
@@ -7486,6 +7559,25 @@ def _shape_directions(shape: ShapeTraceResult) -> list[str]:
     if directions[0] == directions[-1]:
         return []
     return directions
+
+
+def _align_shape_to_edge_chain(shape: ShapeTraceResult, edges: list[BoundaryEdge]) -> ShapeTraceResult:
+    """Match image-space corner order to the metric edge-chain order."""
+    target = [edge.direction for edge in edges]
+    if len(shape.corners) != len(target) or not target:
+        return shape
+    corners = list(shape.corners)
+    for ordered in (corners, list(reversed(corners))):
+        for offset in range(len(ordered)):
+            rotated = ordered[offset:] + ordered[:offset]
+            candidate = ShapeTraceResult(corners=rotated, closed=True)
+            if _shape_directions(candidate) == target:
+                return ShapeTraceResult(
+                    corners=rotated,
+                    closed=shape.closed,
+                    uncertain=list(shape.uncertain),
+                )
+    return shape
 
 
 def _rectangular_boundary_from_extents(
@@ -8095,7 +8187,39 @@ def _validated_local_topology_candidate(
         best_non_rectangular = max(item.pixel_support for item in non_rectangular)
         best_rectangular = max(item.pixel_support for item in rectangular)
         pool = non_rectangular if best_non_rectangular >= best_rectangular - 0.06 else rectangular
-    return max(pool, key=lambda item: (item.pixel_support, -abs(len(item.corners) - 6)))
+    selected = max(pool, key=lambda item: (item.pixel_support, -abs(len(item.corners) - 6)))
+
+    # Thresholded template grids and short pen overruns can cut tiny notches
+    # into an otherwise rectangular room.  When the complex contour occupies
+    # almost its entire bounding box and a four-corner candidate covers the
+    # same walls with comparable pixel support, those extra corners are image
+    # noise rather than room topology.  A real L/T-shaped room has materially
+    # lower compactness, so it remains eligible here.
+    if len(selected.corners) > 4 and rectangular:
+        points = np.asarray([(corner.x, corner.y) for corner in selected.corners], dtype=np.int32)
+        min_x, min_y = points.min(axis=0)
+        max_x, max_y = points.max(axis=0)
+        bounds_area = max(1, int(max_x - min_x) * int(max_y - min_y))
+        compactness = abs(float(cv2.contourArea(points))) / bounds_area
+
+        def bounds_iou(candidate: TopologyCandidate) -> float:
+            rectangle = np.asarray([(corner.x, corner.y) for corner in candidate.corners], dtype=np.int32)
+            rect_min_x, rect_min_y = rectangle.min(axis=0)
+            rect_max_x, rect_max_y = rectangle.max(axis=0)
+            left, top = max(min_x, rect_min_x), max(min_y, rect_min_y)
+            right, bottom = min(max_x, rect_max_x), min(max_y, rect_max_y)
+            intersection = max(0, int(right - left)) * max(0, int(bottom - top))
+            rectangle_area = max(1, int(rect_max_x - rect_min_x) * int(rect_max_y - rect_min_y))
+            union = bounds_area + rectangle_area - intersection
+            return intersection / union if union > 0 else 0.0
+
+        matching_rectangles = [
+            item for item in rectangular
+            if item.pixel_support >= selected.pixel_support - 0.03 and bounds_iou(item) >= 0.9
+        ]
+        if compactness >= 0.97 and matching_rectangles:
+            return max(matching_rectangles, key=lambda item: item.pixel_support)
+    return selected
 
 
 async def _select_raster_topology(
@@ -8631,18 +8755,30 @@ async def analyze_floorplan_fast(
     """Recognize the full plan once, then bind evidence with local code."""
     if not settings.ai_configured:
         raise AIConfigurationError("尚未配置 OPENAI_BASE_URL、OPENAI_API_KEY 和 READ_MODEL")
-    rotation = rotation_degrees if rotation_degrees is not None else _preferred_plan_rotation(path)
+    trace_ids: list[str] = []
+    endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
+    headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
+    if rotation_degrees is None:
+        # Width/height only tells us that a phone photo is sideways; it cannot
+        # distinguish 90 from 270 degrees.  Decide from the current image's
+        # readable text instead of carrying a fixed portrait assumption from a
+        # previous template.
+        rotation = _preferred_plan_rotation(path)
+        if rotation in (90, 270):
+            async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as orientation_client:
+                rotation = await _detect_plan_rotation(
+                    orientation_client, endpoint, headers, path, trace_ids,
+                )
+    else:
+        rotation = rotation_degrees
     # The configured vision model and bbox-backed dimension solver are the
     # primary path. Local raster topology is only an editable fallback, so keep
     # it bounded rather than delaying every API recognition request.
     candidates = _raster_topology_candidates(path, rotation, fast=True)
     shape: ShapeTraceResult | None = None
-    trace_ids: list[str] = []
     ocr_assist: dict = {"tokens": [], "rotation_degrees": rotation, "image_hash": ""}
     edge_chain: list[BoundaryEdge] = []
     point_markers: list[VisualEvidence] = []
-    endpoint = settings.openai_base_url.rstrip("/") + "/chat/completions"
-    headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=settings.ai_timeout_seconds) as client:
         # The single request is the only visual/OCR-like recognition step. The
         # local raster candidate is used only as a deterministic coordinate
@@ -8678,12 +8814,16 @@ async def analyze_floorplan_fast(
             )
         raw_direct_edges = _direct_edge_chain_from_report(report, ocr_assist)
         direct_shape = _shape_from_metric_edge_chain(raw_direct_edges)
-        # Vision responses for portrait sheets can occasionally omit one
-        # dimension-chain bbox even though the same model reads it on a second
-        # turn. Retry only when the first response cannot form a closed metric
-        # contour; this keeps the normal path single-pass and never falls back
-        # to local OCR or sample-specific values.
-        if rotation == 90 and direct_shape is None:
+        # Vision responses can occasionally omit most wall dimensions even
+        # though the same model reads them on a second turn. Retry sideways
+        # 90-degree sheets as before, and also retry any orientation whose
+        # first pass returned fewer than four bbox-backed dimension readings.
+        # A complete 270-degree response stays single-pass.
+        dimension_evidence_count = sum(
+            item.kind == "dimension" and bool(_numbers_in_text(item.text))
+            for item in report.evidence
+        )
+        if direct_shape is None and (rotation == 90 or dimension_evidence_count < 4):
             try:
                 retry_selection, retry_report = await _recognize_plan_single_pass(
                     client, endpoint, headers, path, rotation, selectable_candidates, trace_ids,
@@ -8698,10 +8838,15 @@ async def analyze_floorplan_fast(
                 raise
             except (AIResponseError, ValidationError, TypeError, ValueError) as error:
                 report.uncertain.append(f"大模型闭合重试失败：{error}")
-        selected = next(
+        model_selected = next(
             (candidate for candidate in selectable_candidates if candidate.id == selection.selected_id),
             None,
         ) if selection.accepted else None
+        selected = _validated_local_topology_candidate(selectable_candidates) or model_selected
+        if model_selected is not None and selected is not None and model_selected.id != selected.id:
+            report.uncertain.append(
+                f"模型候选 {model_selected.id} 与本地像素证据冲突；照片框线采用 {selected.id}"
+            )
         annotation_shape: ShapeTraceResult | None = None
         if direct_shape is not None:
             # A closed, bbox-backed metric chain from the configured large
@@ -8711,13 +8856,13 @@ async def analyze_floorplan_fast(
             # Keep image-space corners from the raster candidate for bbox
             # mapping and photo review.  Metric geometry remains sourced from
             # the model's closed edge chain above.
-            annotation_candidate = selected or _validated_local_topology_candidate(selectable_candidates)
+            annotation_candidate = selected
             if annotation_candidate is not None:
-                annotation_shape = ShapeTraceResult(
+                annotation_shape = _align_shape_to_edge_chain(ShapeTraceResult(
                     corners=annotation_candidate.corners,
                     closed=True,
                     uncertain=[f"图像坐标候选 {annotation_candidate.id} 仅用于证据定位"],
-                )
+                ), raw_direct_edges)
             report.uncertain.append("采用大模型返回的闭合逐边尺寸链；未使用像素比例生成毫米尺寸")
         elif selected is None:
             # Keep a validated raster trace only as an editable fallback when

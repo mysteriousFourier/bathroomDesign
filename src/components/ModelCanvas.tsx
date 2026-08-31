@@ -1,8 +1,8 @@
-import { ContactShadows, Edges, Grid, OrbitControls, PerspectiveCamera, useGLTF, useTexture } from '@react-three/drei'
+import { ContactShadows, Edges as DreiEdges, Grid, OrbitControls, OrthographicCamera, PerspectiveCamera, useGLTF, useTexture } from '@react-three/drei'
 import { Canvas, type ThreeEvent, useFrame, useLoader, useThree } from '@react-three/fiber'
-import { ChevronLeft, ChevronRight, Eye, EyeOff, Focus, Layers, Move3d, ReceiptText, SquareDashed, Waves } from 'lucide-react'
-import { Component, Suspense, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Box3, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, Group, Path, RepeatWrapping, Shape, SRGBColorSpace, Vector3 } from 'three'
+import { Box as BoxIcon, ChevronLeft, ChevronRight, Eye, EyeOff, Focus, Layers, Move3d, Palette, ReceiptText, SquareDashed, Waves } from 'lucide-react'
+import { Component, Suspense, createContext, forwardRef, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react'
+import { Box3, BufferGeometry, CanvasTexture, DoubleSide, EdgesGeometry, Float32BufferAttribute, Group, LineBasicMaterial, LineSegments, Mesh, Path, RepeatWrapping, Shape, SRGBColorSpace, Vector3 } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
@@ -22,6 +22,13 @@ export interface ModelCanvasHandle {
 type WallPart = { start: number; end: number; y: number; height: number }
 type WallLayers = { finish: Point2D[]; cavity: Point2D[]; wall: Point2D[] }
 type SurfaceMaterials = { wall?: { textureSrc: string; widthMm: number; heightMm: number }; floor?: { textureSrc: string; widthMm: number; depthMm: number; rotationDeg?:0|90; offsetXmm?:number; offsetZmm?:number; layoutDescription?:string } }
+
+const MaterialEdgesContext = createContext(true)
+
+function Edges(props: ComponentProps<typeof DreiEdges>) {
+  const enabled = useContext(MaterialEdgesContext)
+  return enabled ? <DreiEdges {...props} /> : null
+}
 
 function wallPrismGeometry(quad: Point2D[], minY: number, maxY: number) {
   const geometry = new BufferGeometry()
@@ -170,15 +177,23 @@ function modelAssetFormat(asset: FixtureModelAsset) {
 }
 
 function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: FixtureSpec; selected: boolean; object: Group }) {
-  const { scene, scale, position } = useMemo(() => {
+  const materialEdges = useContext(MaterialEdgesContext)
+  const { scene, scale, position, outlines } = useMemo(() => {
     const scene = object.clone(true)
     scene.rotation.copy(resolvedModelOrientation(fixture.model_asset?.orientation_mapping, fixture.model_asset?.orientation_view ?? null))
     scene.updateMatrixWorld(true)
+    const outlines: LineSegments[] = []
     scene.traverse((child) => {
-      if ('castShadow' in child) {
-        child.castShadow = true
-        child.receiveShadow = true
-      }
+      if (!(child instanceof Mesh) || !child.geometry) return
+      child.castShadow = true
+      child.receiveShadow = true
+      const outline = new LineSegments(
+        new EdgesGeometry(child.geometry, 30),
+        new LineBasicMaterial({ color: '#59615c', transparent: true, opacity: 0.72, toneMapped: false }),
+      )
+      outline.name = 'material-edge-outline'
+      child.add(outline)
+      outlines.push(outline)
     })
     const box = new Box3().setFromObject(scene)
     const size = new Vector3()
@@ -201,12 +216,33 @@ function NormalizedFixtureAsset({ fixture, selected, object }: { fixture: Fixtur
         ? new Vector3(showerDimensions.width_mm / 1000, showerDimensions.height_mm / 1000, showerDimensions.depth_mm / 1000)
       : new Vector3(fixture.width_mm / 1000, fixture.height_mm / 1000, fixture.depth_mm / 1000)
     const scale = uniformModelScale(size, target)
+    const wallMounted = heater || fixture.kind === 'vanity' || shower || /扶手/.test(fixture.label)
     return {
       scene,
       scale,
-      position: new Vector3(-center.x * scale, -box.min.y * scale, -center.z * scale),
+      // Wall-mounted assets use their actual rear surface instead of their
+      // bounding-box centre. With contain scaling the visible depth can be
+      // smaller than the installation envelope; centring that spare depth
+      // creates a visible gap even though layout geometry is correctly
+      // attached to the wall.
+      position: new Vector3(
+        -center.x * scale,
+        -box.min.y * scale,
+        wallMounted ? -target.z / 2 - box.min.z * scale : -center.z * scale,
+      ),
+      outlines,
     }
   }, [fixture.depth_mm, fixture.height_mm, fixture.width_mm, fixture.model_asset?.orientation_mapping, fixture.model_asset?.orientation_view, object])
+
+  useEffect(() => {
+    outlines.forEach((outline) => { outline.visible = materialEdges })
+  }, [materialEdges, outlines])
+  useEffect(() => () => {
+    outlines.forEach((outline) => {
+      outline.geometry.dispose()
+      ;(outline.material as LineBasicMaterial).dispose()
+    })
+  }, [outlines])
 
   return <>
     <group position={position} scale={scale}>
@@ -284,8 +320,21 @@ export function FixtureAssetModel({ fixture, selected }: { fixture: FixtureSpec;
   return null
 }
 
-export class FixtureAssetBoundary extends Component<{fixture:FixtureSpec;children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(){}render(){return this.state.failed ? null : this.props.children}}
+export class FixtureAssetBoundary extends Component<{fixture:FixtureSpec;children:ReactNode;fallback?:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(){}render(){return this.state.failed ? (this.props.fallback ?? null) : this.props.children}}
 class SceneBoundary extends Component<{children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(error:Error){console.error('3D scene failed safely',error)}render(){return this.state.failed?<div className="empty-state" role="alert">三维场景加载失败，请检查点位或管网数据后重试；二维设计数据未丢失。</div>:this.props.children}}
+
+function VanityProxy({ fixture, selected, onSelect }: { fixture: FixtureSpec; selected: boolean; onSelect: (event: ThreeEvent<MouseEvent>) => void }) {
+  const width = fixture.width_mm / 1000
+  const depth = fixture.depth_mm / 1000
+  const height = fixture.height_mm / 1000
+  const outline = selected ? '#a46d13' : '#6f756c'
+  const ceramic = selected ? '#f2dcae' : '#f2f1ec'
+  const common = { castShadow: true, receiveShadow: true, onClick: onSelect }
+  return <>
+    <mesh {...common} position={[0, height * 0.45, 0]}><boxGeometry args={[width, height * 0.9, depth]} /><meshStandardMaterial color={selected ? '#b28757' : '#8b6241'} roughness={0.65} /><Edges color={outline} /></mesh>
+    <mesh {...common} position={[0, height * 0.93, 0]} scale={[width * 0.72, 0.08, depth * 0.65]}><sphereGeometry args={[0.5, 24, 14]} /><meshStandardMaterial color={ceramic} roughness={0.2} /><Edges color={outline} threshold={30} /></mesh>
+  </>
+}
 
 function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; selected: boolean; onSelect: () => void }) {
   const width = fixture.width_mm / 1000
@@ -303,11 +352,8 @@ function Fixture({ fixture, selected, onSelect }: { fixture: FixtureSpec; select
   return (
     <group position={[fixture.x_mm / 1000, (fixture.elevation_mm ?? 0) / 1000, fixture.z_mm / 1000]} rotation={[0, -fixture.rotation_deg * Math.PI / 180, 0]} userData={{ id: fixture.id, kind: fixture.kind, source: fixture.source, model_asset: fixture.model_asset?.id }} onClick={select}>
       {!renderModel && /洗衣机/.test(fixture.label) && <WasherProxy fixture={fixture} selected={selected} onSelect={select} />}
-      {renderModel && <FixtureAssetBoundary fixture={fixture}><FixtureAssetModel fixture={fixture} selected={selected} /></FixtureAssetBoundary>}
-      {!renderModel && fixture.kind === 'vanity' && <>
-        <mesh {...common} position={[0, height * 0.45, 0]}><boxGeometry args={[width, height * 0.9, depth]} /><meshStandardMaterial color={selected ? '#b28757' : '#8b6241'} roughness={0.65} /><Edges color={outline} /></mesh>
-        <mesh {...common} position={[0, height * 0.93, 0]} scale={[width * 0.72, 0.08, depth * 0.65]}><sphereGeometry args={[0.5, 24, 14]} /><meshStandardMaterial color={ceramic} roughness={0.2} /><Edges color={outline} threshold={30} /></mesh>
-      </>}
+      {renderModel && <FixtureAssetBoundary fixture={fixture} fallback={fixture.kind === 'vanity' ? <VanityProxy fixture={fixture} selected={selected} onSelect={select} /> : null}><FixtureAssetModel fixture={fixture} selected={selected} /></FixtureAssetBoundary>}
+      {!renderModel && fixture.kind === 'vanity' && <VanityProxy fixture={fixture} selected={selected} onSelect={select} />}
       {!renderModel && fixture.kind === 'shower' && <>
         <mesh {...common} position={[0, height / 2, -depth / 2]}><boxGeometry args={[width, height, 0.018]} /><meshPhysicalMaterial color="#c7d7d3" transparent opacity={0.34} roughness={0.05} transmission={0.35} /><Edges color={outline} /></mesh>
         <mesh {...common} position={[-width / 2, height / 2, 0]}><boxGeometry args={[0.018, height, depth]} /><meshPhysicalMaterial color="#c7d7d3" transparent opacity={0.34} roughness={0.05} transmission={0.35} /><Edges color={outline} /></mesh>
@@ -378,10 +424,12 @@ function RoomModel({ spec, selection, showCeiling, showFixtures, showPlumbing, c
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <shapeGeometry args={[floorShape]} />
         {surfaceMaterials?.floor ? <TexturedMaterial src={surfaceMaterials.floor.textureSrc} {...physicalWorldTextureTransform(surfaceMaterials.floor.rotationDeg?surfaceMaterials.floor.depthMm:surfaceMaterials.floor.widthMm, surfaceMaterials.floor.rotationDeg?surfaceMaterials.floor.widthMm:surfaceMaterials.floor.depthMm, bounds.minX-(surfaceMaterials.floor.offsetXmm??0), -bounds.minZ-(surfaceMaterials.floor.offsetZmm??0))} emphasizeJoints={emphasizeJoints} /> : <meshStandardMaterial color="#c8c6bd" roughness={0.84} side={DoubleSide} />}
+        <Edges color="#70766f" threshold={15} />
       </mesh>
       {(spec.dry_wet_zones ?? []).filter((zone) => zone.kind === 'wet').map((zone) => <FloorZoneMesh key={zone.id} boundary={zone.boundary} />)}
       {showCeiling && <mesh position={[0, height, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <shapeGeometry args={[ceilingShape]} /><meshStandardMaterial color="#dedfd9" roughness={0.9} side={DoubleSide} transparent opacity={0.72} />
+        <Edges color="#8a8e87" threshold={15} />
       </mesh>}
       {showCeiling && (spec.ceiling_zones ?? []).map((zone) => <CeilingZoneMesh key={zone.id} boundary={zone.boundary} heightMm={zone.height_mm} />)}
       {spec.boundary.map((start, index) => {
@@ -421,6 +469,40 @@ function CameraAwareRoom({ spec, selection, showCeiling, showFixtures, showPlumb
   return <RoomModel spec={spec} selection={selection} showCeiling={showCeiling} showFixtures={showFixtures} showPlumbing={showPlumbing} cutaway={cutaway} hiddenWallIndexes={hiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
 }
 
+function RoomOrbitControls({ center, extent }: { center: Point2D; extent: number }) {
+  const { gl, invalidate } = useThree()
+  const shadowAutoUpdateRef = useRef<boolean | null>(null)
+  const restoreShadowUpdates = () => {
+    if (shadowAutoUpdateRef.current === null) return
+    gl.shadowMap.autoUpdate = shadowAutoUpdateRef.current
+    shadowAutoUpdateRef.current = null
+    gl.shadowMap.needsUpdate = true
+    invalidate()
+  }
+
+  useEffect(() => restoreShadowUpdates, [gl, invalidate])
+
+  return <OrbitControls
+    makeDefault
+    enableDamping
+    dampingFactor={0.08}
+    screenSpacePanning
+    panSpeed={0.9}
+    rotateSpeed={0.75}
+    zoomSpeed={0.9}
+    target={[center.x_mm / 1000, Math.min(1.05, extent * 0.38), center.z_mm / 1000]}
+    minDistance={0.7}
+    maxDistance={Math.max(18, extent * 6)}
+    maxPolarAngle={Math.PI / 2.02}
+    onStart={() => {
+      if (shadowAutoUpdateRef.current !== null) return
+      shadowAutoUpdateRef.current = gl.shadowMap.autoUpdate
+      gl.shadowMap.autoUpdate = false
+    }}
+    onEnd={restoreShadowUpdates}
+  />
+}
+
 type QuoteLine = { name: string; quantity: number; unit: string; price: number; spec: string }
 type LayoutInfo = { title: string; level: 'level1' | 'level2' | 'level3'; totalPrice: number; lines: QuoteLine[] }
 
@@ -432,6 +514,8 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
   const [cutaway, setCutaway] = useState(true)
   const [hiddenWallIndexes, setHiddenWallIndexes] = useState<number[]>([])
   const [cameraKey, setCameraKey] = useState(0)
+  const [cameraProjection, setCameraProjection] = useState<'perspective' | 'orthographic'>('perspective')
+  const [materialEdges, setMaterialEdges] = useState(true)
   const [emphasizeJoints, setEmphasizeJoints] = useState(true)
   const [quoteOpen, setQuoteOpen] = useState(true)
   const groupRef = useRef<Group>(null)
@@ -466,10 +550,12 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
           <button className={plumbingOpen?'icon-button active-tool':'icon-button'} onClick={()=>setPlumbingOpen(value=>!value)} title="给水管网详情"><Layers size={17}/></button>
           <button className={cutaway ? 'icon-button active-tool' : 'icon-button'} onClick={() => setCutaway((value) => !value)} title={cutaway ? '显示完整墙体' : '开启剖切视图'}><Layers size={17} /></button>
           {surfaceMaterials && <button className={emphasizeJoints ? 'icon-button active-tool' : 'icon-button'} onClick={() => setEmphasizeJoints((value) => !value)} title={emphasizeJoints ? '关闭板缝加粗' : '开启板缝加粗'} aria-pressed={emphasizeJoints}><SquareDashed size={17} /></button>}
+          <button className={materialEdges ? 'icon-button active-tool' : 'icon-button'} onClick={() => setMaterialEdges((value) => !value)} title={materialEdges ? '切换为纯材质渲染' : '开启边框+材质渲染'} aria-label={materialEdges ? '切换为纯材质渲染' : '开启边框+材质渲染'} aria-pressed={materialEdges}><Palette size={17} /></button>
+          <button className={cameraProjection === 'orthographic' ? 'icon-button active-tool' : 'icon-button'} onClick={() => setCameraProjection((value) => value === 'perspective' ? 'orthographic' : 'perspective')} title={cameraProjection === 'perspective' ? '切换为正交镜头' : '切换为透视镜头'} aria-label={cameraProjection === 'perspective' ? '切换为正交镜头' : '切换为透视镜头'} aria-pressed={cameraProjection === 'orthographic'}><BoxIcon size={17} /></button>
           <button className="icon-button" onClick={() => setCameraKey((value) => value + 1)} title="重置视角"><Focus size={17} /></button>
         </div>
       </div>
-      {plumbingOpen&&plumbing&&<aside className="plumbing-drawer" data-testid="plumbing-drawer"><header><Waves size={16}/>给水管网</header><p>门外冷水源 ({plumbing.supply_origin.x_mm}, {plumbing.supply_origin.z_mm}) → 单根主管穿门 → 分水器</p><p>冷水上层 · 长方体分水器{plumbing.manifold_ports?`（${plumbing.manifold_ports}孔）`:''} ({plumbing.cold_manifold.x_mm}, {plumbing.cold_manifold.y_mm}, {plumbing.cold_manifold.z_mm})</p><p>热水下层 · 热水器出水后接热水设备{plumbing.hot_manifold?'，多路时经分水器下层':''}</p><p>总长 {plumbing.total_mm} mm · 末端距离极差 {plumbing.imbalance_mm} mm</p>{plumbing.warnings.map(item=><p className="validation-warning" key={item}>{item}</p>)}{plumbing.segments.filter(item=>item.fixture_id&&item.id.endsWith('-drop')).map(item=><code key={item.id}>{item.temperature==='hot'?'热水':'冷水'} · 点位上方 ({item.from.x_mm}, {item.from.z_mm}) → 设备点位 · {item.length_mm} mm</code>)}</aside>}
+      {plumbingOpen&&plumbing&&<aside className="plumbing-drawer" data-testid="plumbing-drawer"><header><Waves size={16}/>给水管网</header><p>门外冷水源 ({plumbing.supply_origin.x_mm}, {plumbing.supply_origin.z_mm}) → 单根主管穿门 → 分水器</p><p>冷水上层 · 长方体分水器{plumbing.manifold_ports?`（${plumbing.manifold_ports}孔）`:''} ({plumbing.cold_manifold.x_mm}, {plumbing.cold_manifold.y_mm}, {plumbing.cold_manifold.z_mm})</p><p>热水下层 · 热水器出水后接热水设备{plumbing.hot_manifold?'，多路时经分水器下层':''}</p><p>物理总长 {plumbing.total_mm} mm · 水平优化极差 {plumbing.imbalance_mm} mm / {(plumbing.imbalance_ratio*100).toFixed(1)}% · {plumbing.balanced?'已满足 10%':'未满足 10%'}</p>{plumbing.warnings.map(item=><p className="validation-warning" key={item}>{item}</p>)}{plumbing.fixture_paths.map(item=><code key={`${item.temperature}-${item.fixture_id}`}>{item.temperature==='hot'?'热水':'冷水'} · 源头 → {spec.fixtures.find(fixture=>fixture.id===item.fixture_id)?.label??item.fixture_id} · 水平 {item.length_mm} mm / 实管 {item.physical_length_mm} mm</code>)}</aside>}
       {layoutInfo && <div className={quoteOpen ? 'quote-drawer-shell open' : 'quote-drawer-shell'}>
         <button className="quote-drawer-toggle" type="button" onClick={() => setQuoteOpen((value) => !value)} aria-label={quoteOpen ? '收起报价' : '展开报价'} aria-expanded={quoteOpen}>{quoteOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}</button>
         <aside className="scene-fixture-summary quote-drawer" data-testid="scene-fixture-summary" aria-label="方案报价">
@@ -481,17 +567,21 @@ export const ModelCanvas = forwardRef<ModelCanvasHandle, { spec: RoomSpec; selec
           </article>)}</div>
         </aside>
       </div>}
-      <SceneBoundary><Canvas key={cameraKey} shadows dpr={[1, 1.5]} gl={{ antialias: true, preserveDrawingBuffer: true }} style={{ touchAction: 'none' }} onContextMenu={(event) => event.preventDefault()} onPointerMissed={() => onSelect({ type: 'room' })}>
+      <SceneBoundary><Canvas key={`${cameraProjection}-${cameraKey}`} shadows frameloop="demand" dpr={[1, 1.5]} gl={{ antialias: true, preserveDrawingBuffer: true }} style={{ touchAction: 'none' }} onContextMenu={(event) => event.preventDefault()} onPointerMissed={() => onSelect({ type: 'room' })}>
         <color attach="background" args={['#ecece7']} />
-        <PerspectiveCamera makeDefault position={[center.x / 1000 + extent * 1.65, extent * 2.05, center.z / 1000 + extent * 1.65]} fov={42} near={0.01} far={100} />
+        {cameraProjection === 'perspective'
+          ? <PerspectiveCamera makeDefault position={[center.x / 1000 + extent * 1.65, extent * 2.05, center.z / 1000 + extent * 1.65]} fov={42} near={0.01} far={100} />
+          : <OrthographicCamera makeDefault position={[center.x / 1000 + extent * 1.65, extent * 2.05, center.z / 1000 + extent * 1.65]} zoom={Math.max(45, 150 / Math.max(extent, 1))} near={-100} far={100} />}
         <ambientLight intensity={1.3} />
         <directionalLight position={[4, 7, 3]} intensity={2.2} castShadow shadow-mapSize={[1024, 1024]} />
-        <Suspense fallback={null}>
-          <CameraAwareRoom spec={spec} selection={selection} showCeiling={showCeiling} showFixtures={showFixtures} showPlumbing={showPlumbing} cutaway={cutaway} onHiddenWallsChange={setHiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
-        </Suspense>
+        <MaterialEdgesContext.Provider value={materialEdges}>
+          <Suspense fallback={null}>
+            <CameraAwareRoom spec={spec} selection={selection} showCeiling={showCeiling} showFixtures={showFixtures} showPlumbing={showPlumbing} cutaway={cutaway} onHiddenWallsChange={setHiddenWallIndexes} onSelect={onSelect} groupRef={groupRef} surfaceMaterials={surfaceMaterials} emphasizeJoints={emphasizeJoints} />
+          </Suspense>
+        </MaterialEdgesContext.Provider>
         <Grid position={[center.x / 1000, -0.006, center.z / 1000]} args={[12, 12]} cellSize={0.1} cellThickness={0.45} cellColor="#c4c7bf" sectionSize={1} sectionThickness={0.8} sectionColor="#aeb2aa" fadeDistance={12} fadeStrength={1.2} infiniteGrid />
         <ContactShadows position={[0, -0.002, 0]} opacity={0.3} scale={12} blur={2.3} far={5} frames={1} resolution={512} />
-        <OrbitControls makeDefault enableDamping dampingFactor={0.08} screenSpacePanning panSpeed={0.9} rotateSpeed={0.75} zoomSpeed={0.9} target={[center.x / 1000, Math.min(1.05, extent * 0.38), center.z / 1000]} minDistance={0.7} maxDistance={Math.max(18, extent * 6)} maxPolarAngle={Math.PI / 2.02} />
+        <RoomOrbitControls center={{ x_mm: center.x, z_mm: center.z }} extent={extent} />
       </Canvas></SceneBoundary>
     </div>
   )

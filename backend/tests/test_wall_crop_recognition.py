@@ -8,7 +8,7 @@ from io import BytesIO
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from backend.app import ai
 from backend.app.config import settings
@@ -713,9 +713,11 @@ async def test_wall_crop_recognition_propagates_authentication_failure(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_single_pass_reader_sends_one_dimension_request(tmp_path, monkeypatch) -> None:
+async def test_single_pass_reader_sends_one_untrimmed_dimension_image(tmp_path, monkeypatch) -> None:
     source = tmp_path / "source.jpg"
-    Image.new("RGB", (3200, 2400), "white").save(source)
+    image = Image.new("RGB", (3200, 2400), "white")
+    ImageDraw.Draw(image).rectangle((800, 600, 2400, 1800), outline="black", width=12)
+    image.save(source)
     shape = rectangle_shape()
     candidate = TopologyCandidate(id="C1", corners=shape.corners, pixel_support=0.9)
     calls: list[dict] = []
@@ -755,8 +757,7 @@ async def test_single_pass_reader_sends_one_dimension_request(tmp_path, monkeypa
     assert len(image_items) == 1
     encoded = image_items[0]["image_url"]["url"].split(",", 1)[1]
     image = Image.open(BytesIO(base64.b64decode(encoded)))
-    assert image.width <= 2048
-    assert image.height <= 2048
+    assert image.size == (2048, 1536)
     assert selection.selected_id == "C1"
     assert report.evidence[0].related_to == "dimension_chain:top"
 
@@ -1179,6 +1180,37 @@ async def test_fast_analysis_builds_shape_before_text_recognition(tmp_path, monk
 
     assert events == ["vision"]
     assert spec.plan_annotation.boundary == shape.corners
+
+
+@pytest.mark.asyncio
+async def test_fast_analysis_does_not_replace_stronger_local_outline_with_model_choice(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (320, 240), "white").save(source)
+    local = TopologyCandidate(id="C1", corners=rectangle_shape().corners, pixel_support=0.92)
+    model = TopologyCandidate(
+        id="C2",
+        corners=[
+            ShapeCorner(x=180, y=160), ShapeCorner(x=820, y=160),
+            ShapeCorner(x=820, y=840), ShapeCorner(x=180, y=840),
+        ],
+        pixel_support=0.70,
+    )
+
+    monkeypatch.setattr(ai, "_preferred_plan_rotation", lambda *_args: 0)
+    monkeypatch.setattr(ai, "_raster_topology_candidates", lambda *_args, **_kwargs: [local, model])
+
+    async def fake_single(*_args, **_kwargs):
+        return TopologyCandidateSelection(selected_id="C2", accepted=True, confidence=0.95), PlanEvidenceReport()
+
+    monkeypatch.setattr(ai, "_recognize_plan_single_pass", fake_single)
+    monkeypatch.setattr(settings, "openai_base_url", "https://example.test/v1")
+    monkeypatch.setattr(settings, "openai_api_key", "key")
+    monkeypatch.setattr(settings, "read_model", "vision-test")
+
+    spec = await ai.analyze_floorplan_fast(source)
+
+    assert spec.plan_annotation is not None
+    assert spec.plan_annotation.boundary == local.corners
 
 
 @pytest.mark.asyncio

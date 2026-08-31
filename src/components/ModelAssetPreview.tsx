@@ -65,7 +65,7 @@ function OrientationPicker({ target, mapping, cameraQuaternion, onSelect, allowe
   const rotation = useMemo(() => new Quaternion().fromArray(cameraQuaternion).invert(), [cameraQuaternion])
   return <div className="orientation-picker" aria-label="选择目标正确面">
     <span className="orientation-picker-title">① 点击立方体文字面</span>
-    <Canvas orthographic camera={{ position: [0, 0, 4], zoom: 52 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: false }}>
+    <Canvas orthographic frameloop="demand" camera={{ position: [0, 0, 4], zoom: 52 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: false }}>
       <color attach="background" args={['#ffffff']} />
       <group quaternion={rotation}>
         <mesh><boxGeometry args={[1.94, 1.94, 1.94]} /><meshBasicMaterial color={corrected ? '#4f9b66' : '#ffffff'} /><Edges color={corrected ? '#287440' : '#68736d'} lineWidth={2} /></mesh>
@@ -178,7 +178,7 @@ export function ModelAssetPreview({ assetKey, src, format, orientationView, orie
   return (
     <div className="model-preview-stage">
       <PreviewErrorBoundary key={assetKey}>
-        <Canvas key={assetKey} onCreated={({ gl }) => onPreviewReady?.(() => gl.domElement.toDataURL('image/jpeg', 0.86))} camera={{ position: [2.8, 1.9, 2.8], fov: 38 }} dpr={[1, 1.5]} gl={{ antialias: true, preserveDrawingBuffer: true }} shadows frameloop="always">
+        <Canvas key={assetKey} onCreated={({ gl }) => onPreviewReady?.(() => gl.domElement.toDataURL('image/jpeg', 0.86))} camera={{ position: [2.8, 1.9, 2.8], fov: 38 }} dpr={[1, 1.5]} gl={{ antialias: true, preserveDrawingBuffer: true }} shadows frameloop="demand">
           <color attach="background" args={['#e7e6e1']} />
           <ambientLight intensity={1.4} />
           <directionalLight position={[3, 5, 4]} intensity={2.1} castShadow />

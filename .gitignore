@@ -106,3 +106,7 @@ Desktop.ini
 !backend/data/model_library.json
 
 reports/
+
+# Local startup traces and package staging
+.tmp/startup/
+.tmp/release-package/

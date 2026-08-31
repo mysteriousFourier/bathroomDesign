@@ -260,7 +260,13 @@ async def append_project_voice_turn(
         messages.append({"role": "user", "content": transcript})
         result = await design_chat(messages, product_graph, room.model_dump())
         updated = db.append_chat_turn(project_id, session_id, transcript, result["message"], result)
-        speech, audio_mime_type = await asyncio.to_thread(synthesize, result["message"])
+        # TTS is optional. Keep the completed chat turn usable when the
+        # server-side provider is unavailable; the browser can speak the
+        # assistant text as a fallback.
+        try:
+            speech, audio_mime_type = await asyncio.to_thread(synthesize, result["message"])
+        except VoiceConfigurationError:
+            speech, audio_mime_type = "", "audio/mpeg"
         return VoiceTurnResponse(transcript=transcript, session=updated, audio_base64=speech, audio_mime_type=audio_mime_type)
     except KeyError as error:
         raise HTTPException(404, "对话不存在") from error
@@ -277,8 +283,10 @@ async def voice_greeting() -> VoiceAudioResponse:
     try:
         speech, audio_mime_type = await asyncio.to_thread(synthesize, VOICE_GREETING)
         return VoiceAudioResponse(text=VOICE_GREETING, audio_base64=speech, audio_mime_type=audio_mime_type)
-    except VoiceConfigurationError as error:
-        raise HTTPException(503, str(error)) from error
+    except VoiceConfigurationError:
+        # Return the greeting text even when optional server-side TTS is not
+        # installed. The frontend falls back to SpeechSynthesis.
+        return VoiceAudioResponse(text=VOICE_GREETING, audio_base64="", audio_mime_type="audio/mpeg")
     except RuntimeError as error:
         raise HTTPException(422, str(error)) from error
 

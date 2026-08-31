@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import backend.app.auto_layout as auto_layout_module
-from backend.app.auto_layout import generate_model_layout
+from backend.app.auto_layout import _strict_instructions, generate_model_layout
 from backend.app.auto_layout import _strip_json_comments
 from backend.app.knowledge_graph import ProductKnowledgeGraph
 
@@ -30,6 +30,20 @@ def test_modelscope_json_comments_are_removed_without_changing_strings():
         "product_ids": ["abc//literal", "def"],
         "reason": "keep /* text */",
     }
+
+
+def test_layout_script_keeps_large_furniture_out_of_wet_zone():
+    roles = {"wet_zone", "vanity"}
+    valid = _strict_instructions([
+        {"fixture_role": "wet_zone", "wall": "east", "zone": "wet", "min_clearance_mm": 0},
+        {"fixture_role": "vanity", "wall": "west", "zone": "dry", "min_clearance_mm": 600},
+    ], roles)
+    assert {item["fixture_role"]: item["zone"] for item in valid} == {"wet_zone": "wet", "vanity": "dry"}
+    with pytest.raises(ValueError):
+        _strict_instructions([
+            {"fixture_role": "wet_zone", "wall": "east", "zone": "wet", "min_clearance_mm": 0},
+            {"fixture_role": "vanity", "wall": "east", "zone": "wet", "min_clearance_mm": 600},
+        ], roles)
 
 
 @pytest.mark.asyncio

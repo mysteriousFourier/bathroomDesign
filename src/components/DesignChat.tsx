@@ -122,6 +122,7 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
     if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
     streamRef.current?.getTracks().forEach((track) => track.stop())
     audioRef.current?.pause()
+    window.speechSynthesis?.cancel()
     if (vadFrameRef.current !== null) cancelAnimationFrame(vadFrameRef.current)
     void audioContextRef.current?.close()
   }, [])
@@ -212,7 +213,15 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
     silenceStartedRef.current = null
     recordingStartedRef.current = performance.now()
     discardRecordingRef.current = false
-    const recorder = new MediaRecorder(stream)
+    let recorder: MediaRecorder
+    try {
+      const preferredMimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) => MediaRecorder.isTypeSupported(type))
+      recorder = preferredMimeType ? new MediaRecorder(stream, { mimeType: preferredMimeType }) : new MediaRecorder(stream)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '当前浏览器不支持录音格式')
+      updateVoiceState('listening')
+      return
+    }
     recorderRef.current = recorder
     recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data) }
     recorder.onstop = () => {
@@ -256,6 +265,7 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
         if (speechFramesRef.current >= 8) {
           speechFramesRef.current = 0
           audioRef.current?.pause()
+          window.speechSynthesis?.cancel()
           updateVoiceState('listening')
           startRecording()
         }
@@ -263,7 +273,10 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
         speechFramesRef.current = speaking ? speechFramesRef.current + 1 : 0
         if (!recorderRef.current && speechFramesRef.current >= 2) startRecording()
         if (recorderRef.current) {
-          if (volume > activity.continuationThreshold) silenceStartedRef.current = null
+          // Use the detector's speech decision for silence. Raw microphone
+          // volume can stay above the continuation threshold because of
+          // room noise, preventing the recorder from ever stopping.
+          if (speaking) silenceStartedRef.current = null
           else if (silenceStartedRef.current === null) silenceStartedRef.current = timestamp
           const elapsed = timestamp - recordingStartedRef.current
           if ((silenceStartedRef.current !== null && timestamp - silenceStartedRef.current > VOICE_PAUSE_MS && elapsed > VOICE_MIN_TURN_MS) || elapsed > VOICE_MAX_TURN_MS) {
@@ -276,7 +289,22 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
     vadFrameRef.current = requestAnimationFrame(detect)
   }
 
-  function playVoice(audioBase64: string, mimeType: string) {
+  function playVoice(audioBase64: string, mimeType: string, fallbackText = '') {
+    if (!audioBase64) {
+      if (!fallbackText || !('speechSynthesis' in window)) {
+        if (callActiveRef.current) updateVoiceState('listening')
+        setError('服务器语音合成不可用，且当前浏览器不支持语音播放')
+        return
+      }
+      const utterance = new SpeechSynthesisUtterance(fallbackText)
+      utterance.lang = 'zh-CN'
+      utterance.onend = () => { if (callActiveRef.current) updateVoiceState('listening') }
+      utterance.onerror = () => { if (callActiveRef.current) updateVoiceState('listening'); setError('浏览器语音播放失败') }
+      updateVoiceState('speaking')
+      window.speechSynthesis.cancel()
+      window.speechSynthesis.speak(utterance)
+      return
+    }
     const audio = new Audio(`data:${mimeType};base64,${audioBase64}`)
     audioRef.current = audio
     updateVoiceState('speaking')
@@ -310,7 +338,7 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
       setCallActive(true)
       startVad(stream)
       const greeting = await studioApi.voiceGreeting()
-      if (callActiveRef.current) playVoice(greeting.audio_base64, greeting.audio_mime_type)
+      if (callActiveRef.current) playVoice(greeting.audio_base64, greeting.audio_mime_type, greeting.text)
     } catch (reason) {
       streamRef.current?.getTracks().forEach((track) => track.stop())
       streamRef.current = null
@@ -335,7 +363,8 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
       setSessions((current) => current.map((item) => item.id === session.id ? summary : item).sort((a, b) => b.updated_at.localeCompare(a.updated_at)))
       const latestQuote = [...response.session.messages].reverse().find((message) => message.quote)?.quote
       if (latestQuote) onQuote?.(latestQuote, true)
-      if (callActiveRef.current) playVoice(response.audio_base64, response.audio_mime_type)
+      const assistantText = [...response.session.messages].reverse().find((message) => message.role === 'assistant')?.content ?? ''
+      if (callActiveRef.current) playVoice(response.audio_base64, response.audio_mime_type, assistantText)
     } catch (reason) {
       setError((reason as Error).message)
       if (callActiveRef.current) updateVoiceState('listening')
@@ -356,6 +385,7 @@ export function DesignChat({ open, projectId, room, onClose, onQuote }: DesignCh
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
     audioRef.current?.pause()
+    window.speechSynthesis?.cancel()
     audioRef.current = null
     if (vadFrameRef.current !== null) cancelAnimationFrame(vadFrameRef.current)
     vadFrameRef.current = null

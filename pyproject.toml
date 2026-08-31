@@ -1,6 +1,6 @@
 [project]
 name = "bathroom-spatial-studio"
-version = "1.0.0"
+version = "1.0.1"
 description = "OpenAI-compatible bathroom plan and photo to editable 3D model"
 requires-python = ">=3.11"
 dependencies = [

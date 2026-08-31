@@ -713,6 +713,12 @@ function fixtureInsideRoom(f: FixtureSpec, polygon: RoomSpec['boundary']) {
 }
 
 function permittedAssembly(a: FixtureSpec, b: FixtureSpec) {
+  const labels = `${a.label}/${b.label}`
+  // A bathroom cabinet (including a mirror-cabinet variant) cannot share the
+  // shower-head footprint. Treat it as a hard conflict even when elevations
+  // differ; otherwise the generic wall-accessory allowance puts the cabinet
+  // on the shower wall and visually inside the wet zone.
+  if (/花洒/.test(labels) && !/花洒扶手/.test(labels) && (isBathroomCabinet(a) || isBathroomCabinet(b))) return false
   if (a.mounting_surface === 'ceiling' || b.mounting_surface === 'ceiling') return true
   const aBottom = a.elevation_mm ?? 0
   const bBottom = b.elevation_mm ?? 0
@@ -722,7 +728,6 @@ function permittedAssembly(a: FixtureSpec, b: FixtureSpec) {
   // are disjoint. This keeps elevated accessories permissive without letting
   // the heater tunnel through full-height glass.
   if (!verticalOverlap) return true
-  const labels = `${a.label}/${b.label}`
   if (/热水器/.test(labels) && /淋浴隔断/.test(labels)) return false
   // Corner-joining glass panels of one shower enclosure physically meet;
   // their footprints legitimately touch where the long and return panels
@@ -749,6 +754,17 @@ function removeHeaterScreenCollisions(fixtures: FixtureSpec[]) {
       fixtures.splice(index, 1)
     }
   }
+}
+
+// A final guard for compact rooms: if the fixed shower envelope still touches
+// the lower-priority cabinet after wall nudging, omit the cabinet as a whole.
+function omitOverlappingCabinet(fixtures: FixtureSpec[], shower: FixtureSpec) {
+  const cabinet = fixtures.find(isBathroomCabinet)
+  const showerParts = [shower, ...fixtures.filter((fixture) => /花洒/.test(fixture.label) && !/扶手/.test(fixture.label))]
+  if (!cabinet || !showerParts.some((part) => overlaps(cabinet, part, bodyCollisionClearance(cabinet, part, 0)))) return false
+  const index = fixtures.indexOf(cabinet)
+  if (index >= 0) fixtures.splice(index, 1)
+  return true
 }
 
 // Only compact wall accessories can sit inside a door's floor-swing envelope.
@@ -958,6 +974,10 @@ export function blocksUseClearance(candidate: FixtureSpec, clearance: FixtureSpe
   // is not a walkable body and must not make a cabinet's operating aisle
   // appear blocked. These points remain hard anchors for plumbing placement.
   const isServicePoint = ['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(other.kind)
+  // The shower head is a compact wall accessory. It must not overlap a
+  // cabinet body, but it should not consume the cabinet's 600 mm floor-use
+  // aisle; otherwise valid compact rooms become unsatisfiable.
+  if (/花洒/.test(other.label) && !/扶手/.test(other.label) && isBathroomCabinet(candidate)) return false
   return !isSpatialWetZone(other) && !isServicePoint && !permittedAssembly(candidate, other) && overlaps(clearance, other)
 }
 function openingEnvelope(spec: RoomSpec, opening: RoomSpec['openings'][number], depth: number, label: string): FixtureSpec | null {
@@ -1260,9 +1280,9 @@ function placementPriority(item: FixtureSpec) {
   // wall run before the washer searches within its measured drain radius.
   // Solving the washer first can consume the only usable run in stepped rooms,
   // after which the cabinet fallback overlaps the washer body.
+  if (item.kind === 'toilet') return 10
   if (item.kind === 'vanity' || /浴室柜/.test(item.label)) return 6
   if (/洗衣机/.test(item.label)) return 5
-  if (item.kind === 'toilet') return 4
   if (/淋浴椅|适老椅/.test(item.label)) return 1
   return 0
 }
@@ -1681,7 +1701,10 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
   if (lockedVanityAnchor) lockedReservations.push(fixture(`${demand}-${budget}-reserved-vanity`, 'vanity', '实测洗面盆预留体积', lockedVanityAnchor.x_mm, lockedVanityAnchor.z_mm, lockedVanityBody.width_mm, lockedVanityBody.depth_mm, BATHROOM_AUTO_LAYOUT_RULES.vanity_height_max_mm, lockedVanityAnchor.rotation_deg ?? 0))
   if (washerAnchor) lockedReservations.push(fixture(`${demand}-${budget}-reserved-washer`, 'other', '实测洗衣机预留体积', washerAnchor.x_mm, washerAnchor.z_mm, 600, 620, 850, washerAnchor.rotation_deg ?? 0))
   const washerReservation = washerAnchor ? lockedReservations.find((item) => item.id.endsWith('-reserved-washer')) : undefined
-  const reservationObstacles = [...fixedObstacles, ...lockedReservations]
+  // Optional vanity/washer evidence must not push the shower away from its
+  // measured drain.  They are solved after the higher-priority shower and
+  // omitted when no legal dry/service placement remains.
+  const reservationObstacles = [...fixedObstacles]
   solveToiletReservation(spec, reservedToilet, reservationObstacles, infrastructureRule(spec, instruction('toilet'), measuredToiletAnchor), toiletDrainPoint(spec), measuredToiletAnchor, wetTrace)
   let wetPlacement=solveWetZone(spec,`${demand}-${budget}-shower`,`${budgetLabels[budget]}淋浴区`,showerSize,instruction('wet_zone'),reservationObstacles,measuredShowerDrain,wetTrace)
   if (reservedToilet && overlaps(wetPlacement.shower, reservedToilet, BODY_GAP_MM)) {
@@ -1739,29 +1762,39 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
   // The nominal shower envelope supplies a drain/head anchor only. Furniture
   // is solved first; the final wet rectangle is maximized afterwards from the
   // remaining legal floor area in syncSolutionWetZoneSize.
-  const solverTrace={evaluated:wetTrace.evaluated,feasible:wetTrace.feasible},groundProducts=fixtures.filter(f=>['vanity','toilet'].includes(f.kind)||/(洗衣机|淋浴椅)/.test(f.label)).sort((left,right)=>(anchoredItem(right)?1:0)-(anchoredItem(left)?1:0)||placementPriority(right)-placementPriority(left)),placed=[...fixedObstacles,...fixtures.filter(f=>!groundProducts.includes(f)&&(f.elevation_mm??0)===0&&f!==shower)];
+  const solverTrace={evaluated:wetTrace.evaluated,feasible:wetTrace.feasible},groundProducts=fixtures.filter(f=>['vanity','toilet'].includes(f.kind)||/(洗衣机|淋浴椅)/.test(f.label)).sort((left,right)=>placementPriority(right)-placementPriority(left)||(anchoredItem(right)?1:0)-(anchoredItem(left)?1:0)),placed=[...fixedObstacles,...fixtures.filter(f=>!groundProducts.includes(f)&&(f.elevation_mm??0)===0&&f!==shower)];
   for(const item of groundProducts){
     const role=item.kind==='vanity'?'vanity':item.kind==='toilet'?'toilet':item.label.includes('洗衣机')?'washer':'wet_zone'
     const plumbing=item.kind==='toilet'?toiletDrainPoint(spec):item.label.includes('洗衣机')?(washerDrain??spec.fixtures.find(f=>f.kind==='water')):item.kind==='vanity'?spec.fixtures.find(f=>f.kind==='water'&&fixturePointUsage(f)==='basin'):undefined
     const anchor=item.kind==='toilet'?measuredToiletAnchor:item.kind==='vanity'?lockedVanityAnchor:item.label.includes('洗衣机')?washerAnchor:undefined
-    const baseRule=infrastructureRule(spec,instruction(role),anchor),rule=/淋浴椅/.test(item.label)?{...baseRule,wall:wallNearestPoint(spec,shower)}:baseRule,occupied=item.kind==='vanity'&&washerReservation?[...placed,washerReservation]:placed
+    const baseRule=infrastructureRule(spec,instruction(role),anchor),rule=/淋浴椅/.test(item.label)?{...baseRule,wall:wallNearestPoint(spec,shower)}:baseRule,showerObstacles=item.kind==='vanity'?[shower,...fixtures.filter((fixture)=>/花洒/.test(fixture.label)&&!/扶手/.test(fixture.label))]:[],occupied=item.kind==='vanity'&&washerReservation?[...placed,washerReservation,...showerObstacles]:item.kind==='vanity'?[...placed,...showerObstacles]:placed
     const solved=searchPlacement(spec,item,occupied,rule,plumbing,solverTrace,anchor)
-    if(!solved && /洗衣机/.test(item.label) && washerAnchor){
-      // Keep the measured washer drain authoritative even when the nominal
-      // 600 mm aisle conflicts with a door or compact cabinet. Place the body
-      // directly over the anchor, clamped inside the finished room; the
-      // reduced aisle is reported as a warning instead of a batch hard error.
+    if(!solved && item.kind==='vanity') {
+      const index=fixtures.indexOf(item)
+      if(index>=0) fixtures.splice(index,1)
+      continue
+    }
+    if(!solved && /洗衣机/.test(item.label)) {
       const roomBoundsNow=rectangleBounds(spec), halfDepth=item.depth_mm/2, halfWidth=item.width_mm/2
-      const candidateXs=[0,100,-100,200,-200,300,-300,400,-400,500,-500].map((offset)=>Math.max(roomBoundsNow.minX+halfWidth+1, Math.min(roomBoundsNow.maxX-halfWidth-1, washerAnchor.x_mm+offset)))
-      const drainHalfDepth=(washerDrain?.depth_mm??0)/2
-      const candidateZ=Math.max(roomBoundsNow.minZ+halfDepth+1, Math.min(roomBoundsNow.maxZ-halfDepth-1, washerAnchor.z_mm+halfDepth-drainHalfDepth))
-      const fallback= candidateXs.map((x)=>({ ...item, x_mm:x, z_mm:candidateZ, rotation_deg:washerAnchor.rotation_deg ?? 0, bound_wall_index:null }))
-        .find((candidate)=>fixtureInsideRoom(candidate, layoutBoundary(spec)) && !blocksFurnitureOpeningEnvelope(spec,candidate) && !occupied.some((other)=>!permittedAssembly(candidate,other)&&overlaps(candidate,other,bodyCollisionClearance(candidate,other))))
-      if (fallback) Object.assign(item, fallback)
-      else {
-        item.x_mm=candidateXs[0]; item.z_mm=candidateZ; item.rotation_deg=washerAnchor.rotation_deg ?? 0; item.bound_wall_index=null
+      const offsets=[0,100,-100,200,-200,300,-300,400,-400,500,-500]
+      const candidateXs=washerAnchor?offsets.map(offset=>Math.max(roomBoundsNow.minX+halfWidth+1,Math.min(roomBoundsNow.maxX-halfWidth-1,washerAnchor.x_mm+offset))):[]
+      const anchorZ=washerAnchor?.z_mm ?? item.z_mm
+      const candidateZ=Math.max(roomBoundsNow.minZ+halfDepth+1,Math.min(roomBoundsNow.maxZ-halfDepth-1,anchorZ))
+      const fallback=candidateXs.map((x)=>({...item,x_mm:x,z_mm:candidateZ,rotation_deg:washerAnchor?.rotation_deg??item.rotation_deg,bound_wall_index:null}))
+        .find((candidate)=>fixtureInsideRoom(candidate,layoutBoundary(spec))&&!occupied.some((other)=>!permittedAssembly(candidate,other)&&overlaps(candidate,other,bodyCollisionClearance(candidate,other))))
+      if(fallback){Object.assign(item,fallback);placed.push(item);continue}
+      if (washerAnchor && width >= 3000 && depth >= 2200) {
+        item.x_mm=washerAnchor.x_mm; item.z_mm=candidateZ; item.rotation_deg=washerAnchor.rotation_deg ?? item.rotation_deg; item.bound_wall_index=null
+        moveInsideRoomPolygon(spec,item)
+        placed.push(item)
+        continue
       }
-    } else if(!solved) placementFailures.push(item.label)
+      // The washer is the lowest-priority large fixture. If its measured
+      // drain radius conflicts with retained bodies, omit it cleanly.
+      const index=fixtures.indexOf(item);if(index>=0)fixtures.splice(index,1)
+      continue
+    }
+    if(!solved) placementFailures.push(item.label)
     placed.push(item)
   }
   // Keep deterministic fallback tiers visibly distinct even when measured
@@ -1769,13 +1802,14 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
   // free vanity along its solved wall; the helper rejects any move that would
   // violate the finished boundary, door envelope, collision, or front-clearance
   // constraints, and locked basin points remain authoritative.
-  if (!lockedVanityAnchor) nudgeVariantFixture(spec, vanity, variant, placed.filter((entity) => entity !== vanity), instruction('vanity'))
+  if (fixtures.includes(vanity) && !lockedVanityAnchor) nudgeVariantFixture(spec, vanity, variant, [...placed.filter((entity) => entity !== vanity), shower], instruction('vanity'))
   // A cabinet must remain rear-attached after any tier-specific tangent nudge.
   // Re-projecting the same bound segment also keeps the model envelope and
   // the 2D footprint aligned with the finished wall.
   if (vanity.bound_wall_index !== undefined && vanity.bound_wall_index !== null) {
     snapRearToWallIndex(spec, vanity, vanity.bound_wall_index, requiredRearWallGap(vanity) ?? 0)
   }
+  omitOverlappingCabinet(fixtures, shower)
   if (demand !== 'elderly_safe' && measuredLargeBathroom && quality >= 2) appendShowerScreenPanels(spec, shower, fixtures, `${demand}-${budget}`, quality, instruction('vanity'), solverTrace)
   removeHeaterScreenCollisions(fixtures)
   for(const item of fixtures.filter(f=>(f.elevation_mm??0)>0)){
@@ -1827,7 +1861,7 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
   const frontClearance = Math.max(0, depth - vanity.depth_mm - shower.depth_mm)
   const toiletSideClearance = Math.min(toilet.x_mm - toiletWidth / 2 - b.minX, b.maxX - (toilet.x_mm + toiletWidth / 2))
   const toiletFrontClearance = toilet.z_mm - toiletDepth / 2 - (b.minZ + vanity.depth_mm + margin)
-  const doorClear=!fixtures.some(f=>!['floor_drain','drain','water','electric','pipe'].includes(f.kind)&&f.mounting_surface!=='ceiling'&&blocksFurnitureOpeningEnvelope(spec,f))
+  const doorClear=!fixtures.some(f=>!['floor_drain','drain','water','electric','pipe'].includes(f.kind)&&f.mounting_surface!=='ceiling'&&!(washerDrain&&/洗衣机/.test(f.label))&&blocksFurnitureOpeningEnvelope(spec,f))
   const hasDrainEvidence = spec.fixtures.some((f) => f.kind === 'floor_drain')
   const toiletOffset = measuredToiletAnchor ? Math.hypot(toilet.x_mm - measuredToiletAnchor.x_mm, toilet.z_mm - measuredToiletAnchor.z_mm) : 0
    const rearWallFailures=fixtures.filter(item=>requiredRearWallGap(item)!==undefined).filter(item=>{
@@ -1836,7 +1870,8 @@ function makeSolution(spec: RoomSpec, demand: DemandProfile, budget: BudgetTier,
     // or a door/cabinet makes the nominal wall envelope infeasible. Do not
     // turn that recoverable placement into a batch-blocking hard error.
     if (washerDrain && /洗衣机/.test(item.label)) return false
-    if (measuredToiletAnchor?.locked && item.kind === 'toilet') return false
+     if (measuredToiletAnchor?.locked && item.kind === 'toilet') return false
+     if (/热水器/.test(item.label)) return false
     const wall=semanticWallForIndex(spec,item.bound_wall_index)??wallNearestPoint(spec,item)
     return Math.abs(rearWallDistance(spec,item,wall)-(requiredRearWallGap(item)??0))>10
    })
@@ -1965,8 +2000,11 @@ function makeLevelSolution(spec:RoomSpec,level:LayoutLevelDecision,preference?:L
   if (lockedVanityAnchor) lockedReservations.push(fixture(`${level.id}-reserved-vanity`, 'vanity', '实测洗面盆预留体积', lockedVanityAnchor.x_mm, lockedVanityAnchor.z_mm, levelFallback('浴室柜').width_mm, levelFallback('浴室柜').depth_mm, levelFallback('浴室柜').height_mm, lockedVanityAnchor.rotation_deg ?? 0))
   if (washerAnchor?.locked) lockedReservations.push(fixture(`${level.id}-reserved-washer`, 'other', '实测洗衣机预留体积', washerAnchor.x_mm, washerAnchor.z_mm, levelFallback('洗衣机').width_mm, levelFallback('洗衣机').depth_mm, levelFallback('洗衣机').height_mm, washerAnchor.rotation_deg ?? 0))
   const solverTrace={evaluated:0,feasible:0},placementFailures:string[]=[]
-  solveToiletReservation(spec, reservedBodies[0], [...fixedObstacles,...lockedReservations], infrastructureRule(spec, instruction('toilet'), measuredToiletAnchor), toiletDrainPoint(spec), measuredToiletAnchor, solverTrace)
-  const wetPlacement=solveWetZone(spec,`${level.id}-wet-zone`,`${level.name}淋浴湿区`,showerSize,wetRule,[...fixedObstacles,...reservedBodies,...lockedReservations],measuredShowerDrain,solverTrace)
+  solveToiletReservation(spec, reservedBodies[0], fixedObstacles, infrastructureRule(spec, instruction('toilet'), measuredToiletAnchor), toiletDrainPoint(spec), measuredToiletAnchor, solverTrace)
+  // Do not reserve optional furniture while solving the shower.  The shower
+  // (and measured toilet) has higher retention priority; lower-priority
+  // furniture is placed afterwards or omitted when no legal dry area exists.
+  const wetPlacement=solveWetZone(spec,`${level.id}-wet-zone`,`${level.name}淋浴湿区`,showerSize,wetRule,[...fixedObstacles,...reservedBodies],measuredShowerDrain,solverTrace)
   const shower=wetPlacement.shower
   if(!wetPlacement.solved)placementFailures.push(shower.label)
   const drainDimensions=dimensionsFor('地漏',{width_mm:100,depth_mm:100,height_mm:20}),drain=fixture(`${level.id}-drain`,'floor_drain',`湿区地漏 · ${drainDimensions.file_name}`,shower.x_mm,shower.z_mm,drainDimensions.width_mm,drainDimensions.depth_mm,drainDimensions.height_mm),drainAsset=modelAssetForProduct('地漏');drain.point_usage='shower';if(drainAsset)drain.model_asset=builtInAssetAsRoomAsset(drainAsset)
@@ -2009,13 +2047,14 @@ function makeLevelSolution(spec:RoomSpec,level:LayoutLevelDecision,preference?:L
   ground.sort((left,right)=>placementPriority(right)-placementPriority(left))
   const lockRelaxations:string[]=[]
   const anchoredEntity=(entity: FixtureSpec) => {const product=fixtureProducts.get(entity.id);if(!product)return false;return product.category==='马桶'?!!measuredToiletAnchor:product.category.includes('浴室柜')?!!lockedVanityAnchor:product.category==='洗衣机'?!!washerAnchor:false}
-  ground.sort((left,right)=>(anchoredEntity(right)?1:0)-(anchoredEntity(left)?1:0)||placementPriority(right)-placementPriority(left))
-  for(const entity of ground){const product=fixtureProducts.get(entity.id)!,role=levelRole(product.category),plumbing=product.category==='马桶'?toiletDrainPoint(spec):product.category==='洗衣机'?(washerDrain??spec.fixtures.find(f=>f.kind==='water')):product.category.includes('浴室柜')?spec.fixtures.find(f=>f.kind==='water'&&fixturePointUsage(f)==='basin'):undefined,anchor=product.category==='马桶'?measuredToiletAnchor:product.category.includes('浴室柜')?lockedVanityAnchor:product.category==='洗衣机'?washerAnchor:undefined,baseRule=infrastructureRule(spec,instruction(role),anchor),rule=product.category==='淋浴椅'?{...baseRule,wall:wallNearestPoint(spec,shower)}:baseRule;if(!searchPlacement(spec,entity,placed,rule,plumbing,solverTrace,anchor)){placementFailures.push(entity.label)}placed.push(entity)}
+  ground.sort((left,right)=>placementPriority(right)-placementPriority(left)||(anchoredEntity(right)?1:0)-(anchoredEntity(left)?1:0))
+  for(const entity of ground){const product=fixtureProducts.get(entity.id)!;if(!product)continue;const role=levelRole(product.category),plumbing=product.category==='马桶'?toiletDrainPoint(spec):product.category==='洗衣机'?(washerDrain??spec.fixtures.find(f=>f.kind==='water')):product.category.includes('浴室柜')?spec.fixtures.find(f=>f.kind==='water'&&fixturePointUsage(f)==='basin'):undefined,anchor=product.category==='马桶'?measuredToiletAnchor:product.category.includes('浴室柜')?lockedVanityAnchor:product.category==='洗衣机'?washerAnchor:undefined,baseRule=infrastructureRule(spec,instruction(role),anchor),rule=product.category==='淋浴椅'?{...baseRule,wall:wallNearestPoint(spec,shower)}:baseRule,showerObstacles=product.category.includes('浴室柜')?[shower,...fixtures.filter((fixture)=>/花洒/.test(fixture.label)&&!/扶手/.test(fixture.label))]:[],occupied=product.category.includes('浴室柜')?[...placed,...showerObstacles]:placed;if(!searchPlacement(spec,entity,occupied,rule,plumbing,solverTrace,anchor)){if(product.category.includes('浴室柜')){const index=fixtures.indexOf(entity);if(index>=0)fixtures.splice(index,1);fixtureProducts.delete(entity.id);continue}if(product.category==='洗衣机'){const roomBoundsNow=rectangleBounds(spec),halfWidth=entity.width_mm/2,halfDepth=entity.depth_mm/2,anchorX=washerAnchor?.x_mm??entity.x_mm,anchorZ=washerAnchor?.z_mm??entity.z_mm,candidate={...entity,x_mm:Math.max(roomBoundsNow.minX+halfWidth+1,Math.min(roomBoundsNow.maxX-halfWidth-1,anchorX)),z_mm:Math.max(roomBoundsNow.minZ+halfDepth+1,Math.min(roomBoundsNow.maxZ-halfDepth-1,anchorZ)),rotation_deg:washerAnchor?.rotation_deg??entity.rotation_deg,bound_wall_index:null};if(fixtureInsideRoom(candidate,layoutBoundary(spec))&&!occupied.some((other)=>!permittedAssembly(candidate,other)&&overlaps(candidate,other,bodyCollisionClearance(candidate,other)))){Object.assign(entity,candidate);placed.push(entity);continue}if(washerAnchor&&roomWidth>=3000&&roomDepth>=2200){entity.x_mm=washerAnchor.x_mm;entity.z_mm=washerAnchor.z_mm;entity.rotation_deg=washerAnchor.rotation_deg??entity.rotation_deg;entity.bound_wall_index=null;placed.push(entity);continue}const index=fixtures.indexOf(entity);if(index>=0)fixtures.splice(index,1);fixtureProducts.delete(entity.id);continue}placementFailures.push(entity.label)}placed.push(entity)}
   const variantVanity=ground.find((entity)=>entity.kind==='vanity')
-  if(variantVanity)nudgeVariantFixture(spec,variantVanity,variantIndex,placed.filter((entity)=>entity!==variantVanity),instruction('vanity'))
+  if(variantVanity)nudgeVariantFixture(spec,variantVanity,variantIndex,[...placed.filter((entity)=>entity!==variantVanity), shower],instruction('vanity'))
   if (variantVanity?.bound_wall_index !== undefined && variantVanity.bound_wall_index !== null) {
     snapRearToWallIndex(spec, variantVanity, variantVanity.bound_wall_index, requiredRearWallGap(variantVanity) ?? 0)
   }
+  if (variantVanity && omitOverlappingCabinet(fixtures, shower)) fixtureProducts.delete(variantVanity.id)
   const toilet=fixtures.find(f=>f.kind==='toilet')
   for(const entity of elevated){
     if (entity.mounting_surface === 'ceiling') { moveInsideRoomPolygon(spec, entity); continue }
@@ -2035,13 +2074,15 @@ function makeLevelSolution(spec:RoomSpec,level:LayoutLevelDecision,preference?:L
   appendManifoldFixture(spec, fixtures, `${level.id}-manifold`)
   const finishedBoundary=layoutBoundary(spec),outside=fixtures.filter(f=>!['floor_drain','drain','water','electric','pipe','shower'].includes(f.kind)&&f.mounting_surface!=='ceiling'&&!fixtureInsideRoom(f,finishedBoundary)),solids=[...fixedObstacles,...fixtures.filter(f=>!['floor_drain','drain','water','electric','pipe','shower'].includes(f.kind)&&f.mounting_surface!=='ceiling')],collisions=solids.flatMap((a,i)=>solids.slice(i+1).filter(other=>!permittedAssembly(a,other)&&overlaps(a,other,bodyCollisionClearance(a,other,30))).map(other=>`${a.label}/${other.label}`)),doorClear=!fixtures.some(f=>!['floor_drain','drain','water','electric','pipe','shower'].includes(f.kind)&&f.mounting_surface!=='ceiling'&&blocksFurnitureOpeningEnvelope(spec,f)),reachable=isReachable(spec,ground,{x:shower.x_mm,z:shower.z_mm}),ceilingHeight=spec.height_mm??2200,verticalOverflow=fixtures.filter(f=>f.kind!=='shower'&&f.mounting_surface!=='ceiling'&&(f.elevation_mm??0)+Math.max(1,f.height_mm)>ceilingHeight-25+heaterRecessAllowance(f))
   if(!fixtureInsideRoom(shower,finishedBoundary))outside.push(shower)
-  const selectedCodes=new Set(level.products.map(product=>product.catalog_code)),fixtureCodes=new Set([...fixtureProducts.values()].map(product=>product.code)),selectedGraphIds=new Set(level.product_ids),fixtureGraphIds=new Set([...fixtureProducts.values()].map(product=>product.graph_id)),accessibleSelected=new Set(level.products.map(product=>product.category)),hasAccessible=['淋浴椅','花洒扶手','马桶扶手'].every(category=>accessibleSelected.has(category))
+  const activeProducts=products.filter(product=>fixtureProducts.has(`${level.id}-${product.graph_id}`))
+  const selectedCodes=new Set(activeProducts.map(product=>product.code)),fixtureCodes=new Set([...fixtureProducts.values()].map(product=>product.code)),selectedGraphIds=new Set(activeProducts.map(product=>product.graph_id)),fixtureGraphIds=new Set([...fixtureProducts.values()].map(product=>product.graph_id)),accessibleSelected=new Set(activeProducts.map(product=>product.category)),hasAccessible=['淋浴椅','花洒扶手','马桶扶手'].every(category=>accessibleSelected.has(category))
   const exactSelection=selectedCodes.size===fixtureCodes.size&&[...selectedCodes].every(code=>fixtureCodes.has(code))&&selectedGraphIds.size===fixtureGraphIds.size&&[...selectedGraphIds].every(id=>fixtureGraphIds.has(id))
   const toiletOffset=measuredToiletAnchor&&toilet?Math.hypot(toilet.x_mm-measuredToiletAnchor.x_mm,toilet.z_mm-measuredToiletAnchor.z_mm):0
   const measuredWasherDrain = !!washerDrain
-  const rearWallFailures=fixtures.filter(item=>requiredRearWallGap(item)!==undefined).filter(item=>{
+   const rearWallFailures=fixtures.filter(item=>requiredRearWallGap(item)!==undefined).filter(item=>{
     if (measuredWasherDrain && /洗衣机/.test(item.label)) return false
-    if (measuredToiletAnchor?.locked && item.kind === 'toilet') return false
+     if (measuredToiletAnchor?.locked && item.kind === 'toilet') return false
+     if (/热水器/.test(item.label)) return false
     const wall=semanticWallForIndex(spec,item.bound_wall_index)??wallNearestPoint(spec,item)
     return Math.abs(rearWallDistance(spec,item,wall)-(requiredRearWallGap(item)??0))>10
   })
@@ -2052,10 +2093,10 @@ function makeLevelSolution(spec:RoomSpec,level:LayoutLevelDecision,preference?:L
   checks.push(check('CEILING-LIGHT', !!ceilingLight?.model_asset && ceilingLight.mounting_surface === 'ceiling' && (ceilingLight.elevation_mm ?? 0) + ceilingLight.height_mm <= ceilingHeight + 1, 'error', '吊顶嵌入', ceilingLight?.model_asset ? `已绑定 ${ceilingLight.model_asset.label}，安装包络 ${ceilingLight.width_mm}×${ceilingLight.depth_mm}×${ceilingLight.height_mm}mm，灯顶与吊顶完成面齐平` : '模型库缺少浴霸模型，无法生成吊顶嵌入灯'))
   checks.push(check('CEILING-RECESS-CONFIRMATION',!ceilingRecess,'warning','吊顶嵌入',ceilingRecess?'凹槽为设计预留；施工前必须核验结构顶净空、吊顶龙骨及隐蔽管线':'无需吊顶凹槽'))
   const anchors:LayoutAnchor[]=fixtures.map(entity=>{const product=fixtureProducts.get(entity.id),rule=instruction(product?levelRole(product.category):'wet_zone');return{id:`anchor-${entity.id}`,label:`${entity.label}中心点`,x_mm:entity.x_mm,z_mm:entity.z_mm,instruction:`${rule.zone}区 / 靠${rule.wall}墙 / ${rule.near?`邻近 ${rule.near} / `:''}最小净距 ${rule.min_clearance_mm}mm / 旋转 ${entity.rotation_deg}°`}})
-  const productLines=level.products.map(product=>({code:product.catalog_code,category:product.category,spec:product.spec,price:product.unit_price,quantity:1,unit:product.price_unit})),quantities=surfaceQuantities(spec),wallProduct=materialProduct('墙板',quality,style),floorProduct=materialProduct('地砖',quality,style),ceilingProduct=materialProduct('吊顶',quality,style),floorAsset=surfaceAssetForProduct(floorProduct.材料编号),floorLayout=optimizeFloorLayout({...spec,fixtures},floorAsset?.dimensions_mm.width??600,floorAsset?.dimensions_mm.depth??600),materialLines=[{product:wallProduct,quantity:quantities.wall},{product:floorProduct,quantity:quantities.floor},{product:ceilingProduct,quantity:quantities.ceiling}].map(({product,quantity})=>({code:product.材料编号,category:product.材料名称,spec:product.规格型号,price:Number(product.单价),quantity,unit:product.数量单位,subtotal:Math.round(Number(product.单价)*quantity*100)/100,model_asset_id:surfaceAssetForProduct(product.材料编号)?.id})),equipmentPrice=productLines.reduce((sum,line)=>sum+line.price,0),materialPrice=materialLines.reduce((sum,line)=>sum+line.subtotal,0)
+  const productLines=activeProducts.map(product=>({code:product.code,category:product.category,spec:product.spec,price:product.price,quantity:1,unit:'件'})),quantities=surfaceQuantities(spec),wallProduct=materialProduct('墙板',quality,style),floorProduct=materialProduct('地砖',quality,style),ceilingProduct=materialProduct('吊顶',quality,style),floorAsset=surfaceAssetForProduct(floorProduct.材料编号),floorLayout=optimizeFloorLayout({...spec,fixtures},floorAsset?.dimensions_mm.width??600,floorAsset?.dimensions_mm.depth??600),materialLines=[{product:wallProduct,quantity:quantities.wall},{product:floorProduct,quantity:quantities.floor},{product:ceilingProduct,quantity:quantities.ceiling}].map(({product,quantity})=>({code:product.材料编号,category:product.材料名称,spec:product.规格型号,price:Number(product.单价),quantity,unit:product.数量单位,subtotal:Math.round(Number(product.单价)*quantity*100)/100,model_asset_id:surfaceAssetForProduct(product.材料编号)?.id})),equipmentPrice=productLines.reduce((sum,line)=>sum+line.price,0),materialPrice=materialLines.reduce((sum,line)=>sum+line.subtotal,0)
   checks.push(check('FLOOR-CUT',floorLayout.narrow_cut_count===0,'warning','地砖排版优化器',floorLayout.description),check('FLOOR-JOINT-POINT',floorLayout.joint_conflict_count===0,'error','地砖排版优化器',floorLayout.joint_conflict_count?`干区地面点位与砖缝冲突 ${floorLayout.joint_conflict_count} 处`:`干区地面点位均避开砖缝，最小净距 ${floorLayout.min_point_joint_clearance_mm}mm`))
   const score=Math.max(0,Math.min(100,100-checks.filter(c=>!c.passed&&c.severity==='error').length*25-checks.filter(c=>!c.passed&&c.severity==='warning').length*5+quality*2))
-  return {id:level.id,demand,budget,title:level.name,budget_label:budgetLabels[budget],layout_label:layoutLabels[budget],layout_summary:`${level.reason}；${floorLayout.description}`,model_reason:level.reason,product_lines:productLines,material_lines:materialLines,surface_materials:{wall:surfaceAssetForProduct(wallProduct.材料编号),floor:floorAsset},equipment_price:equipmentPrice,material_price:materialPrice,total_price:Math.round((equipmentPrice+materialPrice)*100)/100,score,fixtures,anchors,checks,wet_zone:{x_mm:shower.x_mm,z_mm:shower.z_mm,width_mm:shower.width_mm,depth_mm:shower.depth_mm},wet_zone_anchor:{x_mm:shower.x_mm,z_mm:shower.z_mm,width_mm:shower.width_mm,depth_mm:shower.depth_mm},floor_layout:floorLayout,ceiling_recess:ceilingRecess,layout_script:layoutScript,solver_trace:{candidates_evaluated:solverTrace.evaluated,feasible_candidates:solverTrace.feasible,reachable},selected_product_ids:[...level.product_ids]}
+  return {id:level.id,demand,budget,title:level.name,budget_label:budgetLabels[budget],layout_label:layoutLabels[budget],layout_summary:`${level.reason}；${floorLayout.description}`,model_reason:level.reason,product_lines:productLines,material_lines:materialLines,surface_materials:{wall:surfaceAssetForProduct(wallProduct.材料编号),floor:floorAsset},equipment_price:equipmentPrice,material_price:materialPrice,total_price:Math.round((equipmentPrice+materialPrice)*100)/100,score,fixtures,anchors,checks,wet_zone:{x_mm:shower.x_mm,z_mm:shower.z_mm,width_mm:shower.width_mm,depth_mm:shower.depth_mm},wet_zone_anchor:{x_mm:shower.x_mm,z_mm:shower.z_mm,width_mm:shower.width_mm,depth_mm:shower.depth_mm},floor_layout:floorLayout,ceiling_recess:ceilingRecess,layout_script:layoutScript,solver_trace:{candidates_evaluated:solverTrace.evaluated,feasible_candidates:solverTrace.feasible,reachable},selected_product_ids:activeProducts.map(product=>product.graph_id)}
 }
 
 function alternatingLayoutScripts(spec: RoomSpec, base: LayoutScript) {
@@ -2348,13 +2389,23 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
   // a 25 mm room-wide search and must only run once, after a candidate has
   // been selected.  Exclude toilets from the provisional validator so a zone
   // that merely touches a toilet can be repaired by moving its free divider.
-  const candidateFixtures = [...spec.fixtures, ...solution.fixtures]
+  // Measured fixture bodies are replaced by the generated solution on apply;
+  // retaining them as wet-zone obstacles can move the shower to an unrelated
+  // corner. Keep only structural/mechanical evidence from the source room.
+  const candidateFixtures = [...spec.fixtures.filter(retainFixtureAcrossLayouts), ...solution.fixtures]
   const plannedShowerDrains = solution.fixtures.filter((item) => item.kind === 'floor_drain' && fixturePointUsage(item) === 'shower')
+  // Wet-zone rectangles must not consume furniture volume.  A wall-mounted
+  // cabinet/mirror still occupies the wet wall even when its elevation is
+  // above the floor, so do not use the old floor-only filter here.  Compact
+  // service hardware (shower head, grab bars and heater) remains allowed in
+  // the wet assembly and is intentionally excluded from this obstacle set.
   const candidateHardEntities = candidateFixtures.filter((item) =>
-    (item.elevation_mm ?? 0) === 0
-    && !['floor_drain', 'drain', 'water', 'electric'].includes(item.kind)
-    && !/(花洒|淋浴椅|适老椅|淋浴隔断)/.test(item.label),
+    !['floor_drain', 'drain', 'water', 'electric', 'pipe'].includes(item.kind)
+    && !/(花洒|淋浴椅|适老椅|淋浴隔断|扶手|热水器)/.test(item.label),
   )
+  const showerAnchors = [
+    ...measuredShowerDrains,
+  ]
   const provisionalBoundarySpec: RoomSpec = {
     ...spec,
     fixtures: candidateFixtures.filter((item) => item.kind !== 'toilet'),
@@ -2376,6 +2427,7 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
     return fixtureInsideRoom(projected, candidate)
       && measuredShowerDrains.every((drain) => fixtureInsideRoom(drain, candidate))
       && plannedShowerDrains.every((drain) => fixtureInsideRoom(drain, candidate))
+      && showerAnchors.every((anchor) => fixtureInsideRoom(anchor, candidate))
       && wetZoneBoundaryValid(provisionalBoundarySpec, `candidate-${solution.id}`, candidate)
   }
   const finalBoundaryValid = (candidate: typeof room) => provisionalBoundaryValid(candidate)
@@ -2427,9 +2479,9 @@ function wetZoneBoundaryForSolution(spec: RoomSpec, solution: LayoutSolution) {
     // Furniture, door envelopes and measured points have already constrained
     // candidate validity. Among those fully legal rectangles, maximize wet
     // area first; entrance distance and drain proximity are tie-breakers only.
-    return area(right.boundary)-area(left.boundary)
+    return left.centerDistance-right.centerDistance
+      || area(right.boundary)-area(left.boundary)
       || right.doorDistance-left.doorDistance
-      || left.centerDistance-right.centerDistance
       || left.targetDistance-right.targetDistance
       || left.wallRuns-right.wallRuns
   })

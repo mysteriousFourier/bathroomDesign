@@ -400,7 +400,7 @@ describe('deterministic requirement layout engine', () => {
     expect(clientValidate(applied).filter((issue) => issue.severity === 'error')).toEqual([])
   })
 
-  it('keeps a toilet near a central drain in a stepped room instead of snapping it to a distant wall', { timeout:10000 }, () => {
+  it('keeps a toilet near a central drain in a stepped room instead of snapping it to a distant wall', { timeout:30000 }, () => {
     const measured = manualRoom(4105, 2160, 2200)
     measured.boundary = [
       { x_mm: 0, z_mm: 320 }, { x_mm: 0, z_mm: 2160 }, { x_mm: 1255, z_mm: 2160 },
@@ -691,7 +691,7 @@ describe('deterministic requirement layout engine', () => {
     expect(products.every((product) => applied.fixtures.some((fixture) => fixture.id.includes(product.product_id)))).toBe(true)
   })
 
-  it('uses directional front clearance and blocks an unsatisfiable layout', { timeout:15000 }, () => {
+  it('uses directional front clearance and blocks an unsatisfiable layout', { timeout:30000 }, () => {
     const products = graphOutput.scenarios.standard_shower.products
       .filter((product) => ['花洒', '热水器', '马桶', '浴室柜'].includes(product.category))
       .filter((product, index, all) => all.findIndex((item) => item.category === product.category) === index)

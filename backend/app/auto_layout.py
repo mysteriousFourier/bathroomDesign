@@ -66,6 +66,10 @@ AUTO_LAYOUT_TOOL = {
     },
 }
 
+# Used by the model when a compact room cannot satisfy every requested
+# furnishing item. Earlier entries are retained before later entries.
+LAYOUT_PRIORITY = ("马桶", "花洒", "热水器", "浴室柜", "适老浴室柜", "洗衣机")
+
 
 def _strip_json_comments(value: str) -> str:
     result: list[str] = []
@@ -135,6 +139,14 @@ def _strict_instructions(items: object, required_roles: set[str]) -> list[dict]:
         except (TypeError, ValueError) as error:
             raise ValueError(f"模型没有给出 {role} 的有效净距") from error
         clearance = 600 if role in {"toilet", "vanity", "washer"} else 0
+        # Keep wet/dry semantics explicit so a model cannot place a large
+        # vanity or mirror cabinet inside the shower area.
+        expected_zone = {
+            "wet_zone": "wet", "vanity": "dry", "toilet": "dry",
+            "heater": "service", "washer": "service", "grab_bars": "wet",
+        }.get(role)
+        if expected_zone and zone != expected_zone:
+            raise ValueError(f"{role} 必须位于 {expected_zone}，不得放入其他分区")
         result.append({
             "fixture_role": role,
             "wall": wall,
@@ -214,6 +226,8 @@ async def generate_model_layout(
         "requirements": collected,
         "normalized_requirement_text": requirement_text,
         "equipment_rules": rules,
+        "layout_priority": list(LAYOUT_PRIORITY),
+        "compact_room_guidance": "空间不足时按优先级保留：马桶 > 花洒和热水器 > 浴室柜（含镜柜） > 洗衣机；靠后的设备/大件优先删除。扶手等不占地的小型安全件按原需求保留，湿区不得放置镜柜/浴室柜等大件。",
         "required_roles": sorted(required_roles),
         "room": room_context,
         "candidates": candidates,
@@ -223,6 +237,7 @@ async def generate_model_layout(
             "previous_layout": previous_layout,
             "geometry_feedback": geometry_feedback,
             "repair_requirement": "针对每个硬错误修改产品选择或语义墙面/分区。净距由几何规则引擎管理，不得通过增大净距修复。马桶必须服从 toilet_drain，悬挂设备必须位于房间多边形内。",
+            "compact_room_guidance": "空间不足时按优先级保留：马桶 > 花洒和热水器 > 浴室柜（含镜柜） > 洗衣机；靠后的设备/大件优先删除。扶手等不占地的小型安全件按原需求保留，湿区不得放置镜柜/浴室柜等大件。",
         })
     payload = {
         "model": settings.chat_model,
@@ -235,6 +250,7 @@ async def generate_model_layout(
                     "量房中的门洞、淋浴地漏、马桶排水、给水和障碍物是硬约束；"
                     "净距数值仅为意图，最终标准由几何规则引擎统一管理，不得用增大净距制造方案差异；"
                     "先给出语义墙面与净距意图，精确坐标由后续几何求解器搜索和校正。"
+                    "湿区除花洒和淋浴隔断外不得放置镜柜、浴室柜或其他大件家具；空间不足时按马桶、花洒和热水器、浴室柜、洗衣机的优先级保留，优先删减非必要家具并保持通行和设备净空。扶手等小型安全件按原需求保留。"
                     + ("这是几何校验后的修复轮次，必须逐条消除 geometry_feedback 中的硬错误。" if is_repair else "")
                 ),
             },

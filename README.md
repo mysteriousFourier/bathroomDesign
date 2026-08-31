@@ -122,7 +122,7 @@ npm run build
 
 ## 发布包
 
-`v1.0.0` 发布包包含完整源码、已构建前端和内置产品模型，不包含 `.env`、API
+`v1.0.1` 发布包包含完整源码、已构建前端和内置产品模型，不包含 `.env`、API
 密钥、运行数据库或本机缓存。接收方解压后按
 [`docs/DEPLOYMENT_AND_TESTING.md`](docs/DEPLOYMENT_AND_TESTING.md) 完成校验、配置和测试；
 版本内容及已知限制见 [`RELEASE_NOTES.md`](RELEASE_NOTES.md)。

@@ -2,7 +2,8 @@ param(
     [switch]$CheckOnly,
     [switch]$NoBrowser,
     [switch]$ExitAfterReady,
-    [switch]$WithVoice
+    [switch]$WithVoice,
+    [switch]$WithoutVoice
 )
 
 $ErrorActionPreference = "Stop"
@@ -371,7 +372,10 @@ function Invoke-Startup {
     Write-Step "Checking Python dependencies"
     $env:UV_CACHE_DIR = Join-Path $ProjectRoot ".uv-cache"
     $UvArguments = @("sync", "--locked")
-    if ($WithVoice) {
+    # Voice is part of the normal local workflow. Keep an explicit opt-out
+    # for lightweight/headless installs, while preserving -WithVoice for
+    # compatibility with existing launcher commands.
+    if ($WithVoice -or -not $WithoutVoice) {
         $UvArguments += @("--extra", "voice")
         Write-Host "Optional voice dependencies are enabled."
     }

@@ -17,6 +17,7 @@ PROMPT="""你是室内设计师“小和”，唯一目标是通过多轮对话�
 2. 优先补齐：使用人群、功能需求、喜好风格、预期价格区间；上下文的 missing_fields 是唯一追问依据。像真人设计师一样逐步聊：先接住用户刚说的具体生活困扰，用用户自己的词简短复述，再只问一个最影响下一步方案的问题。用户在功能追问后明确说“没特别要求”“你看着来”时，接受“常规卫浴”而且不要重复追问。禁止一轮连问多个字段，禁止让用户按表格格式回答。
 3. 空间尺寸和面积只能引用“量房用量”，禁止要求用户另报面积，禁止从聊天文字提取或覆盖尺寸。
 4. 设备只能服从“设备规则”；“不能有的设备”优先级最高，绝不能推荐、报价或用近义词变相推荐。仅当设备规则明确列入“不能有的设备”时才禁止淋浴隔断；普通场景用户明确要求时应正常保留并报价。
+4.1 湿区只允许花洒和淋浴隔断等淋浴组件；镜柜、浴室柜及其他大件家具必须放在干区。空间不足时按保留优先级保留马桶、花洒和热水器、浴室柜、洗衣机，优先减少可有可无的家具/收纳扩展；扶手等小型安全件按原需求保留，不得为了凑齐清单把大件塞进湿区。
 5. 风格只能服从“风格归一结果”。口语风格词要说明其最接近的知识图谱风格；低置信或多候选时给出候选感受并请用户确认，逐轮收敛，禁止生造清单风格。
 6. 产品和价格只能引用工具返回的服务端报价结果。需求理解完成后，服务端负责知识图谱检索、选品及 calculate_design_quote 确定性计算；禁止自行心算、改写金额或输出结果外金额。报价只能称清单测算，不得称成交价。
 6. 对天气、旅游等实时或题外问题，只说明无法获得可靠实时信息，不作事实判断，然后自然接回 missing_fields。
@@ -244,6 +245,8 @@ def _safe_layout_instructions(items,profile,tier,categories):
         if not isinstance(item,dict):continue
         role=item.get("fixture_role");wall=item.get("wall");zone=item.get("zone")
         if role not in required_roles or wall not in LAYOUT_WALLS or zone not in LAYOUT_ZONES or any(x["fixture_role"]==role for x in result):continue
+        expected_zone={"wet_zone":"wet","vanity":"dry","toilet":"dry","heater":"service","washer":"service","grab_bars":"wet"}.get(role)
+        if expected_zone and zone != expected_zone:continue
         try:clearance=max(minimum_clearance.get(role,0),min(2000,round(float(item.get("min_clearance_mm",0)))))
         except (TypeError,ValueError):continue
         result.append({"fixture_role":role,"wall":wall,"zone":zone,"near":str(item.get("near") or ""),"min_clearance_mm":clearance})
@@ -410,8 +413,8 @@ async def design_chat(messages,graph,room=None):
             layout_blockers=_layout_candidate_blockers(furniture_groups,rules)
             if not layout_blockers:
                 room_context={"boundary":room.get("boundary",[]),"height_mm":room.get("height_mm"),"openings":room.get("openings",[]),"fixtures":[{"kind":x.get("kind"),"label":x.get("label"),"x_mm":x.get("x_mm"),"z_mm":x.get("z_mm"),"point_usage":x.get("point_usage")} for x in room.get("fixtures",[])]}
-                level_context={"requirements":state["collected"],"room":room_context,"equipment_rules":rules,"candidates":[{"category":g["category"],"products":[{"product_id":x["product_id"],"catalog_code":x["材料编号"],"spec":x.get("规格型号",""),"price":x["家具小计"],"model_dimensions_mm":(x.get("model_lookup") or {}).get("model_dimensions_mm")} for x in g["candidates"]]} for g in furniture_groups]}
-                level_payload={"model":settings.chat_model,"messages":[{"role":"system","content":"调用 decide_layout_levels，为同一量房生成三个可执行方案。每档必须且只能为每个必需品类选择一个候选 product_id；布局指令必须覆盖所选设备角色，并结合门窗、排水点和净距形成差异。产品选择与几何求解最终仍由服务端严格校验。"},{"role":"user","content":json.dumps(level_context,ensure_ascii=False)}],"temperature":0,"tools":[LAYOUT_LEVEL_TOOL],"tool_choice":{"type":"function","function":{"name":"decide_layout_levels"}}}
+                level_context={"requirements":state["collected"],"room":room_context,"equipment_rules":rules,"layout_priority":["马桶","花洒","热水器","浴室柜（含镜柜）","洗衣机"],"candidates":[{"category":g["category"],"products":[{"product_id":x["product_id"],"catalog_code":x["材料编号"],"spec":x.get("规格型号",""),"price":x["家具小计"],"model_dimensions_mm":(x.get("model_lookup") or {}).get("model_dimensions_mm")} for x in g["candidates"]]} for g in furniture_groups]}
+                level_payload={"model":settings.chat_model,"messages":[{"role":"system","content":"调用 decide_layout_levels，为同一量房生成三个可执行方案。每档必须且只能为每个必需品类选择一个候选 product_id；布局指令必须覆盖所选设备角色，并结合门窗、排水点和净距形成差异。湿区只放花洒和淋浴隔断等淋浴组件，浴室柜（含镜柜）必须在干区。空间不足时按马桶 > 花洒和热水器 > 浴室柜 > 洗衣机的优先级保留，靠后的设备/大件优先删除，扶手等小型安全件按原需求保留。产品选择与几何求解最终仍由服务端严格校验。"},{"role":"user","content":json.dumps(level_context,ensure_ascii=False)}],"temperature":0,"tools":[LAYOUT_LEVEL_TOOL],"tool_choice":{"type":"function","function":{"name":"decide_layout_levels"}}}
                 try:
                     level_response=await serialized_post(client,settings.openai_base_url.rstrip("/")+"/chat/completions",headers={"Authorization":f"Bearer {settings.openai_api_key}"},json=level_payload);level_response.raise_for_status();level_message=level_response.json()["choices"][0]["message"];level_call=next((call for call in level_message.get("tool_calls",[]) if call.get("function",{}).get("name")=="decide_layout_levels"),None);level_arguments=json.loads(level_call["function"].get("arguments") or "{}") if level_call else {}
                 except (httpx.HTTPError,KeyError,TypeError,ValueError,json.JSONDecodeError):level_arguments={}

@@ -59,3 +59,14 @@ async def test_voice_greeting_returns_playable_audio(monkeypatch):
         "audio_base64": base64.b64encode(b"audio").decode("ascii"),
         "audio_mime_type": "audio/mpeg",
     }
+
+
+@pytest.mark.asyncio
+async def test_voice_greeting_falls_back_to_browser_speech(monkeypatch):
+    monkeypatch.setattr("backend.app.main.synthesize", lambda _text: (_ for _ in ()).throw(voice.VoiceConfigurationError("missing")))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/voice/greeting")
+
+    assert response.status_code == 200
+    assert response.json()["text"] == VOICE_GREETING
+    assert response.json()["audio_base64"] == ""

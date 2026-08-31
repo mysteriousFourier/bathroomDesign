@@ -1,6 +1,6 @@
 # 部署与测试指南
 
-本文适用于 `Bathroom Spatial Studio v1.0.1` 发布包。该版本用于功能验证和
+本文适用于 `Bathroom Spatial Studio v1.0.2` 发布包。该版本用于功能验证和
 方案评审，不替代施工复测、BIM、隐蔽工程勘察或正式生产安全评审。
 
 ## 1. 检查交付文件
@@ -8,8 +8,8 @@
 交付应包含 ZIP 和同名 `.sha256` 文件。在 PowerShell 中执行：
 
 ```powershell
-$expected = (Get-Content .\bathroom-spatial-studio-v1.0.1.sha256).Split()[0]
-$actual = (Get-FileHash .\bathroom-spatial-studio-v1.0.1.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+$expected = (Get-Content .\bathroom-spatial-studio-v1.0.2.sha256).Split()[0]
+$actual = (Get-FileHash .\bathroom-spatial-studio-v1.0.2.zip -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw "安装包校验失败" }
 ```
 
